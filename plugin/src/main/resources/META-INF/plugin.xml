@@ -1,0 +1,23 @@
+<!-- Plugin descriptor. sinceBuild/untilBuild are patched in from plugin/build.gradle.kts. -->
+<idea-plugin>
+    <!-- Immutable after publication. Do not change it, ever. -->
+    <id>com.snippetveil</id>
+    <name>SnippetVeil</name>
+
+    <!-- Vendor email is a @snippetveil.com forwarding address; it is set up in fredskor/snippetveil#19,
+         together with the domain, and both must resolve before the first Marketplace upload. -->
+    <vendor email="hello@snippetveil.com" url="https://snippetveil.com">Fyodor Skorozhenko</vendor>
+
+    <!-- Required: the Plugin Verifier rejects a descriptor without one. This states what the build
+         currently is, and nothing about behaviour that does not exist yet. The canonical listing
+         copy, used verbatim here and in the README, arrives with fredskor/snippetveil#18. -->
+    <description><![CDATA[
+        <p>SnippetVeil is an IntelliJ IDEA plugin for anonymizing a Java snippet before it is pasted
+        into an AI chat.</p>
+        <p>This build is a pre-release skeleton: it installs and loads, and adds no actions to the
+        IDE yet.</p>
+    ]]></description>
+
+    <!-- The bundled Java plugin: IDEA Community/Ultimate and Android Studio, nowhere else. -->
+    <depends>com.intellij.java</depends>
+</idea-plugin>
