@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
  * dependency, so a reference to `com.intellij.*` does not compile here at all. This covers the
  * runtime half — the platform is absent from :core's test classpath too, which is what keeps core
  * tests plain JUnit at millisecond speed. Bytecode-level enforcement of the ban arrives with the
- * trust-check ticket, fredskor/snippetveil#1.
+ * trust-check ticket, snippetveil/snippetveil#1.
  */
 class CoreIsIdeFreeTest {
 

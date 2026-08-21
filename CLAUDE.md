@@ -13,7 +13,7 @@ one — the decision almost certainly exists and the ticket failed to carry it.
 
 ### Issue tracker
 
-Issues live in GitHub Issues at `fredskor/snippetveil`, managed with the `gh` CLI.
+Issues live in GitHub Issues at `snippetveil/snippetveil`, managed with the `gh` CLI.
 See `docs/agents/issue-tracker.md`.
 
 ### Triage labels

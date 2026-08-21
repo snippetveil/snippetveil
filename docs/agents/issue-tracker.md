@@ -1,7 +1,7 @@
 # Issue tracker: GitHub
 
 Issues for this repo live as GitHub issues in
-[`fredskor/snippetveil`](https://github.com/fredskor/snippetveil). Use the `gh` CLI for all
+[`snippetveil/snippetveil`](https://github.com/snippetveil/snippetveil). Use the `gh` CLI for all
 operations.
 
 > **Two repositories exist.** This is the **public product** repo. A separate **private planning**
@@ -17,9 +17,9 @@ operations.
 - **Labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
 - **Blocking**: GitHub's native issue dependencies —
-  `gh api --method POST repos/fredskor/snippetveil/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`,
+  `gh api --method POST repos/snippetveil/snippetveil/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`,
   where `<blocker-db-id>` is the blocker's numeric **database id**
-  (`gh api repos/fredskor/snippetveil/issues/<n> --jq .id`), not its `#number`.
+  (`gh api repos/snippetveil/snippetveil/issues/<n> --jq .id`), not its `#number`.
   A ticket is ready when `issue_dependencies_summary.blocked_by` is 0.
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
