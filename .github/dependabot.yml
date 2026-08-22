@@ -1,0 +1,25 @@
+# Pinning actions to a commit SHA is what makes this file necessary: a SHA cannot be repointed by
+# whoever controls the action's repository, and it also cannot pick up a fix on its own. Dependabot
+# is the other half of that trade — it keeps the SHAs current, and the cost is a pull request to
+# review, which runs the same merge gate as any other.
+
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # One pull request for the lot. These land together or not at all, and reviewing five one-line
+    # SHA bumps separately is how a SHA bump stops being read.
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      gradle:
+        patterns: ["*"]
