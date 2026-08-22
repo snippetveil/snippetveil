@@ -21,10 +21,11 @@ import java.io.File
  * **The bundled mock JDK is not on this build's test classpath.** The IntelliJ test framework ships
  * a stub JDK for tests that need `java.lang.String` to exist and little else, resolved from a source
  * checkout of the platform that this project does not have. With no SDK attached, every reference in
- * every fixture resolves to `null` — and because an unresolved reference is *preserved* by this
- * ticket's rules, the tests would go green while measuring nothing whatsoever. That failure mode is
- * silent, total, and worth a base class: it would leave a privacy tool's entire test suite passing
- * over a plan that classified all of the user's own code as somebody else's.
+ * every fixture resolves to `null` — and an assertion about *what* a name was classified as cannot
+ * tell that apart from the rules working. That failure mode is silent, total, and worth a base
+ * class: unresolved now fails closed, so the whole suite would go green over a plan that had
+ * classified the JDK, every library and all of the user's own code as one undifferentiated
+ * `Unknown`.
  *
  * So the running JDK is attached with [JavaSdk.createJdk], and a **real jar** with
  * [PsiTestUtil.addLibrary] — a genuine third-party library rather than a stub, because

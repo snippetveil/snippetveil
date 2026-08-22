@@ -3,18 +3,28 @@ package com.snippetveil.core
 /**
  * The choices one invocation runs under.
  *
- * Empty today, and that is the honest state of it: every control the product will grow — the
- * per-invocation preserve set, the keep-comments tick, the internal-library prefix list — arrives
- * with the rule that reads it. It exists now because it is part of the seam [anonymize] is
- * specified with, and adding a parameter to that signature later would touch every caller.
- *
  * One rule governs everything that will be added here, and it is worth carrying next to the type
  * rather than in a document: **persistent settings may only ever increase anonymization. Any
  * reduction is per-invocation and visible in the preview.** A reduction that can be set once and
  * forgotten silently leaks on every paste after it.
+ *
+ * @param preservedUnknowns the symbol keys of unresolved names to emit verbatim, from
+ *   [AnonymizationResult.unknowns]. **Per-invocation only, never persisted**, by the rule above —
+ *   this is the one deliberate fail-open in the product, and it exists to buy off the case where a
+ *   typo'd JDK call is hidden behind a placeholder and the snippet stops being answerable.
+ *
+ *   **A key naming anything but an unresolved symbol is ignored**, and that is a rule rather than
+ *   defensiveness: the override was given to unresolved names specifically and it must not creep.
+ *   One that reached resolved symbols would be the free-text preserve list this design already
+ *   rejected, built out of keys instead of text, and it would put a reduction on the spine rule.
+ *   Enforcing it here rather than in the dialog puts it where creep cannot happen by adding a
+ *   checkbox.
  */
-class AnonymizationSettings {
+class AnonymizationSettings(
+    val preservedUnknowns: Set<String> = emptySet(),
+) {
     companion object {
+        /** Everything anonymized that can be: no reduction of any kind. */
         val DEFAULTS: AnonymizationSettings = AnonymizationSettings()
     }
 }
@@ -66,21 +76,57 @@ class LedgerDelta(
  *   point: a reverse mapping is well-defined only if no two symbols render to one placeholder, and
  *   the AI's reply carries no scope context to disambiguate with if they did.
  * @param counts what the balloon reports
+ * @param unknowns every name that failed to resolve, in document order of first occurrence
  * @param delta what to commit, if the caller gets as far as committing
  */
 class AnonymizationResult(
     val text: String,
     val mapping: Map<String, String>,
     val counts: NameCounts,
+    val unknowns: List<UnknownName>,
     val delta: LedgerDelta,
 )
 
 /**
- * The balloon's two numbers, counted in **distinct names** rather than occurrences — "14 names
+ * One name the IDE could not resolve, and what this invocation did with it.
+ *
+ * Reported as a list rather than only as a count because the count alone would name a surface the
+ * user cannot act on. The preview dialog's per-item **Preserve** is built on exactly these three
+ * fields: [name] to show, [placeholder] to show it against, and [key] to hand back through
+ * [AnonymizationSettings.preservedUnknowns].
+ *
+ * @param key the symbol key, which is what a preserve override is expressed in
+ * @param name the name as it is written in the snippet
+ * @param placeholder what it renders as, or `null` when this invocation preserved it and its real
+ *   name was emitted. Null rather than the name itself: a preserved item has no placeholder, and
+ *   saying it stands for itself would put a row in the mapping table that maps nothing.
+ */
+class UnknownName(
+    val key: String,
+    val name: String,
+    val placeholder: String?,
+)
+
+/**
+ * The balloon's three numbers, counted in **distinct names** rather than occurrences — "14 names
  * replaced" is a claim about names.
  *
- * Both are mechanism, and stay that way: no "safe to paste", no "sanitized", no adjective. A
+ * They **partition** the snippet's named symbols, by the evidence the plan carried rather than by
+ * what happened to each one: project-owned is [replaced], unresolved is [unknown], the JDK and
+ * third-party libraries are [preserved]. So the three add up to what is in the snippet and nothing
+ * is counted twice.
+ *
+ * All three are mechanism, and stay that way: no "safe to paste", no "sanitized", no adjective. A
  * category claim is one the tool is not in a position to make, and it is the claim a user would act
  * on.
+ *
+ * @param replaced distinct project-owned names that became placeholders
+ * @param unknown distinct names the IDE could not resolve. **An information-level number, never a
+ *   warning.** Under fail-closed an `Unknown` *was* anonymized, so it is a quality risk and never a
+ *   privacy one — styling it as an alarm would train the user to read our alarm as "this might have
+ *   leaked", which is precisely the inversion to avoid. It counts what did not resolve, so it is
+ *   unmoved by a per-invocation preserve: the override changes what was emitted, not what the IDE
+ *   knew.
+ * @param preserved distinct JDK and third-party names that survive verbatim
  */
-class NameCounts(val replaced: Int, val preserved: Int)
+class NameCounts(val replaced: Int, val unknown: Int, val preserved: Int)

@@ -105,6 +105,10 @@ enum class SymbolOrigin {
     /**
      * The reference did not resolve. Normal rather than exceptional — red or incomplete code
      * resolves to nothing, and the snippet a developer is debugging is the likely one.
+     *
+     * **Fails closed**, into an `Unknown` namespace of its own rather than into the type namespace.
+     * A name nobody can vouch for is treated as the user's own, and unresolved names skew heavily
+     * project-owned in any case: a missing import of your own class, a class half-written.
      */
     UNRESOLVED,
 }
@@ -117,6 +121,11 @@ enum class SymbolOrigin {
  * schemes *and the untouched original*, so no scheme wins on answers. What a human then has to do
  * is map the AI's reply back onto real code by hand, and `Repository2` is far cheaper to map than
  * `Class7`.
+ *
+ * Every constant here is a statement about Java's grammar, which is why there is no `UNKNOWN`
+ * among them: a name that did not resolve has no grammatical role to report, and the engine reads
+ * [SymbolOrigin.UNRESOLVED] for that namespace instead. Whatever role a plan reports alongside that
+ * origin is a value the builder had to invent, and nothing reads it.
  */
 enum class SymbolRole(val placeholderPrefix: String) {
     /** A class, interface, enum, record — or a type parameter, which is a type by any other name. */
