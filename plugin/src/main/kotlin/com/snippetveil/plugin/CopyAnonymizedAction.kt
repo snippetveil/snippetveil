@@ -200,7 +200,10 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
      * snippet that never reached the clipboard; committing after the balloon would leave the numbers
      * on a paste the user already has, if the balloon threw.
      *
-     * The delta is committed unconditionally, empty map or not — see [PlaceholderLedger.commit].
+     * The delta is committed unconditionally, empty map or not — see [PlaceholderLedger.commit]. The
+     * sidecar is recorded in the same breath and under the same rule, and it is a **second** holder
+     * rather than a second field of the first: one is data and one is cache, and they part company
+     * on what a wipe of the cache directory is allowed to cost — see [PlaceholderSidecar].
      *
      * ### Two invocations at once, and why the ledger is read a second time here
      *
@@ -231,6 +234,14 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
             return
         }
         ledger.commit(project, result.delta)
+
+        // The mapping keeps the qualified keys; **the sidecar keeps this invocation whole** — its
+        // locals, parameters, anonymous-class members and the text of every redacted literal, none
+        // of which has a key that could be written down. It is recorded here rather than anywhere
+        // earlier for the reason the commit is: the clipboard write is the moment this invocation
+        // happened at all, and a snippet that was never sent has nothing about it to decode.
+        PlaceholderSidecar.getInstance(project).record(result.mapping)
+
         SnippetVeilNotifications.copied(project, result.counts, result.comments)
     }
 }

@@ -154,6 +154,11 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
         // reset in the same place for the same reason.
         PlaceholderLedger.getInstance().loadState(PlaceholderLedger.State())
 
+        // And the sidecar, which is project-level state on the same shared light project — the
+        // hazard the prefix list has, over a window that a test recording fifty pastes would
+        // otherwise hand to whatever ran next.
+        PlaceholderSidecar.getInstance(project).loadState(PlaceholderSidecar.State())
+
         project.messageBus.connect(testRootDisposable).subscribe(
             Notifications.TOPIC,
             object : Notifications {

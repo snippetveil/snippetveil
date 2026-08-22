@@ -1210,6 +1210,56 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **What the sidecar is for, end to end.** The reply that comes back talks about the local and
+     * the literal — *"the `local2` you build from `str3`"* — and neither has a qualified key, so
+     * neither is in the persistent mapping. The invocation's whole table is what makes them
+     * decodable, and it is recorded at the same moment the mapping is committed.
+     */
+    fun `test the locals and literals of an invocation are decodable from the sidecar`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            LEDGER_PATH,
+            """
+            class Ledger {
+                <selection>void settle() {
+                    String reason = "merchant settlement failed";
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "void method1() {\n" +
+                "        String local2 = \"str3\";\n" +
+                "    }",
+            clipboard(),
+        )
+        val sidecar = PlaceholderSidecar.getInstance(project)
+        assertEquals("settle", sidecar.originalOf("method1"))
+        assertEquals("reason", sidecar.originalOf("local2"))
+        assertEquals("merchant settlement failed", sidecar.originalOf("str3"))
+    }
+
+    /**
+     * **The clipboard write is the single moment this invocation happened at all**, so an invocation
+     * that never got there is not in the sidecar either — the same rule the mapping is held to, for
+     * the same reason: nothing was sent, so there is nothing about it to decode.
+     */
+    fun `test a failed invocation records nothing in the sidecar`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(LEDGER_PATH, ledgerSelecting(SETTLE))
+
+        invokeCopyAnonymized(CopyAnonymizedAction { error("the analysis fell over") })
+
+        assertNull(
+            "a failed invocation left a table behind",
+            PlaceholderSidecar.getInstance(project).originalOf("method1"),
+        )
+    }
+
+    /**
      * **Two invocations at once must not be handed the same number.**
      *
      * `queue()` serializes nothing, so two analyses over a large file run side by side, read the

@@ -212,9 +212,17 @@ fun LedgerSnapshot.isStill(latest: LedgerSnapshot): Boolean = nextNumber == late
  * What one invocation produced. Nothing here has been committed anywhere; the caller decides.
  *
  * @param text the anonymized snippet, ready for the clipboard
- * @param mapping placeholder -> the real name it stands for. **Injective**, which is the whole
- *   point: a reverse mapping is well-defined only if no two symbols render to one placeholder, and
- *   the AI's reply carries no scope context to disambiguate with if they did.
+ * @param mapping placeholder -> what it stands for: a real name, or the text of a literal that was
+ *   replaced whole. **Injective**, which is the whole point: a reverse mapping is well-defined only
+ *   if no two symbols render to one placeholder, and the AI's reply carries no scope context to
+ *   disambiguate with if they did. Two occurrences of the same literal text are two rows standing
+ *   for one string, which is that same direction working rather than an exception to it — the reply
+ *   is read placeholder-first.
+ *
+ *   **This is the invocation's complete table, ephemeral symbols and literals included**, and it is
+ *   deliberately one table rather than a table and a leftover. It is what [Sidecar] records, and for
+ *   a literal it is the only record there will ever be: a literal has no qualified key, so it is
+ *   never written into the persistent mapping. In first-occurrence order.
  * @param counts the distinct names in the snippet, partitioned by what became of them
  * @param comments what the strip removed, split by parse verdict
  * @param unknowns every name that failed to resolve, in document order of first occurrence

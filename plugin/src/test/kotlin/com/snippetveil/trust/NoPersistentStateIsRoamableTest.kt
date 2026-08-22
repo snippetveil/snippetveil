@@ -27,7 +27,10 @@ class NoPersistentStateIsRoamableTest {
 
     /**
      * A rule over an empty list passes, so what it matched is asserted first — and this one has
-     * something to find: the plugin ships exactly one state holder today, and it is the prefix list.
+     * something to find: the plugin ships three state holders today, and the rule is absolute over
+     * all of them. Two of the three are the ones a settings sync would hurt most — the mapping,
+     * which is the employer's whole vocabulary, and the sidecar, which is that plus the text of
+     * every literal it has replaced.
      */
     @Test
     fun `the rule below is applied to state that actually ships`() {
@@ -35,6 +38,7 @@ class NoPersistentStateIsRoamableTest {
             listOf(
                 "com.snippetveil.plugin.InternalLibrarySettings",
                 "com.snippetveil.plugin.PlaceholderLedger",
+                "com.snippetveil.plugin.PlaceholderSidecar",
             ),
             SHIPPED_STATE_HOLDERS.map { it.name }.sorted(),
             "the shipped state holders are not what this rule was written against",
