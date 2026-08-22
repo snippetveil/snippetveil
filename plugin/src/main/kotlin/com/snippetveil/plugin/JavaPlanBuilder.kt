@@ -313,11 +313,12 @@ internal object JavaPlanBuilder : PlanBuilder {
     /**
      * The symbol an identifier actually names, which is not always the element resolution returns.
      *
-     * The one case that differs today is a constructor: the identifier in `public Payment(...)` is
-     * the class's name, spelled where a method's name would go. Reading it as a method would emit
-     * `public method1(String param1)` inside `class Type1` — a method with no return type, which
-     * does not read as anonymized, it reads as broken. The wider rule this belongs to, along with
-     * the other forced-sharing cases, is its own ticket; this much is not policy but grammar.
+     * **Two of the five forced-sharing rules live here rather than in the engine, and that is not an
+     * exception to the rule that judgments do not cross this seam** — neither is a judgment. A
+     * constructor's identifier *is* its class's name and a record accessor's identifier *is* its
+     * component's, in Java's grammar, so reporting anything else would be reporting the wrong
+     * symbol. What the engine then does with two occurrences of one symbol is the engine's business,
+     * and it does the same thing it does for any other two.
      */
     private fun declaredSymbolOf(declaration: PsiElement): PsiElement = when {
         declaration !is PsiMethod -> declaration
