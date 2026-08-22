@@ -1,6 +1,8 @@
 package com.snippetveil.plugin
 
 import com.snippetveil.core.CommentOccurrence
+import com.snippetveil.core.SnippetPlan
+import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.SymbolOccurrence
 import com.snippetveil.core.SymbolOrigin
@@ -46,10 +48,25 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
     }
 
     /**
-     * Literals and comments are described, not acted on. They are in the plan because it describes
-     * the snippet rather than a work list — a description that left them out would be a lie about
-     * what is in the text the engine is handed, and the tickets that redact literals and strip
-     * comments read exactly these shapes.
+     * The plan the production walk builds for [source] with **no editor open on it** — nothing is
+     * selected, so the plan covers the whole file.
+     *
+     * [planFor] configures an editor, and opening one over a file whose literal is delimited by
+     * unicode escapes trips an assertion inside the platform's own string lexer. That is a fact
+     * about the platform rather than about this plugin, and the plan builder never needed an editor.
+     */
+    private fun planWithoutAnEditor(source: String): SnippetPlan {
+        val file = myFixture.addFileToProject("probe/Probe.java", source)
+        return JavaPlanBuilder.build(SnippetRequest(project, file, emptyList()))
+    }
+
+    /**
+     * A comment is described and not yet acted on — comment stripping is its own ticket — and a
+     * literal is described down to where its own text starts and ends inside its delimiters.
+     *
+     * **The delimiters are read here rather than in the engine**, which is what lets the engine
+     * preserve a literal's syntactic form without knowing how one is spelled: it rewrites the
+     * content and nothing else.
      */
     fun `test literals and comments are reported as occurrences`() {
         assertTheHarnessResolves()
@@ -67,6 +84,155 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
         val literal = plan.occurrences.filterIsInstance<LiteralOccurrence>().single()
         assertEquals("/** merchant ledger */", plan.text.substring(comment.start, comment.end))
         assertEquals("\"settlement\"", plan.text.substring(literal.start, literal.end))
+        assertEquals(LiteralKind.STRING, literal.kind)
+        assertEquals("settlement", plan.text.substring(literal.contentStart, literal.contentEnd))
+    }
+
+    /**
+     * Every kind of literal Java has, reported as what it is. Only the two string-shaped kinds carry
+     * text a project can put a domain word in, and telling the rest apart is what lets the engine
+     * preserve them by rule rather than by omission.
+     */
+    fun `test every literal reports its kind and its own text`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>Object[] values = {
+                    "settlement", $FENCE
+                        SELECT * FROM merchants
+                        $FENCE, 'x', 30_000, true, null,
+                };</selection>
+            }
+            """.trimIndent(),
+        )
+
+        val literals = plan.occurrences.filterIsInstance<LiteralOccurrence>()
+        assertEquals(
+            listOf(
+                LiteralKind.STRING,
+                LiteralKind.TEXT_BLOCK,
+                LiteralKind.CHARACTER,
+                LiteralKind.NUMBER,
+                LiteralKind.BOOLEAN,
+                LiteralKind.NULL,
+            ),
+            literals.map { it.kind },
+        )
+
+        // A text block's content starts after the line terminator the opening delimiter has to be
+        // followed by, so what is replaced leaves a text block that is still one.
+        val textBlock = literals.single { it.kind == LiteralKind.TEXT_BLOCK }
+        assertEquals(
+            "            SELECT * FROM merchants\n            ",
+            plan.text.substring(textBlock.contentStart, textBlock.contentEnd),
+        )
+
+        // A number has no delimiters, so it is all content — which is the truth about it, and
+        // reaches no rule that acts.
+        val number = literals.single { it.kind == LiteralKind.NUMBER }
+        assertEquals("30_000", plan.text.substring(number.contentStart, number.contentEnd))
+    }
+
+    /**
+     * **A literal in red code frequently has no closing anything**, and the closing delimiter is
+     * required to be there rather than assumed: its content is everything after the opening quote,
+     * so the whole of it is replaced. A rule that assumed a closing quote would leave the last
+     * character of a domain word on the clipboard.
+     */
+    fun `test an unterminated literal reports its content to the end of the token`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>String label = "merchantReference
+                    ;</selection>
+            }
+            """.trimIndent(),
+        )
+
+        val literal = plan.occurrences.filterIsInstance<LiteralOccurrence>().single()
+        assertEquals(LiteralKind.STRING, literal.kind)
+        assertEquals("merchantReference", plan.text.substring(literal.contentStart, literal.contentEnd))
+    }
+
+    /**
+     * **A literal whose delimiters are written as unicode escapes is still a string literal**, and
+     * classifying it by its opening character would call it a number — the one kind that is emitted
+     * verbatim. Java translates unicode escapes before it tokenizes anything, so this is a string as
+     * far as the language and the platform are concerned, and `merchantReference` would have gone to
+     * the clipboard in plain text.
+     *
+     * The whole literal is its own content here, because the delimiters are not written the way the
+     * language usually writes them: what comes out does not compile and leaks nothing, which is
+     * refusal-class and therefore accepted.
+     */
+    fun `test a literal whose delimiters are unicode escapes is still a string`() {
+        assertTheHarnessResolves()
+        val plan = planWithoutAnEditor("class Probe { String label = \\u0022merchantReference\\u0022; }")
+        val literal = plan.occurrences.filterIsInstance<LiteralOccurrence>().single()
+
+        assertEquals(LiteralKind.STRING, literal.kind)
+        assertEquals(
+            "\\u0022merchantReference\\u0022",
+            plan.text.substring(literal.contentStart, literal.contentEnd),
+        )
+    }
+
+    /**
+     * The same reading, for the shape that has no closing delimiter at all rather than an unusual
+     * one: red code is normal, and its literals carry domain words like any others.
+     */
+    fun `test an unterminated literal is classified by its type rather than its text`() {
+        assertTheHarnessResolves()
+        val plan = planWithoutAnEditor("class Probe { String label = \"merchantReference\n; }")
+
+        assertEquals(
+            LiteralKind.STRING,
+            plan.occurrences.filterIsInstance<LiteralOccurrence>().single().kind,
+        )
+    }
+
+    /**
+     * **A literal's references are reported as evidence, resolved and unresolved alike.**
+     *
+     * The platform hands over more than the four dotted segments here: the reflection contributor
+     * puts a reference over the whole class name as well, and it resolves to nothing. Dropping it
+     * would be the builder judging, and the engine's rule — a reference that resolved to nothing
+     * covers nothing, and what decides the literal is whether the *text* around what did resolve
+     * bears a word — belongs where it can be tested against a plan literal.
+     */
+    fun `test a literal's references are reported with what they resolve to`() {
+        assertTheHarnessResolves()
+        addClassInPackage("com.acme.billing", "Payment")
+        val plan = planFor(
+            "Loader.java",
+            """
+            class Loader {
+                <selection>Object load() throws Exception { return Class.forName("com.acme.billing.Payment"); }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        val references = plan.occurrences.filterIsInstance<LiteralOccurrence>().single().references
+        assertEquals(
+            listOf(
+                "com" to SymbolOrigin.IN_CONTENT,
+                "acme" to SymbolOrigin.IN_CONTENT,
+                "billing" to SymbolOrigin.IN_CONTENT,
+                "Payment" to SymbolOrigin.IN_CONTENT,
+            ),
+            references
+                .filter { it.symbol.origin != SymbolOrigin.UNRESOLVED }
+                .map { plan.text.substring(it.start, it.end) to it.symbol.origin },
+        )
+        assertEquals(SymbolRole.PACKAGE, references.first { it.symbol.origin == SymbolOrigin.IN_CONTENT }.symbol.role)
+        assertTrue(
+            "Nothing unresolved came back, so this test is no longer about what it says it is.",
+            references.any { it.symbol.origin == SymbolOrigin.UNRESOLVED },
+        )
     }
 
     /**

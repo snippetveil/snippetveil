@@ -350,24 +350,58 @@ class AnonymizeTest {
     }
 
     /**
-     * Literals and comments are described by the plan and left alone by this ticket's rules. They
-     * are in the plan because it describes the snippet rather than a work list; the tickets that
-     * act on them read the same shapes.
+     * A comment is described by the plan and left alone by this module's rules: comment stripping
+     * is its own ticket. Literals are not — see [LiteralRedactionTest].
      */
     @Test
-    fun `literals and comments are reported and left untouched`() {
-        val text = "// note\nString s = \"merchant\";"
+    fun `comments are reported and left untouched`() {
+        val text = "// note about the merchant\nint days = 30;"
         val plan = SnippetPlan(
             text,
             listOf(
-                CommentOccurrence(0, 7),
-                symbolAt(8, "String", SymbolRole.TYPE, SymbolOrigin.JDK),
-                LiteralOccurrence(19, 29),
+                CommentOccurrence(0, 26),
+                symbolAt(31, "days", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT),
+                LiteralOccurrence(38, 40, LiteralKind.NUMBER, 38, 40),
             ),
         )
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals(text, result.text)
+        assertEquals("// note about the merchant\nint local1 = 30;", result.text)
+    }
+
+    /**
+     * **A type parameter is anonymized as its own kind.** `<T>` carries no domain and
+     * `<REQ extends MerchantRequest>` does, and no rule keeps the one and replaces the other:
+     * preserving by name length is inspecting the text.
+     */
+    @Test
+    fun `a type parameter renames into its own namespace`() {
+        val plan = planOf(
+            "class Handler<REQ extends MerchantRequest> {}",
+            symbol("Handler", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT),
+            symbol("REQ", SymbolRole.TYPE_PARAMETER, SymbolOrigin.IN_CONTENT),
+            symbol("MerchantRequest", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals("class Type1<T2 extends Type3> {}", result.text)
+    }
+
+    /**
+     * **A label is anonymized as its own kind**, and it is project-owned by construction: a label is
+     * declared in the method it is jumped from, so there is no library that could own one.
+     */
+    @Test
+    fun `a label renames into its own namespace`() {
+        val plan = planOf(
+            "outer: for (int i = 0; i < 10; i++) { break outer; }",
+            symbol("outer", SymbolRole.LABEL, SymbolOrigin.IN_CONTENT),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals("label1: for (int i = 0; i < 10; i++) { break label1; }", result.text)
     }
 }

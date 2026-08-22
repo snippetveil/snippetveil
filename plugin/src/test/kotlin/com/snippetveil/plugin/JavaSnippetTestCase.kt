@@ -136,6 +136,9 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
     }
 }
 
+/** A text block's delimiter, spelled once: a raw Kotlin string cannot hold three quotes. */
+internal const val FENCE = "\"\"\""
+
 private const val HARNESS_PROBE_PATH = "com/acme/probe/Owned.java"
 
 /**

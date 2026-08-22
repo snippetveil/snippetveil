@@ -7,6 +7,8 @@ import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbService
+import com.intellij.psi.PsiErrorElement
+import com.intellij.psi.util.PsiTreeUtil
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 
@@ -399,8 +401,10 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
      * `@MerchantFacing`, `@PciScope` — and breaks the one-sentence spine rule that makes the model
      * explainable.
      *
-     * The string values are untouched here because literal redaction is its own ticket. What this
-     * asserts is the *names*: `action` and `scope` are the project's vocabulary and they go.
+     * What this asserts is the *names*: `action` and `scope` are the project's vocabulary and they
+     * go. The attribute *values* go too — a literal carrying no references is replaced whole — and
+     * the numbering shows the one counter every namespace shares: `attr2`, `str3`, `attr4`, `str5`
+     * in the order they are written.
      */
     fun `test a library annotation is preserved whole and a project annotation loses its attribute names`() {
         assertTheHarnessResolves()
@@ -423,9 +427,188 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 
         assertEquals(
             "@FixMethodOrder(value = MethodSorters.NAME_ASCENDING)\n" +
-                "@Anno1(attr2 = \"x\", attr3 = \"y\")\n" +
-                "class Type4 {\n" +
+                "@Anno1(attr2 = \"str3\", attr4 = \"str5\")\n" +
+                "class Type6 {\n" +
                 "}",
+            clipboard(),
+        )
+    }
+
+    /**
+     * **A string literal is anonymized by default, into its own `str` namespace.** A literal is not
+     * passive text; it is a domain carrier, like a comment — an experiment counted 38 identifiable
+     * literals in the original snippets, and blanket replacement took that to 0 while answering 5 of
+     * 6 questions at parity.
+     *
+     * `String.format("%s-%d", a, b)` becoming `String.format("str1", a, b)` is the accepted cost:
+     * it reads as an arity mismatch, which is refusal-class rather than a plausible wrong answer,
+     * and the artifact is unmistakable.
+     */
+    fun `test a string literal is replaced whole`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                void log(String message) {}
+
+                <selection>void settle() {
+                    log("merchant settlement failed");
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "void method1() {\n" +
+                "        method2(\"str3\");\n" +
+                "    }",
+            clipboard(),
+        )
+    }
+
+    /**
+     * **A text block stays a text block.** Only the content between the delimiters is rewritten, so
+     * the form survives — `"""…"""` collapsed to `"str1"` is malformed-looking in a way that reads
+     * as a bug in this tool rather than as anonymization.
+     *
+     * The output is a text block whose closing delimiter now sits on the content's own line, which
+     * is deliberate: the incidental indentation is then zero and the value is exactly `str2`.
+     */
+    fun `test a text block stays a text block`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>String query() {
+                    return $FENCE
+                        SELECT * FROM merchants
+                        $FENCE;
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "String method1() {\n" +
+                "        return $FENCE\n" +
+                "str2$FENCE;\n" +
+                "    }",
+            clipboard(),
+        )
+    }
+
+    /**
+     * **An escaped literal stays escaped, and the output still parses.**
+     *
+     * Only the content between the delimiters is replaced, so there is no path by which a stray
+     * backslash or an unbalanced quote reaches the clipboard — but *the output still parses* is the
+     * invariant that claim is about, so it is asserted as such, over a text block and an escaped
+     * string together.
+     */
+    fun `test an escaped literal and a text block are replaced and the output still parses`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>String describe() {
+                    String quoted = "he said \"settle\" \n at 09:00";
+                    return quoted + $FENCE
+                        SELECT * FROM merchants
+                        $FENCE;
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "String method1() {\n" +
+                "        String local2 = \"str3\";\n" +
+                "        return local2 + $FENCE\n" +
+                "str4$FENCE;\n" +
+                "    }",
+            clipboard(),
+        )
+        assertParses("copied", clipboard())
+
+        // And the check proves it can fail before it reports that nothing failed: a text block
+        // collapsed to a quoted string is the malformed shape the rule exists to avoid, and it is
+        // what a rewrite that replaced the literal *including* its delimiters would produce.
+        assertDoesNotParse("collapsed", clipboard().replace(FENCE, "\""))
+    }
+
+    /**
+     * **A literal carrying resolved references renames in lockstep with the symbols they name.**
+     * `JavaClassReferenceSet` yields one reference per dotted segment, so the gaps are the dots —
+     * non-alphanumeric, and coverage holds. Nothing here reads the literal's text to decide what any
+     * segment becomes: `com` is passed through because it is a top-level package segment, and
+     * `Payment` renames because its own symbol does.
+     *
+     * The reference set the platform hands over is wider than the four segments — the reflection
+     * contributor puts an unresolved reference over the whole name as well — and that is why this is
+     * an end-to-end test rather than only a plan literal: an engine rule that treated an unresolved
+     * reference as a gap would fail here and nowhere in `:core`.
+     */
+    fun `test a class name in a literal renames segment by segment`() {
+        assertTheHarnessResolves()
+        addClassInPackage("com.acme.billing", "Payment")
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>Class<?> load() throws Exception {
+                    return Class.forName("com.acme.billing.Payment");
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "Class<?> method1() throws Exception {\n" +
+                "        return Class.forName(\"com.pkg2.pkg3.Type4\");\n" +
+                "    }",
+            clipboard(),
+        )
+    }
+
+    /**
+     * **A type parameter is anonymized as its own kind.** `<T>` carries no domain and
+     * `<REQ extends Money>` does, and no rule keeps the first and replaces the second: preserving by
+     * name length is inspecting the text. `T1` says *a type parameter* as plainly as `Type2` says
+     * *a type*, which is the whole of what the prefixes are for.
+     */
+    fun `test a type parameter renames into its own namespace`() {
+        assertTheHarnessResolves()
+        myFixture.addFileToProject("com/acme/Money.java", "package com.acme; public class Money {}")
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            import com.acme.Money;
+
+            class Ledger {
+                <selection>static <REQ extends Money> REQ settle(REQ request) {
+                    return request;
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "static <T1 extends Type2> T1 method3(T1 param4) {\n" +
+                "        return param4;\n" +
+                "    }",
             clipboard(),
         )
     }
@@ -730,8 +913,8 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         invokeCopyAnonymized()
 
         assertEquals(
-            "local1:\n" +
-                "        for (int local2 = 0; local2 < 2; local2++) { break local1; }",
+            "label1:\n" +
+                "        for (int local2 = 0; local2 < 2; local2++) { break label1; }",
             clipboard(),
         )
     }
@@ -833,6 +1016,25 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
             "The error does not state the clipboard fact: ${balloon.content}",
             balloon.content.contains("your clipboard was not changed"),
         )
+    }
+
+    /**
+     * Asserts that [snippet] is still Java the parser accepts, wrapped in the class body it came out
+     * of. A rewrite that broke a literal's delimiters would leave an error element here.
+     */
+    private fun assertParses(name: String, snippet: String) {
+        val error = parseErrorIn(name, snippet)
+        assertNull("The anonymized snippet does not parse: ${error?.errorDescription}\n$snippet", error)
+    }
+
+    /** The other half of [assertParses]: a check that cannot fail is a check that passes. */
+    private fun assertDoesNotParse(name: String, snippet: String) {
+        assertNotNull("The parse check accepted malformed Java, so it is checking nothing:\n$snippet", parseErrorIn(name, snippet))
+    }
+
+    private fun parseErrorIn(name: String, snippet: String): PsiErrorElement? {
+        val parsed = myFixture.addFileToProject("parsed/$name/Parsed.java", "class Parsed {\n$snippet\n}")
+        return PsiTreeUtil.findChildOfType(parsed, PsiErrorElement::class.java)
     }
 
     /** What the undo stack currently offers for the fixture's editor. */

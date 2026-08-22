@@ -156,3 +156,79 @@ internal fun AnonymizationResult.assertDistinct(rule: String, name: String, coun
         "$rule: the $count symbols named `$name` must render as $count placeholders, and rendered as $placeholders\n$text",
     )
 }
+
+/**
+ * The same plan with one more literal in it — the [ordinal]-th occurrence of [literal] in the
+ * snippet's text, counting the literals this plan already has.
+ *
+ * The delimiters are read here rather than stated, so a test writes the literal exactly as it
+ * appears in the code it is quoting and never an offset. That mirrors the plan builder rather than
+ * testing it: which characters open and close a literal is the builder's job to get right against
+ * real PSI, and these tests are about what the engine does with the content once it is delimited.
+ */
+internal fun SnippetPlan.withLiteral(
+    literal: String,
+    kind: LiteralKind = LiteralKind.STRING,
+    vararg covers: Cover,
+): SnippetPlan {
+    val already = occurrences.filterIsInstance<LiteralOccurrence>().count { text.startsWith(literal, it.start) }
+    val start = occurrencesOf(text, literal).getOrNull(already)
+        ?: error("`$literal` does not occur in the snippet ${already + 1} time(s)")
+
+    val opening = when (kind) {
+        LiteralKind.TEXT_BLOCK -> literal.indexOf('\n') + 1
+        LiteralKind.STRING, LiteralKind.CHARACTER -> 1
+        else -> 0
+    }
+    val closing = when (kind) {
+        LiteralKind.TEXT_BLOCK -> 3
+        LiteralKind.STRING, LiteralKind.CHARACTER -> 1
+        else -> 0
+    }
+
+    val contentStart = start + opening
+    val contentEnd = start + literal.length - closing
+
+    val used = mutableMapOf<String, MutableList<Int>>()
+    val references = covers.map { cover ->
+        val offsets = used.getOrPut(cover.text) {
+            occurrencesOf(text.substring(contentStart, contentEnd), cover.text)
+                .map { it + contentStart }
+                .toMutableList()
+        }
+        val at = offsets.removeFirstOrNull()
+            ?: error("`${cover.text}` does not occur in `$literal` that many times")
+        LiteralReference(at, at + cover.text.length, cover.symbol)
+    }
+
+    return SnippetPlan(
+        text,
+        (occurrences + LiteralOccurrence(
+            start,
+            start + literal.length,
+            kind,
+            contentStart,
+            contentEnd,
+            references.sortedBy { it.start },
+        )).sortedBy { it.start },
+        rootPackage,
+    )
+}
+
+/** One reference inside a literal, named by the text it covers. See [withLiteral]. */
+internal class Cover(val text: String, val symbol: SymbolEvidence)
+
+/** A reference over [text] inside a literal, resolving to [symbol]. */
+internal fun covering(text: String, symbol: SymbolEvidence) = Cover(text, symbol)
+
+/**
+ * A reference over [text] that resolved to nothing — which is what a literal reference into red
+ * code is, and it is reported rather than dropped for the same reason an identifier is.
+ */
+internal fun coveringUnresolved(text: String) = Cover(
+    text,
+    symbol(text, SymbolRole.TYPE, SymbolOrigin.UNRESOLVED, key = "unresolved:$text"),
+)
+
+private fun occurrencesOf(text: String, part: String): List<Int> =
+    generateSequence(text.indexOf(part)) { text.indexOf(part, it + 1) }.takeWhile { it >= 0 }.toList()
