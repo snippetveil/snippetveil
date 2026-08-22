@@ -6,9 +6,15 @@
 ./gradlew build      # compile and run every check
 ./gradlew runIde     # a sandbox IDE with the plugin installed
 ./gradlew buildPlugin # the installable distribution, in plugin/build/distributions/
+
+./gradlew check -PplatformProfile=latest   # the same checks against the newest stable IDE
 ```
 
 JDK 17. Everything else the build needs, it downloads.
+
+`platformProfile` picks which IntelliJ Platform the build compiles and tests against. It defaults to
+`floor` — the version the plugin descriptor names in `sinceBuild` — so a plain `./gradlew build`
+builds and tests exactly what ships. gradle.properties carries both profiles and the reasoning.
 
 ## The trust checks
 
@@ -92,6 +98,72 @@ artifact that overstates its own reach is worse than one that does less and says
   test may legitimately call `Class.forName`, and `CoreIsIdeFreeTest` proves the module boundary
   precisely that way, so covering test code would mean carving out an exception for it on day one.
   An exception list is where a violation eventually hides.
+
+## Continuous integration
+
+**Thin CI over thick Gradle.** Every check CI runs is a Gradle task, and the workflows run Gradle
+without knowing what is in it. That is the same rule the trust checks follow, for the same reason:
+a check that exists only in YAML cannot be run by the person reading the claim.
+
+| Workflow | Fires on | Runs |
+|---|---|---|
+| `build.yml` | push to `main`, and every pull request | `buildPlugin`, `check` at two platform versions, `verifyPlugin`, then a draft GitHub Release |
+| `release.yml` | a GitHub Release being published or pre-released | `check`, `verifyPlugin`, `publishPlugin` — in that order |
+
+The draft release is the manual-acceptance gate: green `main` cuts a draft, and a human publishing
+it is what fires `release.yml`.
+
+**`release.yml` re-runs the checks rather than trusting the tag.** The template this is adapted from
+runs a bare `publishPlugin` there, on the reasoning that the tag came off a green `main`. A tag can
+be pushed at anything, and *"we published a build that never passed CI"* is a sentence a plugin whose
+pitch is *audit me* cannot survive. The cost is a few minutes on a handful of releases a year.
+
+They are three separate steps rather than one `./gradlew check verifyPlugin publishPlugin`, and that
+is not stylistic: Gradle orders a task graph by dependency, not by the order tasks were named on the
+command line, and `publishPlugin` depends on neither of the two before it. A step boundary is a
+barrier no scheduler gets to reorder.
+
+### The merge gate
+
+**Tiers 1-3 are merge gates on every pull request, not a nightly.** All of them run inside `check`,
+so a contributor runs the whole gate locally with `./gradlew check`.
+
+Not a nightly heavyweight tier, because on a solo project a nightly failure is a failure nobody is
+watching — no rota, no triage, no page. You find it on Thursday having built three commits on
+Tuesday's break. And the heavyweight tier is not a redundancy tier: it holds the only check for a
+missing plan item and the "output still parses" invariant, which are the two classes this project
+has actually been bitten by. A merge gate that skips exactly the layer catching the
+historically-real bugs inverts the point.
+
+**The test job runs at two platform versions: the `sinceBuild` floor and latest stable.**
+`untilBuild` is unset, so the descriptor claims *241 and everything after it*; `verifyPlugin` checks
+API compatibility, **not behaviour**, and PSI resolution behaviour across four years of platform
+releases is exactly what drifts quietly. If the matrix ever proves painful, the honest fix is to
+**raise the floor**, not to stop testing it.
+
+The two legs do not name the same product: IntelliJ IDEA Community stopped being published after
+2025.2, so the floor is `IC` and latest stable is the unified `IU`. Both are pinned in
+gradle.properties rather than looked up, so that a run is reproducible and a bump is a reviewable
+one-line diff — `platformLatestVersion` going stale is a maintenance chore nothing automates.
+
+### Hardening
+
+- **Both workflows declare `permissions:` explicitly and minimally.** A repository whose pitch is
+  *audit me* has no implicit `write-all` anywhere. Both files are `contents: read`; the one job that
+  needs more — drafting a release — asks for `contents: write` on itself.
+- **Every action is pinned to a commit SHA, not a tag.** A tag is mutable and can be repointed by
+  whoever controls the action's repository. Dependabot keeps the SHAs current, which is the other
+  half of the trade, and the cost is a pull request that runs the same merge gate as any other.
+- **CodeQL runs through GitHub's default setup**, not a hand-written workflow — so it adds no
+  supply-chain surface of its own.
+
+The first two are not left to habit. `assertWorkflowsAreHardened`, in the root `build.gradle.kts`
+and wired into `check`, fails the build if a workflow uses an action it has not pinned to a SHA, or
+does not declare its own top-level `permissions:`. It is a Gradle task for the same reason the trust
+checks are, and like them it proves it can fail — over fixtures — before it reports that nothing
+failed. What it does not check is what the permissions actually *are*: "minimal" is a judgement
+about what a job does, and a rule that guessed at it would be the kind of noise that teaches people
+to suppress a check.
 
 ## Inbound dependency policy
 

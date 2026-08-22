@@ -19,15 +19,30 @@ plugins {
     id("org.jetbrains.intellij.platform")
 }
 
+// The platform to build against, named by `platformProfile` rather than given as a coordinate — so
+// that CI's two-version test matrix can say `floor` and `latest` and know nothing else. Which
+// product and version each name means, and why there are two, is gradle.properties' business.
+fun platformProperty(name: String) = providers.gradleProperty(name).orNull
+    ?: error("$name is not set. gradle.properties defines it; see the platformProfile block there.")
+
+val platformProfile = providers.gradleProperty("platformProfile").orElse("floor").get()
+val (platformType, platformVersion) = when (platformProfile) {
+    "floor" -> platformProperty("platformFloorType") to platformProperty("platformFloorVersion")
+    "latest" -> platformProperty("platformLatestType") to platformProperty("platformLatestVersion")
+    else -> error("platformProfile is '$platformProfile'; it has to be 'floor' or 'latest'.")
+}
+
 dependencies {
     // A plain project dependency, not a plugin module: core.jar stays a separate jar in the
     // distribution's lib/, which is the directory `scanDistributionForBannedReferences` walks.
     implementation(project(":core"))
 
     intellijPlatform {
-        // Compiled against the compatibility floor itself, so an API newer than 2024.1 cannot be
-        // used by accident. Raising the floor later is free; lowering it is unverified work.
-        intellijIdeaCommunity("2024.1.7")
+        // Compiled against the compatibility floor by default, so an API newer than 2024.1 cannot
+        // be used by accident. Raising the floor later is free; lowering it is unverified work.
+        // The `latest` profile compiles against a recent IDE instead, which is a behaviour check
+        // and not a compatibility one: the floor leg of the matrix is what keeps the API honest.
+        create(platformType, platformVersion)
         bundledPlugin("com.intellij.java")
 
         pluginVerifier()
