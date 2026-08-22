@@ -209,6 +209,23 @@ enum class CommentVerdict {
  * @param accessor the field this method reads or writes, when it is a JavaBeans accessor of one.
  *   `null` otherwise, which includes every fluent accessor: `merchantId()` is deliberately not
  *   covered, because nothing in Java forces a fluent accessor's name to agree with its field's.
+ * @param keyIsQualified whether [key] was derived from a **fully-qualified name**. A fact about how
+ *   the builder identified the symbol, in the same way [origin] is a fact about where its file
+ *   lives — never a judgment about what should become of it.
+ *
+ *   True for the things Java qualifies: classes, interfaces, enums, records, annotation types,
+ *   packages, and the fields, methods and constructors declared in a class that has a qualified
+ *   name. False for everything the builder had to identify by **where it is written** — locals,
+ *   parameters, labels, type parameters, anonymous and local classes, and the members of one — and
+ *   false for a name that did not resolve, which is identified by its own text and nothing else.
+ *
+ *   Exactly one rule reads it, and the rule is stated in [LedgerDelta]: **only a qualified key is
+ *   written down.** Which placeholder a symbol gets, what the counts say and where it sits in the
+ *   mapping table are all unmoved by it.
+ *
+ *   **Defaults to `false`, which is the direction to err in.** A key nobody vouched for is one the
+ *   ledger does not keep, and the cost of that being wrong is a placeholder that stops being stable
+ *   — never one that decodes to the wrong name.
  */
 class SymbolEvidence(
     val key: String,
@@ -220,6 +237,7 @@ class SymbolEvidence(
     val signature: String? = null,
     val overrideRoots: List<OverrideRoot> = emptyList(),
     val accessor: AccessorEvidence? = null,
+    val keyIsQualified: Boolean = false,
 )
 
 /**
@@ -237,11 +255,16 @@ class SymbolEvidence(
  *   and for the same rule. A [SymbolOrigin.LIBRARY] root is not on its own a reason to keep a name —
  *   *whose* library it is, is the question, and a chain that stays inside the company's own artifact
  *   renames like any other project-owned chain.
+ * @param keyIsQualified whether [key] is qualified, read exactly like
+ *   [SymbolEvidence.keyIsQualified]. The chain's placeholder is handed out against the root's key,
+ *   so it is the root's key that is written down or not — a method whose chain bottoms out in an
+ *   anonymous class is identified by a position however qualified the overriding method is.
  */
 class OverrideRoot(
     val key: String,
     val origin: SymbolOrigin,
     val packageName: String? = null,
+    val keyIsQualified: Boolean = false,
 )
 
 /**
@@ -255,8 +278,17 @@ class OverrideRoot(
  *   snippet at all: with Lombok the accessor has no declaration in source either, and a key is
  *   still enough to name the same symbol.
  * @param prefix the accessor prefix as it is written — `get`, `is` or `set`.
+ * @param fieldKeyIsQualified whether [fieldKey] is qualified, read exactly like
+ *   [SymbolEvidence.keyIsQualified]. Reported here rather than inferred from the accessor's own
+ *   flag: the two agree in every shape a builder produces today, because the field is looked up on
+ *   the accessor's own declaring class — and an agreement that nothing states is one a later change
+ *   breaks without a test going red.
  */
-class AccessorEvidence(val fieldKey: String, val prefix: String)
+class AccessorEvidence(
+    val fieldKey: String,
+    val prefix: String,
+    val fieldKeyIsQualified: Boolean = false,
+)
 
 /**
  * Where the file declaring a symbol lives.

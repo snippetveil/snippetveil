@@ -20,7 +20,6 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiJavaFile
 import com.snippetveil.core.AnonymizationResult
 import com.snippetveil.core.AnonymizationSettings
-import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.anonymize
 import java.awt.datatransfer.StringSelection
 import java.util.concurrent.Callable
@@ -153,9 +152,10 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
      * The plan build and the engine, both on the background thread — the engine is pure, so there is
      * nothing to gain by moving it and a freeze to lose.
      *
-     * The ledger is empty in and its delta is dropped on the floor: placeholders that stay stable
-     * across invocations are their own ticket. The contract is already shaped for it, because the
-     * shape is what makes a cancelled preview burn nothing.
+     * **The ledger goes in as a snapshot and comes back as a delta that nothing has applied yet.**
+     * Read here, on the background thread, and committed at exactly one moment — [deliver], when the
+     * snippet reaches the clipboard. Nothing allocates during rendering, so an analysis that is
+     * cancelled or that throws burns no number and leaves the mapping exactly as it was.
      *
      * **The defaults, plus the one setting that can only anonymize more.** Every reduction the design
      * authorises — the per-item preserve on an unresolved name, keeping comments — is per-invocation
@@ -171,16 +171,25 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
         anonymize(
             plans.build(request),
             AnonymizationSettings(internalLibraries = InternalLibrarySettings.of(request.project).policy),
-            LedgerSnapshot.EMPTY,
+            PlaceholderLedger.getInstance().snapshotOf(request.project),
         )
 
     /**
-     * The clipboard first, the balloon second, and the two failure modes told apart.
+     * The clipboard first, the ledger second, the balloon third — and the failure modes told apart.
      *
      * A clipboard write that throws leaves the clipboard as it was, so it is reported as a failure
-     * like any other. A balloon that throws is not: by then the copy has happened, and claiming
-     * *"your clipboard was not changed"* would be a lie in the one message that must not contain
-     * one.
+     * like any other **and the delta is dropped**: the snippet was never sent, so nothing in it was
+     * ever named. A balloon that throws is not reported that way: by then the copy has happened, and
+     * claiming *"your clipboard was not changed"* would be a lie in the one message that must not
+     * contain one.
+     *
+     * **The commit sits between the two, and that ordering is the rule rather than an accident.**
+     * The clipboard write is the single moment at which this invocation has happened at all, so it
+     * is the single moment the mapping may move. Committing before it would record names for a
+     * snippet that never reached the clipboard; committing after the balloon would leave the numbers
+     * on a paste the user already has, if the balloon threw.
+     *
+     * The delta is committed unconditionally, empty map or not — see [PlaceholderLedger.commit].
      */
     private fun deliver(project: Project, result: AnonymizationResult) {
         try {
@@ -189,6 +198,7 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
             SnippetVeilNotifications.failed(project, failure)
             return
         }
+        PlaceholderLedger.getInstance().commit(project, result.delta)
         SnippetVeilNotifications.copied(project, result.counts, result.comments)
     }
 }

@@ -102,6 +102,13 @@ class InternalLibraries(
 /**
  * The placeholders already handed out, as they stood when this invocation started.
  *
+ * **Placeholders are stable: `CustomerService` is `Type1` today, tomorrow, and after an IDE
+ * restart.** The deciding argument is fidelity rather than privacy. The common workflow is a
+ * conversation — paste a method, the AI asks to see the collaborator, paste that too — and
+ * fresh-per-invocation numbering makes *the second paste contradict the first*: `CustomerService`
+ * arrives as `Type3` while `Type1` has already been handed to `OrderRepo`, and the model then
+ * reasons confidently about types that do not exist.
+ *
  * Core takes the ledger as a **snapshot in** and returns a [LedgerDelta] **out**, rather than
  * holding an injected store it mutates. The reason is a preview that gets cancelled: under a
  * mutating store, allocation happens while the preview renders, so a cancelled preview would burn
@@ -109,7 +116,8 @@ class InternalLibraries(
  * work is that no two symbols ever render to the same placeholder. A snapshot in and a delta out
  * makes "cancelled" mean *nothing happened*, with no compensating logic to get wrong.
  *
- * @param placeholders symbol key -> placeholder, for symbols already named
+ * @param placeholders symbol key -> placeholder, for symbols already named. **Qualified keys only**
+ *   — see [LedgerDelta] for why, and for what happens to everything else.
  * @param nextNumber the next number the counter will hand out
  */
 class LedgerSnapshot(
@@ -126,17 +134,66 @@ class LedgerSnapshot(
  * What one invocation would add to the ledger — returned, never applied. The caller commits it at
  * the single point where the invocation succeeds, or drops it and nothing happened.
  *
- * @param placeholders the symbol keys named during this invocation, and what they were named
+ * ### Two tiers of key, and only one of them is written down
+ *
+ * A stored table needs a **serializable** key, and half the symbols in a snippet do not have one:
+ * anonymous and local classes, their members, locals, parameters, labels and type parameters are all
+ * identified by *where they are written*, which is stable for exactly as long as the file is not
+ * edited. So [placeholders] holds **only the symbols whose key is derived from a fully-qualified
+ * name** — see [SymbolEvidence.keyIsQualified] — and that cut is principled rather than a
+ * concession: a qualified symbol is exactly the kind an AI conversation refers back to across
+ * snippets (*"the `Type1` you showed me"*), while a local's number surviving until next week buys
+ * nothing. A string literal has no key at all, so `str` placeholders are never written down either
+ * — which is right on its own merits, literal text being the most directly sensitive content the
+ * product handles.
+ *
+ * ### Unpersisted symbols burn a number rather than reusing one
+ *
+ * This is the load-bearing detail. Every symbol draws from **one counter shared across all kinds**,
+ * whether or not it is written down, and [nextNumber] moves past the ones that are not. Anonymous
+ * members occupy the same `field`/`method` namespaces as persisted symbols: without burning,
+ * `field44` could be an anonymous member today and a genuine persisted field next month, and **an
+ * old reply mentioning `field44` would decode to the wrong name**. Burning costs one integer and
+ * makes that impossible.
+ *
+ * The invariant it buys: **no two distinct symbols in the project's whole history ever render to
+ * the same placeholder.** Within-output injectivity now holds across time, which is what makes
+ * reverse mapping well-defined at all. The accepted cost is that numbers climb monotonically, so a
+ * mature project emits `Type247` rather than `Type3` — placeholder form is near-irrelevant to answer
+ * quality, so this is cosmetic.
+ *
+ * **There is deliberately no `isEmpty`.** A delta with no [placeholders] in it is still a delta that
+ * has to be committed, because [nextNumber] may have moved; a caller skipping the commit on an empty
+ * map would hand the burnt numbers back out to different symbols later.
+ *
+ * @param placeholders the qualified keys named during this invocation, and what they were named
  * @param nextNumber where the counter stands afterwards. Higher than
- *   `snapshot.nextNumber + placeholders.size` when a number was skipped to avoid colliding with a
- *   name that survives into the output.
+ *   `snapshot.nextNumber + placeholders.size` whenever a number was burnt — by an unpersisted
+ *   symbol, by a redacted literal, or by a candidate that collided with a name surviving into the
+ *   output.
  */
 class LedgerDelta(
     val placeholders: Map<String, String>,
     val nextNumber: Int,
-) {
-    val isEmpty: Boolean get() = placeholders.isEmpty()
-}
+)
+
+/**
+ * The ledger as it stands once [delta] has been committed — **the one definition of what committing
+ * means**, so that a store and a test cannot drift into two readings of it.
+ *
+ * Append-only, and that is the whole of the rule: an entry already here is never rewritten and never
+ * removed. Rename a class and its qualified key stops matching, so the renamed symbol is a *new* key
+ * with the next number while the old entry stays. That is correct rather than sloppy, because the
+ * ledger is **a record of what was actually sent, not an index of the current codebase**: an old
+ * reply saying *"fix `Type1.method2()`"* decodes to the name that was in the snippet when it was
+ * sent. Following the rename and dropping the stale key would decode it to a name that did not exist
+ * at the time — which reads correct and is wrong.
+ *
+ * [LedgerDelta.nextNumber] replaces rather than adds, because it is where the counter *stands* and
+ * not how far it moved. Taking it wholesale is what carries the burnt numbers across.
+ */
+operator fun LedgerSnapshot.plus(delta: LedgerDelta): LedgerSnapshot =
+    LedgerSnapshot(placeholders + delta.placeholders, delta.nextNumber)
 
 /**
  * What one invocation produced. Nothing here has been committed anywhere; the caller decides.

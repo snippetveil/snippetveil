@@ -134,7 +134,13 @@ class ForcedSharingTest {
     @Test
     fun `the shared key is the lexicographically smallest root, whichever end asks`() {
         val text = "interface Audited { void run(); } class Payment implements Audited { public void run() {} }"
-        val root = symbol("run", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, key = "method:class:com.acme.Audited#run")
+        val root = symbol(
+            "run",
+            SymbolRole.METHOD,
+            SymbolOrigin.IN_CONTENT,
+            key = "method:class:com.acme.Audited#run",
+            keyIsQualified = true,
+        )
         val overriding = symbol(
             "run",
             SymbolRole.METHOD,
@@ -143,9 +149,10 @@ class ForcedSharingTest {
             // Reported unordered, and the smaller of the two decides — so a second interface added
             // to the chain cannot silently re-point an already-issued placeholder.
             overrideRoots = listOf(
-                OverrideRoot("method:class:com.acme.Zebra#run", SymbolOrigin.IN_CONTENT),
-                OverrideRoot(root.key, SymbolOrigin.IN_CONTENT),
+                OverrideRoot("method:class:com.acme.Zebra#run", SymbolOrigin.IN_CONTENT, keyIsQualified = true),
+                OverrideRoot(root.key, SymbolOrigin.IN_CONTENT, keyIsQualified = true),
             ),
+            keyIsQualified = true,
         )
 
         val plan = planPlacing(text, at(0, root), at(1, overriding))
@@ -234,7 +241,12 @@ class ForcedSharingTest {
                 SymbolRole.METHOD,
                 SymbolOrigin.IN_CONTENT,
                 key = "method:class:com.acme.Payment#getMerchantId",
-                accessor = AccessorEvidence("field:class:com.acme.Payment#merchantId", "get"),
+                accessor = AccessorEvidence(
+                    "field:class:com.acme.Payment#merchantId",
+                    "get",
+                    fieldKeyIsQualified = true,
+                ),
+                keyIsQualified = true,
             )),
         )
 

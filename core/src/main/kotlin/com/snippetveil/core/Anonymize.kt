@@ -55,7 +55,11 @@ fun anonymize(
         namesSurviving(plan, symbols.filter { isReplaced(it.symbol) } + stripped),
     )
     val placeholderByKey = LinkedHashMap<String, String>(ledger.placeholders)
-    val allocated = LinkedHashMap<String, String>()
+
+    // What this invocation would add to the ledger: **the qualified keys, and only those.** A symbol
+    // identified by where it is written draws a number from the same counter and is then forgotten,
+    // which is what burns the number rather than reusing it. See [LedgerDelta].
+    val persisted = LinkedHashMap<String, String>()
 
     /**
      * The placeholder [symbol] renders as, allocating one the first time its key is asked for.
@@ -63,6 +67,9 @@ fun anonymize(
      * An accessor allocates its backing field's placeholder as a side effect, whether or not the
      * field is anywhere in the snippet — with Lombok it usually is not, and a key is enough to name
      * a symbol that has no declaration in source at all.
+     *
+     * A key already in the snapshot returns what it was named before and adds nothing to the delta,
+     * which is the whole of what makes a placeholder stable: allocation happens once, ever.
      */
     fun placeholderFor(symbol: SymbolEvidence): String {
         val key = sharedKeyOf(symbol)
@@ -73,7 +80,9 @@ fun anonymize(
             allocator.next(namespaceOf(symbol))
         } else {
             val field = placeholderByKey.getOrPut(accessor.fieldKey) {
-                allocator.next(SymbolRole.FIELD.placeholderPrefix).also { allocated[accessor.fieldKey] = it }
+                allocator.next(SymbolRole.FIELD.placeholderPrefix).also {
+                    if (accessor.fieldKeyIsQualified) persisted[accessor.fieldKey] = it
+                }
             }
 
             // Injectivity outranks coherence when the two ever collide, which is why the derived
@@ -85,7 +94,7 @@ fun anonymize(
         }
 
         placeholderByKey[key] = placeholder
-        allocated[key] = placeholder
+        if (sharedKeyIsQualified(symbol)) persisted[key] = placeholder
         return placeholder
     }
 
@@ -172,7 +181,7 @@ fun anonymize(
             prose = stripped.count { it.verdict == CommentVerdict.PROSE },
             code = stripped.count { it.verdict == CommentVerdict.CODE },
         ),
-        delta = LedgerDelta(allocated, allocator.nextNumber),
+        delta = LedgerDelta(persisted, allocator.nextNumber),
     )
 }
 
@@ -405,6 +414,19 @@ private fun isNameConstrained(symbol: SymbolEvidence, ownership: Ownership): Boo
  */
 private fun sharedKeyOf(symbol: SymbolEvidence): String =
     symbol.overrideRoots.minOfOrNull { it.key } ?: symbol.key
+
+/**
+ * Whether the key [sharedKeyOf] picked is derived from a fully-qualified name, which is what decides
+ * whether the placeholder handed out against it is written down. See [SymbolEvidence.keyIsQualified].
+ *
+ * It asks **the root the chain shares**, not the symbol in hand, and the two can disagree: a method
+ * of an anonymous class overriding a project interface is identified by a position while the root it
+ * shares a placeholder with is identified by a name, and the reverse holds for a qualified method
+ * whose chain bottoms out inside an anonymous class. The key that is written down has to be the key
+ * the placeholder was handed out against, or the next invocation looks the wrong thing up.
+ */
+private fun sharedKeyIsQualified(symbol: SymbolEvidence): Boolean =
+    symbol.overrideRoots.minByOrNull { it.key }?.keyIsQualified ?: symbol.keyIsQualified
 
 /**
  * Names the platform resolves by spelling rather than through a type, so no override chain reaches
