@@ -209,12 +209,13 @@ internal object JavaPlanBuilder : PlanBuilder {
      * same sense a literal's type is: a fact obtained from the platform, reported without a judgment
      * attached, and read by a rule that lives on the other side of the seam.
      *
-     * **The rule is a code block and nothing wider**, which is a stated limit rather than an
-     * oversight: a commented-out *member* declaration — `// private String merchantRef;` is a local
-     * and parses, but `// void pay() {}` is not a statement and does not — reads as prose. Widening
-     * it means trying the body against every context Java has, and each context added is another way
-     * for a line of prose to parse by accident. A verdict that is exact about a narrow question beats
-     * one that guesses at a broad one, and the count both feed is a disclosure rather than a gate.
+     * **A code block and nothing wider**, and that is a stated limit rather than an oversight.
+     * `// private String merchantRef;` parses, because inside a block it reads as a local
+     * declaration; `// void pay() {}` does not, because a method declaration is not a statement — so
+     * a commented-out *method* is counted as prose. Widening the rule means trying the body against
+     * every context Java has, and each context added is another way for a line of prose to parse by
+     * accident. A verdict that is exact about a narrow question beats one that guesses at a broad
+     * one, and the count it feeds is a disclosure rather than a gate.
      *
      * An empty body is prose. `{}` parses, and calling an empty comment *commented-out code* would be
      * the one verdict here that is plainly false.
@@ -242,20 +243,25 @@ internal object JavaPlanBuilder : PlanBuilder {
     }
 
     /**
-     * The text inside a comment's delimiters, with javadoc's leading asterisks taken off the front of
-     * each line — which is what a reader of a javadoc block sees, and therefore what there is to
-     * parse.
+     * The text inside a comment's delimiters, with the leading asterisks taken off the front of each
+     * line — which is what a reader of a javadoc block sees, and therefore what there is to parse.
+     *
+     * **The asterisks come off a block comment only.** A line comment has no such convention, so an
+     * asterisk at the front of one is text somebody wrote: `// * total = 3;` is a bullet in a list,
+     * and reading javadoc's line prefix off it would turn a line of prose into a statement that
+     * parses. The verdict is meant to be exact, and that is a way for it not to be.
      *
      * The closing delimiter is removed if it is there and not assumed to be: a block comment in red
      * code runs to the end of the file, and the body is then everything after the opening.
      */
     private fun bodyOf(comment: PsiComment): String {
         val text = comment.text
-        val body = when {
-            text.startsWith(BLOCK_COMMENT_OPENING) -> text.removePrefix(BLOCK_COMMENT_OPENING).removeSuffix(BLOCK_COMMENT_CLOSING)
-            else -> text.removePrefix(LINE_COMMENT_OPENING)
-        }
-        return body.lineSequence().joinToString("\n") { it.trimStart().removePrefix(JAVADOC_LINE_PREFIX) }
+        if (!text.startsWith(BLOCK_COMMENT_OPENING)) return text.removePrefix(LINE_COMMENT_OPENING)
+
+        return text.removePrefix(BLOCK_COMMENT_OPENING)
+            .removeSuffix(BLOCK_COMMENT_CLOSING)
+            .lineSequence()
+            .joinToString("\n") { it.trimStart().removePrefix(JAVADOC_LINE_PREFIX) }
     }
 
     /**
@@ -815,8 +821,9 @@ internal object JavaPlanBuilder : PlanBuilder {
     /** A separator that cannot merge two fragments into one token, which is all it has to be. */
     private const val FRAGMENT_SEPARATOR = "\n"
 
-    // What opens and closes a comment, and the asterisk a javadoc line is written with. Read only to
-    // find the body a parser is handed — never to decide anything about what the body says.
+    // What opens and closes a comment, and the asterisk a block comment's continuation lines are
+    // written with. Read only to find the body a parser is handed — never to decide anything about
+    // what the body says.
     private const val LINE_COMMENT_OPENING = "//"
     private const val BLOCK_COMMENT_OPENING = "/*"
     private const val BLOCK_COMMENT_CLOSING = "*/"

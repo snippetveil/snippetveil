@@ -45,6 +45,30 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **The stated limit, on a fixture rather than only in a doc comment.**
+     *
+     * The verdict is a code *block* parse, so a commented-out local declaration is code and a
+     * commented-out *method* is prose — a method declaration is not a statement, and inside a block
+     * it does not parse. Widening the rule means trying the body against every context Java has, and
+     * each context added is another way for a line of prose to parse by accident. The limit is
+     * asserted here so that a later widening is a decision somebody makes rather than one that
+     * happens.
+     */
+    fun `test the verdict is a code block and a commented-out method is therefore prose`() {
+        assertEquals(CommentVerdict.CODE, verdictOf("// private String merchantRef;"))
+        assertEquals(CommentVerdict.PROSE, verdictOf("// void pay(int amount) {}"))
+    }
+
+    /**
+     * A line comment has no continuation-asterisk convention, so an asterisk at the front of one is
+     * text somebody wrote — a bullet in a list. Reading javadoc's line prefix off it would turn this
+     * line of prose into a statement that parses, which is a way for an exact verdict not to be.
+     */
+    fun `test a line comment's leading asterisk is text and not a javadoc prefix`() {
+        assertEquals(CommentVerdict.PROSE, verdictOf("// * total = 3;"))
+    }
+
+    /**
      * An empty comment is prose. `{}` parses, so a rule that only asked the parser would call an
      * empty comment commented-out code — the one verdict here that is plainly false.
      */
@@ -112,6 +136,40 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
                  * @see Type2#field5
                  */
                 void method6(String param4) {}
+            }
+            """.trimIndent(),
+            result.text,
+        )
+    }
+
+    /**
+     * A type parameter's `@param` target is a tag value like any other, and the angle brackets around
+     * it are not part of the name — a rewrite that ate them would leave a javadoc tag that no longer
+     * names anything.
+     */
+    fun `test a type parameter's param target renames inside its brackets`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "Ledger.java",
+            """
+            class Ledger {
+                /**
+                 * @param <REQ> the request type
+                 */
+                <REQ> void post(REQ request) {}
+            }
+            """.trimIndent(),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings(keepComments = true), LedgerSnapshot.EMPTY)
+
+        assertEquals(
+            """
+            class Type1 {
+                /**
+                 * @param <T2> the request type
+                 */
+                <T2> void method3(T2 param4) {}
             }
             """.trimIndent(),
             result.text,

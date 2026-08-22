@@ -120,12 +120,8 @@ fun anonymize(
                 }
             }
 
-            // Clamped against the edit before it, because a strip reaches into the whitespace
-            // around the comment and two comments can share one run of it. Nothing else can collide
-            // — whitespace holds no identifier and no literal — so this is the whole of the rule.
             is CommentOccurrence -> if (!settings.keepComments) {
-                val strip = strippedRangeOf(plan.text, occurrence)
-                edits += Edit(maxOf(strip.start, edits.lastOrNull()?.end ?: 0), strip.end, "")
+                edits += stripOf(plan.text, occurrence, after = edits.lastOrNull()?.end ?: 0)
             }
         }
     }
@@ -196,27 +192,33 @@ fun anonymize(
  *
  * This is layout, never content: which characters are whitespace is not a question about what a
  * comment says, and no rule here reads a character of the comment itself.
+ *
+ * @param after where the last edit ended. Two block comments in a row share one run of whitespace,
+ *   so a strip never reaches back past an edit already made. Nothing else can collide with it,
+ *   because whitespace holds no identifier and no literal.
  */
-private fun strippedRangeOf(text: String, comment: CommentOccurrence): Edit {
+private fun stripOf(text: String, comment: CommentOccurrence, after: Int): Edit {
     val lineStart = text.lastIndexOf('\n', comment.start - 1) + 1
     val lineEnd = text.indexOf('\n', comment.end).takeIf { it >= 0 } ?: text.length
 
     val onlyIndentBefore = (lineStart until comment.start).all { text[it].isWhitespace() }
     val onlySpaceAfter = (comment.end until lineEnd).all { text[it].isWhitespace() }
 
-    return when {
-        onlyIndentBefore && onlySpaceAfter -> Edit(lineStart, minOf(lineEnd + 1, text.length), "")
-        onlyIndentBefore -> Edit(comment.start, comment.end + spaceRun(text, comment.end, lineEnd), "")
-        else -> Edit(comment.start - spaceRunBefore(text, lineStart, comment.start), comment.end, "")
+    val (start, end) = when {
+        onlyIndentBefore && onlySpaceAfter -> lineStart to minOf(lineEnd + 1, text.length)
+        onlyIndentBefore -> comment.start to (comment.end + spaceRun(text, comment.end, lineEnd))
+        else -> (comment.start - spaceRunBefore(text, comment.start, lineStart)) to comment.end
     }
+
+    return Edit(maxOf(start, after), end, "")
 }
 
-/** How many spaces follow [from], up to [limit]. */
+/** How many spaces or tabs run forwards from [from], stopping at [limit]. */
 private fun spaceRun(text: String, from: Int, limit: Int): Int =
     (from until limit).takeWhile { text[it].isWhitespace() }.count()
 
-/** How many spaces run backwards from [before], down to [limit]. */
-private fun spaceRunBefore(text: String, limit: Int, before: Int): Int =
+/** How many spaces or tabs run backwards from [before], stopping at [limit]. */
+private fun spaceRunBefore(text: String, before: Int, limit: Int): Int =
     (before - 1 downTo limit).takeWhile { text[it].isWhitespace() }.count()
 
 /** One replacement, as a half-open range `[start, end)` into the plan's text and what goes there. */
@@ -477,18 +479,22 @@ private fun namespaceOf(symbol: SymbolEvidence): String =
 
 /**
  * Every identifier-shaped word that survives into the output — which is every word in the snippet
- * except the ones about to be replaced.
+ * except the ones about to leave it.
  *
  * Read wider than "the preserved symbols" on purpose. The invariant is that a reader can take a
  * placeholder out of the AI's reply and map it back to exactly one thing, and that fails the moment
  * the output contains `Type1` meaning something else — whether that `Type1` is a preserved library
- * class, an identifier no rule here recognises yet, or a word sitting in a comment. Scanning the
- * text costs one pass and closes all three at once.
+ * class, an identifier no rule here recognises yet, or a word sitting in a comment this invocation
+ * kept. Scanning the text costs one pass and closes all three at once.
  *
  * A word inside a literal that is about to be replaced is reserved along with them, and that
  * over-reservation is deliberate: what becomes of a literal is decided against this set, so a set
  * that already knew would have to be built out of the answer it feeds. The cost is a burnt number,
  * which is the direction this may err in.
+ *
+ * @param removed everything the output will not contain: the identifiers about to become
+ *   placeholders, and the comments about to be stripped. A word that was deleted stands for nothing,
+ *   so reserving it would burn a number to protect a reader from a collision they cannot have.
  */
 private fun namesSurviving(plan: SnippetPlan, removed: List<Occurrence>): Set<String> {
     val isReplaced = BooleanArray(plan.text.length)

@@ -39,7 +39,10 @@ internal object SnippetVeilNotifications {
      * the users who never open the dialog, which is exactly the population it is written for. A
      * stripped comment is invisible in the output — the text that comes back is clean, compiles and
      * reads as ordinary code — so saying so at the point of use is the only place it can be said.
-     * The split by parse verdict rides on top of this as its own notice, and that is its ticket.
+     *
+     * The split by parse verdict is a later ticket's notice, and it **replaces this clause** rather
+     * than joining it: *"2 comments stripped, 1 of them commented-out code"* already contains this
+     * number, and a balloon that said it twice would read as a bug.
      *
      * **The unknown count is here at information level, and the level is the decision.** Under
      * fail-closed an `Unknown` *was* anonymized — it is a quality risk, never a privacy one — so

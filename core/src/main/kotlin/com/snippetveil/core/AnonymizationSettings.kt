@@ -96,7 +96,7 @@ class LedgerDelta(
  * @param mapping placeholder -> the real name it stands for. **Injective**, which is the whole
  *   point: a reverse mapping is well-defined only if no two symbols render to one placeholder, and
  *   the AI's reply carries no scope context to disambiguate with if they did.
- * @param counts what the balloon reports
+ * @param counts the distinct names in the snippet, partitioned by what became of them
  * @param comments what the strip removed, split by parse verdict
  * @param unknowns every name that failed to resolve, in document order of first occurrence
  * @param delta what to commit, if the caller gets as far as committing

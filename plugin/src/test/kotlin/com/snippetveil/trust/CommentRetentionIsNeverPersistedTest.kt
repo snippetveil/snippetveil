@@ -134,11 +134,17 @@ class CommentRetentionIsNeverPersistedTest {
             annotations.any { it.rawType.name == STATE_ANNOTATION }
 
     /**
-     * Whether this class declares comment retention, under any spelling of the name a Kotlin `val`,
-     * a Java field or an accessor pair produces.
+     * Whether this class declares comment retention, under any spelling a Kotlin `val`, a Java field
+     * or an accessor pair produces for that one name.
      *
      * Matched on the name rather than on the type, because a `Boolean` says nothing: what makes this
      * one a reduction is what it means, and the name is where the meaning is written.
+     *
+     * **A rename of the flag does not slip past this, and the reason is worth stating**, because it
+     * is not obvious: matching one spelling would be a weak rule on its own, but the assertion above
+     * requires the name to be *found*, on exactly one class. Rename it to `retainComments` and that
+     * assertion goes red with the whole list in the message. The rule fails closed, and the person
+     * doing the renaming is the one who reads why.
      */
     private fun JavaClass.declaresCommentRetention(): Boolean =
         fields.any { it.name.contains(KEEP_COMMENTS, ignoreCase = true) } ||
