@@ -70,6 +70,18 @@ fun anonymize(
      *
      * A key already in the snapshot returns what it was named before and adds nothing to the delta,
      * which is the whole of what makes a placeholder stable: allocation happens once, ever.
+     *
+     * **The stated limit of that, because it is a real one.** A placeholder issued weeks ago is
+     * returned here **without being checked against the names surviving into this output** — the
+     * reserved set only steers what is allocated now. So a snippet that preserves a library or JDK
+     * name spelled exactly like an old placeholder — `Type1`, `T1` — puts that word in the output
+     * twice, standing for two things.
+     *
+     * It is the right way round, and not by omission. The alternative is to hand the symbol a fresh
+     * number, which makes this paste contradict an earlier one and every reply built on it — the
+     * failure this whole design exists to prevent, and the one the ticket ranks above every other.
+     * The collision is also visible: it is in the snippet the user is looking at, where the
+     * contradiction it is traded against is invisible and lives in a reply from last week.
      */
     fun placeholderFor(symbol: SymbolEvidence): String {
         val key = sharedKeyOf(symbol)

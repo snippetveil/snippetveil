@@ -9,6 +9,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbService
 import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.util.PsiTreeUtil
+import com.snippetveil.core.LedgerDelta
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 
@@ -1209,6 +1210,41 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **Two invocations at once must not be handed the same number.**
+     *
+     * `queue()` serializes nothing, so two analyses over a large file run side by side, read the
+     * same ledger and are each handed the same next number — one placeholder standing for two
+     * different symbols, which is the one thing the design forbids. The clipboard write is on the
+     * EDT, so that is where the ledger is read a second time and the analysis re-run if it moved.
+     *
+     * Made deterministic rather than raced: the plan build is precisely the window between this
+     * invocation reading the ledger and committing to it, so a plan builder that commits during it
+     * *is* another invocation getting there first — and it is a window a real slow analysis has.
+     */
+    fun `test an invocation whose ledger moved underneath it is re-run against the ledger that moved`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(LEDGER_PATH, ledgerSelecting(SETTLE))
+
+        invokeCopyAnonymized(
+            CopyAnonymizedAction { request ->
+                PlaceholderLedger.getInstance().commit(
+                    request.project,
+                    LedgerDelta(mapOf(INTERLOPER to "method1"), nextNumber = 2),
+                )
+                JavaPlanBuilder.build(request)
+            },
+        )
+
+        // `method1` is the number the stale analysis was handed. It went to the interloper, so the
+        // re-run hands `settle` the next one — rather than both of them `method1`.
+        assertEquals("void method2() {}", clipboard())
+        assertEquals(
+            mapOf(INTERLOPER to "method1", "method:class:Ledger#settle" to "method2"),
+            PlaceholderLedger.getInstance().snapshotOf(project).placeholders,
+        )
+    }
+
+    /**
      * Asserts that [snippet] is still Java the parser accepts, wrapped in the class body it came out
      * of. A rewrite that broke a literal's delimiters would leave an error element here.
      */
@@ -1239,6 +1275,9 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 private const val PREVIOUS_CLIPBOARD = "the raw snippet the user copied a minute ago"
 
 private const val LEDGER_PATH = "Ledger.java"
+
+/** A symbol another invocation named while this one was still analysing. */
+private const val INTERLOPER = "method:class:com.other.Interloper#run"
 
 private const val SETTLE = "void settle() {}"
 

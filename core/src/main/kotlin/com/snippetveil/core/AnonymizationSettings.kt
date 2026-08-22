@@ -196,6 +196,19 @@ operator fun LedgerSnapshot.plus(delta: LedgerDelta): LedgerSnapshot =
     LedgerSnapshot(placeholders + delta.placeholders, delta.nextNumber)
 
 /**
+ * **Whether this snapshot is still the ledger it was taken from** — asked by whoever is about to
+ * commit against it, so that an invocation which analysed a ledger that has since moved is re-run
+ * rather than committed over the top of the one that moved it. Two invocations that both analysed
+ * against `nextNumber = 7` both hand out `Type7`, to two different symbols.
+ *
+ * **The counter alone answers it, and that is a property of [plus] rather than a shortcut**: a
+ * commit that adds an entry allocated a number to put in it, so the ledger cannot gain an entry
+ * without the counter having moved. It cannot go backwards either, since [LedgerDelta.nextNumber] is
+ * where an allocator that only ever counted up finished.
+ */
+fun LedgerSnapshot.isStill(latest: LedgerSnapshot): Boolean = nextNumber == latest.nextNumber
+
+/**
  * What one invocation produced. Nothing here has been committed anywhere; the caller decides.
  *
  * @param text the anonymized snippet, ready for the clipboard

@@ -20,7 +20,10 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiJavaFile
 import com.snippetveil.core.AnonymizationResult
 import com.snippetveil.core.AnonymizationSettings
+import com.snippetveil.core.LedgerSnapshot
+import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.anonymize
+import com.snippetveil.core.isStill
 import java.awt.datatransfer.StringSelection
 import java.util.concurrent.Callable
 
@@ -167,12 +170,20 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
      * one persistent setting in the product, and it may be read here because nothing in it can take
      * the output back past what a library-preserving spine rule already produced.
      */
-    private fun analyse(request: SnippetRequest): AnonymizationResult =
-        anonymize(
-            plans.build(request),
-            AnonymizationSettings(internalLibraries = InternalLibrarySettings.of(request.project).policy),
-            PlaceholderLedger.getInstance().snapshotOf(request.project),
+    private fun analyse(request: SnippetRequest): Analysis {
+        val settings = AnonymizationSettings(
+            internalLibraries = InternalLibrarySettings.of(request.project).policy,
         )
+
+        // The ledger is read **before** the plan is built rather than after, so that the sequence is
+        // the one [deliver] re-checks: take the ledger, do the work, confirm nothing moved. Reading
+        // it afterwards would make the snapshot fresher and change nothing else — the re-check
+        // covers whatever window there is.
+        val ledger = PlaceholderLedger.getInstance().snapshotOf(request.project)
+        val plan = plans.build(request)
+
+        return Analysis(plan, settings, ledger, anonymize(plan, settings, ledger))
+    }
 
     /**
      * The clipboard first, the ledger second, the balloon third — and the failure modes told apart.
@@ -190,15 +201,36 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
      * on a paste the user already has, if the balloon threw.
      *
      * The delta is committed unconditionally, empty map or not — see [PlaceholderLedger.commit].
+     *
+     * ### Two invocations at once, and why the ledger is read a second time here
+     *
+     * `queue()` does not serialize anything: invoke twice over a large file and two analyses run
+     * side by side. Both read the same ledger, both are handed the same next number, and both would
+     * commit — putting one placeholder on two different symbols, which is the one thing the whole
+     * design forbids.
+     *
+     * So the ledger is read again here and the analysis is **re-run against it if it moved**. This
+     * is the point at which that is worth anything, because the EDT is single-threaded: read,
+     * re-run, write, commit is atomic against every other invocation without a lock existing
+     * anywhere. The re-run is [anonymize], which is pure and works off the plan already built — the
+     * expensive half, the PSI walk, is not repeated and never leaves the background thread. On the
+     * ordinary path nothing is re-run at all.
      */
-    private fun deliver(project: Project, result: AnonymizationResult) {
+    private fun deliver(project: Project, analysis: Analysis) {
+        val ledger = PlaceholderLedger.getInstance()
+        val latest = ledger.snapshotOf(project)
+        val result = when {
+            analysis.ledger.isStill(latest) -> analysis.result
+            else -> anonymize(analysis.plan, analysis.settings, latest)
+        }
+
         try {
             CopyPasteManager.getInstance().setContents(StringSelection(result.text))
         } catch (failure: Throwable) {
             SnippetVeilNotifications.failed(project, failure)
             return
         }
-        PlaceholderLedger.getInstance().commit(project, result.delta)
+        ledger.commit(project, result.delta)
         SnippetVeilNotifications.copied(project, result.counts, result.comments)
     }
 }
@@ -230,3 +262,19 @@ internal fun selectedRangesOf(editor: Editor): List<TextRange> {
  */
 internal fun PsiFile?.isAnonymizable(): Boolean =
     this is PsiJavaFile && fileType == JavaFileType.INSTANCE
+
+/**
+ * One invocation's work — what the engine produced, and everything it would take to produce it
+ * again.
+ *
+ * The inputs are carried alongside the output rather than discarded because the ledger this ran
+ * against may have moved by the time the result reaches the clipboard; see
+ * [CopyAnonymizedAction.deliver]. They are all values: the plan is immutable, the settings are, and
+ * the snapshot is — so nothing here can be observed changing between the two threads that touch it.
+ */
+private class Analysis(
+    val plan: SnippetPlan,
+    val settings: AnonymizationSettings,
+    val ledger: LedgerSnapshot,
+    val result: AnonymizationResult,
+)

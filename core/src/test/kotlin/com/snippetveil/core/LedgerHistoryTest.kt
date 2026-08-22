@@ -69,22 +69,35 @@ class LedgerHistoryTest {
     }
 
     /**
-     * **Nothing without a qualified key is ever in the stored file**, over the same generated
-     * sequences — the durable artifact holds classes, members and packages, and no local, no
-     * anonymous-class member and no unresolved name.
+     * **Exactly the qualified keys are in the stored file** — the durable artifact holds classes,
+     * members and packages, and no local, no anonymous-class member and no unresolved name.
+     *
+     * Both halves, and neither is the other. *Nothing ephemeral got in* is the rule that keeps the
+     * file from filling with keys that re-point at a different symbol after an edit; *everything
+     * qualified did* is what stops the rule being satisfied by writing nothing down at all, which is
+     * the shape a fail-closed bug takes here — and which every other property in this class would
+     * still be green over.
      */
     @Property(tries = 300)
-    fun `only qualified keys are ever written down`(
+    fun `exactly the qualified keys are written down`(
         @ForAll("invocationSequences") sequence: List<List<Int>>,
     ) {
         val history = History()
         val ephemeral = UNIVERSE.filterNot { it.qualified }.mapTo(HashSet()) { it.key }
+        val expected = mutableSetOf<String>()
 
         for (selection in sequence) {
+            expected += selection.map { UNIVERSE[it] }.filter { it.qualified }.map { it.key }
             history.invoke(selection)
+
             assertTrue(
                 history.ledger.placeholders.keys.none { it in ephemeral },
                 "the stored file holds a key that is not derived from a qualified name: ${history.ledger.placeholders}",
+            )
+            assertEquals(
+                emptySet<String>(),
+                expected - history.ledger.placeholders.keys,
+                "a symbol with a qualified key was named and not written down",
             )
         }
     }

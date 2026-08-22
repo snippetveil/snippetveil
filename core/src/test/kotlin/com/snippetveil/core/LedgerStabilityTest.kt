@@ -145,6 +145,26 @@ class LedgerStabilityTest {
     }
 
     /**
+     * **The stated limit of stability, pinned rather than left to be discovered.**
+     *
+     * A placeholder the ledger already issued is emitted even when this snippet preserves a name
+     * spelled the same way, so the word appears twice standing for two things. That is the right way
+     * round — the alternative hands the symbol a fresh number and makes this paste contradict an
+     * earlier one, which is the failure the whole design exists to prevent — but it is a real cost,
+     * and a cost nothing asserts is one that turns into a surprise.
+     */
+    @Test
+    fun `a placeholder already issued is kept even when the snippet preserves that very word`() {
+        val payment = qualified("Payment", SymbolRole.TYPE, "class:com.acme.Payment")
+        val vendor = symbol("Type1", SymbolRole.TYPE, SymbolOrigin.LIBRARY, key = "class:org.vendor.Type1")
+        val ledger = LedgerSnapshot(mapOf(payment.key to "Type1"), nextNumber = 2)
+
+        val result = anonymize(planOf("Type1 a; Payment b;", vendor, payment), AnonymizationSettings.DEFAULTS, ledger)
+
+        assertEquals("Type1 a; Type1 b;", result.text)
+    }
+
+    /**
      * A chain's placeholder is handed out against **the root's** key, so it is the root's key that is
      * written down — and a chain whose root is identified by a position is not written down at all,
      * however qualified the overriding method is. Writing the overriding method's key instead would

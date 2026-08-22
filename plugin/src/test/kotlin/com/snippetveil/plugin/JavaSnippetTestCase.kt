@@ -2,6 +2,7 @@ package com.snippetveil.plugin
 
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
+import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.projectRoots.JavaSdk
@@ -94,8 +95,10 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
      *
      * @return the presentation `update` produced, which is what the Java-file gate is asserted on
      */
-    protected fun invokeCopyAnonymized(action: CopyAnonymizedAction = CopyAnonymizedAction()) =
-        raised.clear().let { myFixture.testAction(action).also { if (it.isEnabled) awaitBackgroundWork() } }
+    protected fun invokeCopyAnonymized(action: CopyAnonymizedAction = CopyAnonymizedAction()): Presentation {
+        raised.clear()
+        return myFixture.testAction(action).also { if (it.isEnabled) awaitBackgroundWork() }
+    }
 
     /**
      * Drains the pooled thread the analysis runs on and the event queue its result comes back

@@ -124,10 +124,11 @@ says nothing about roaming, which is the shape the mistake actually takes: nobod
 
 ### Where the placeholder mapping lives
 
-SnippetVeil persists two things, and the second is the larger one: **the placeholder mapping**, which
-is what makes `CustomerService` come out as `Type1` today, tomorrow and after a restart. It is the
-densest collection of employer vocabulary the product holds, so where the file sits is a decision
-worth reading rather than a default.
+Beside the one *setting* above, SnippetVeil persists one other thing, and it is the larger one:
+**the placeholder mapping**, which is what makes `CustomerService` come out as `Type1` today,
+tomorrow and after a restart. It is not a setting — nothing in it is a choice a user makes — and it
+is the densest collection of employer vocabulary the product holds, so where the file sits is a
+decision worth reading rather than a default.
 
 Four properties, and **no project-level `@Storage` satisfies them all**:
 
@@ -160,6 +161,15 @@ cost auditability, and greppable state is worth more to a product whose pitch is
 `PlaceholderLedgerTest` asserts each of these rather than describing them: the roaming type, the
 component level, and the resolved path being neither under the project nor under the system
 directory.
+
+**Two costs, written down rather than left to be discovered.** Entries are filed under the project's
+location hash, which is derived from its path — so moving or renaming the project directory reads as
+a new project and the mapping starts from empty. A file in `.idea/` would have travelled with the
+tree. Nothing decodes to the wrong name when that happens; what is lost is stability across the move.
+And a mapping that survives an IDE restart also means a placeholder issued weeks ago is emitted even
+when today's snippet preserves a library name spelled the same way, so that word can appear twice
+standing for two things. Both are argued where they live, in `PlaceholderLedger` and in
+`Anonymize.placeholderFor`, and both are pinned by a test.
 
 ### Known limits
 

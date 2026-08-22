@@ -93,6 +93,14 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
      *   survives a restart. It is the platform's own identity for a project and it reads as
      *   `<name>.<hash of path>`, so a person opening the file can see whose entries these are —
      *   which is the point of keeping the file greppable at all.
+     *
+     *   **The stated cost of not being project-level storage**: the hash is derived from the
+     *   project's path, so moving or renaming the project directory reads as a new project and the
+     *   mapping starts empty. A file in `.idea/` would have travelled with the tree. What that costs
+     *   is stability across a move — the old entries are still there, under the old hash, and
+     *   nothing decodes to the wrong name, because a fresh mapping never reuses the old numbers for
+     *   the old symbols; it starts again from 1 in a namespace of its own. It is a real loss and it
+     *   is written down here rather than discovered.
      * @param nextNumber where this project's counter stands. **Persisted alongside the entries and
      *   not derived from them**, because numbers burnt by symbols that were never written down are
      *   exactly the ones no entry records — and re-deriving would hand them out a second time.
@@ -136,8 +144,12 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
      * without leaving a row — and a caller that skipped the commit would hand those numbers out
      * again to different symbols later. That is why [LedgerDelta] has no `isEmpty`.
      *
-     * Synchronized so that two commits cannot read the same ledger and each write their own
-     * successor to it, which would silently drop one invocation's numbers.
+     * Synchronized so that the read-and-replace here is one step. **That is all it protects, and it
+     * is not what keeps two concurrent invocations from being handed the same number** — the window
+     * that matters opens when an invocation reads its snapshot, long before it gets here, and it is
+     * closed in `CopyAnonymizedAction.deliver` by reading the ledger again on the EDT and re-running
+     * the engine if it moved. This lock is what makes that read-again see a whole ledger rather than
+     * half of one.
      */
     @Synchronized
     fun commit(project: Project, delta: LedgerDelta) {

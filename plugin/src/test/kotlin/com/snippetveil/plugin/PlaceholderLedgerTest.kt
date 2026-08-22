@@ -113,9 +113,14 @@ class PlaceholderLedgerTest : JavaSnippetTestCase() {
             '$' in storage.value,
         )
 
-        // A bare file name on an application-level @State resolves under `$APP_CONFIG$`, which is
-        // the IDE's own options directory. Spelled out here because the assertions below are about
-        // that path and would otherwise be about nothing.
+        // A bare file name on an application-level @State resolves under `$APP_CONFIG$`, which the
+        // platform maps to the IDE's own options directory. Spelled out here because the assertions
+        // below are about that path and would otherwise be about nothing — and the one step of it
+        // this test can hold the platform to rather than assume is asserted first.
+        assertTrue(
+            "the options directory is not under the config directory, so the reasoning below does not hold",
+            Path.of(PathManager.getOptionsPath()).startsWith(Path.of(PathManager.getConfigPath())),
+        )
         val file = Path.of(PathManager.getOptionsPath()).resolve(storage.value)
 
         assertFalse(
