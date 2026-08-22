@@ -42,6 +42,22 @@ Two habits keep them honest, and both are worth preserving if you change them:
 
 There is no suppression mechanism and no exception list, in any of the three. That is the feature.
 
+### Known limits
+
+Both of these are deliberate, and both are stated here rather than left for a reader to discover,
+because a trust artifact that overstates its own reach is worse than one that does less and says so.
+
+- **Test code is not read.** The architecture rules cover the main output of `:core` and `:plugin` —
+  what actually ships — so a `java.net` import in a test fails nothing. The alternative was worse: a
+  test may legitimately call `Class.forName`, and `CoreIsIdeFreeTest` proves the module boundary
+  precisely that way, so covering test code would mean carving out an exception for it on day one.
+  An exception list is where a violation eventually hides.
+- **Nothing bans starting a subprocess.** `Runtime.getRuntime().exec("curl …")` reaches the network
+  without a single `java.net` reference appearing in our bytecode, so none of the three checks sees
+  it — the same shape of hole as `Class.forName`, which is banned for that reason. Tracked in
+  [#23](https://github.com/snippetveil/snippetveil/issues/23); until it closes, this one is on
+  review rather than on the machine.
+
 ## Inbound dependency policy
 
 Today the shipped distribution contains no third-party code at all: `:core` has zero runtime
@@ -73,9 +89,8 @@ A licence-report tool, if one ever arrives, must:
   Scanning them manufactures exceptions, and exceptions train people to ignore the check.
 
 Test-scope dependencies are not covered by any of this, and are added on ordinary engineering
-judgement. The architecture rules do not read test code either, for the same reason: a test may
-legitimately call `Class.forName` — `CoreIsIdeFreeTest` proves the module boundary that way — and
-carving out an exception for it would start the exception list this project does not want.
+judgement — for the same reason the architecture rules do not read test code. Nothing test-scope is
+distributed, so none of it carries an outbound licence obligation.
 
 ## Issues
 
