@@ -104,15 +104,22 @@ internal class PlaceholderSidecar : PersistentStateComponent<PlaceholderSidecar.
     @Volatile
     private var state = State()
 
-    override fun getState(): State = state
+    /**
+     * **What the platform writes, trimmed on the way out.** Not a plain field read, and that is the
+     * difference between an age cap and a housekeeping habit: this is the one moment the window
+     * reaches the disk, so it is the moment that decides what is *at rest* there. An IDE that was
+     * pasted from once and left open for a year would otherwise keep that paste's literal text in
+     * `cache-state.xml` for the whole year, with the cap passing every test and holding nothing.
+     */
+    override fun getState(): State = stateOf(trimmed())
 
     override fun loadState(state: State) {
         this.state = state
     }
 
     /**
-     * Takes what one **successful** invocation named — [com.snippetveil.core.AnonymizationResult.mapping] whole, ephemeral
-     * symbols and literals included.
+     * Takes what one **successful** invocation named: the whole of
+     * [com.snippetveil.core.AnonymizationResult.mapping], ephemeral symbols and literals included.
      *
      * Called at the same moment the mapping is committed, which is the moment the snippet reached the
      * clipboard: an invocation that never got there was never sent, so there is nothing about it to
@@ -124,39 +131,35 @@ internal class PlaceholderSidecar : PersistentStateComponent<PlaceholderSidecar.
      * collide over one.
      */
     @Synchronized
-    fun record(mapping: Map<String, String>) {
-        state = stateOf(sidecar().recording(RecordedInvocation(Instant.now(), mapping)))
+    fun record(table: Map<String, String>) {
+        state = stateOf(window().recording(RecordedInvocation(Instant.now(), table)))
     }
 
     /**
      * What [placeholder] stood for, or `null` when nothing inside the horizon knows — which a
      * reversal renders by leaving the word alone.
      */
-    fun originalOf(placeholder: String): String? = sidecar().originalOf(placeholder)
+    fun originalOf(placeholder: String): String? = trimmed().originalOf(placeholder)
 
     /**
-     * The window as it stands, with the bound applied — **the only way this class reads its own
-     * state**, so that the horizon is one fact rather than two.
-     *
-     * The bounded window is put back, which is what keeps the file inside the age cap for an IDE
-     * that is open for months without a paste. Trimming on read and not writing it back would leave
-     * the entries the cap has expired sitting on the disk with their literal text in them, which is
-     * the half of the cap that is actually about retention.
+     * The window with the bound applied, **and the trimmed window put back** — so that reading it,
+     * like writing it and saving it, is a moment the cap is enforced rather than merely respected.
+     * Trimming without storing would answer correctly and leave the entries the cap has expired on
+     * the disk with their literal text in them, which is the half of the cap that is about retention
+     * rather than about answers.
      */
     @Synchronized
-    private fun sidecar(): Sidecar {
-        val bounded = Sidecar(
-            state.invocations.map { entry ->
-                RecordedInvocation(
-                    Instant.ofEpochMilli(entry.at),
-                    entry.decodings.associate { it.placeholder to it.original },
-                )
-            },
-        ).bounded(Instant.now())
+    private fun trimmed(): Sidecar = window().bounded(Instant.now()).also { state = stateOf(it) }
 
-        state = stateOf(bounded)
-        return bounded
-    }
+    /** The stored bean as the value type `:core` reasons about. Reads; changes nothing. */
+    private fun window(): Sidecar = Sidecar(
+        state.invocations.map { entry ->
+            RecordedInvocation(
+                Instant.ofEpochMilli(entry.at),
+                entry.decodings.associate { it.placeholder to it.original },
+            )
+        },
+    )
 
     /** [sidecar] as the bean the platform writes. */
     private fun stateOf(sidecar: Sidecar): State = State().also { state ->

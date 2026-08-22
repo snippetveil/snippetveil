@@ -1243,6 +1243,48 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **An anonymous class's member, through the real walk.** It is the shape the two-tier key was
+     * cut around — `getQualifiedName()` is `null` inside an anonymous class, so its members are
+     * keyed on where they are written and never written down — which makes it the symbol most
+     * certainly absent from the persistent mapping and most certainly in the sidecar.
+     *
+     * Asserted end to end rather than over a hand-written key, because *this symbol has no qualified
+     * name* is a fact about PSI and a fixture that spelled the key itself would be asserting the
+     * spelling.
+     */
+    fun `test an anonymous class's member is decodable from the sidecar`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            LEDGER_PATH,
+            """
+            class Ledger {
+                <selection>Runnable audit() {
+                    return new Runnable() {
+                        private int settled;
+
+                        @Override
+                        public void run() {
+                            settled++;
+                        }
+                    };
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        // `run` keeps its name — renaming it would stop it overriding — and `settled` does not, so
+        // the member is the placeholder this test is about.
+        assertTrue("the anonymous member was not renamed: " + clipboard(), "field2" in clipboard())
+        assertEquals("settled", PlaceholderSidecar.getInstance(project).originalOf("field2"))
+        assertNull(
+            "an anonymous class's member was written into the persistent mapping",
+            PlaceholderLedger.getInstance().snapshotOf(project).placeholders.values.firstOrNull { it == "field2" },
+        )
+    }
+
+    /**
      * **The clipboard write is the single moment this invocation happened at all**, so an invocation
      * that never got there is not in the sidecar either — the same rule the mapping is held to, for
      * the same reason: nothing was sent, so there is nothing about it to decode.

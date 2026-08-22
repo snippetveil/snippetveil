@@ -6,6 +6,7 @@ import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.StoragePathMacros
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
 import com.snippetveil.core.LedgerDelta
 import java.nio.file.Path
@@ -78,17 +79,34 @@ class PlaceholderSidecarTest : JavaSnippetTestCase() {
      */
     fun `test an invocation past the age cap is forgotten even with nothing after it`() {
         val sidecar = PlaceholderSidecar.getInstance(project)
-        val ancient = PlaceholderSidecar.State()
-        ancient.invocations += PlaceholderSidecar.InvocationEntry().also { entry ->
-            entry.at = Instant.now().minus(Duration.ofDays(400)).toEpochMilli()
-            entry.decodings += PlaceholderSidecar.Decoding().also {
-                it.placeholder = "str1"
-                it.original = "acme-live"
-            }
-        }
-        sidecar.loadState(ancient)
+        sidecar.loadState(recordedAt(Instant.now().minus(Duration.ofDays(400))))
 
-        assertNull("a year-old literal is still decodable, so it is still on disk", sidecar.originalOf("str1"))
+        assertNull("a year-old literal is still decodable", sidecar.originalOf("str1"))
+    }
+
+    /**
+     * **And the cap decides what is at rest, not only what is answered.**
+     *
+     * The window reaches the disk through [PlaceholderSidecar.getState] and nowhere else, so that is
+     * where the cap has to bite: an IDE pasted from once and left open for a year would otherwise
+     * keep that paste's **literal text** in the cache file for the whole year, with every other
+     * assertion about the cap still green. Read as the written text rather than through the API,
+     * because *what is on the disk* is the claim.
+     */
+    fun `test what the platform writes holds nothing past the age cap`() {
+        val sidecar = PlaceholderSidecar.getInstance(project)
+
+        sidecar.loadState(recordedAt(Instant.now()))
+        assertTrue(
+            "the check is vacuous: a literal recorded now is not in the file either",
+            "acme-live" in JDOMUtil.write(XmlSerializer.serialize(sidecar.state)),
+        )
+
+        sidecar.loadState(recordedAt(Instant.now().minus(Duration.ofDays(400))))
+        assertFalse(
+            "a year-old literal is still written to the cache file",
+            "acme-live" in JDOMUtil.write(XmlSerializer.serialize(sidecar.state)),
+        )
     }
 
     /**
@@ -187,5 +205,16 @@ class PlaceholderSidecarTest : JavaSnippetTestCase() {
             "the mapping shares the cache tier the sidecar asked for, so one wipe would take both",
             PlaceholderLedger::class.java.getAnnotation(State::class.java).storages.single().value == storage.value,
         )
+    }
+
+    /** One invocation naming one literal, sent at [at] — the shape an IDE that has been open a long time is holding. */
+    private fun recordedAt(at: Instant) = PlaceholderSidecar.State().also { state ->
+        state.invocations += PlaceholderSidecar.InvocationEntry().also { entry ->
+            entry.at = at.toEpochMilli()
+            entry.decodings += PlaceholderSidecar.Decoding().also {
+                it.placeholder = "str1"
+                it.original = "acme-live"
+            }
+        }
     }
 }

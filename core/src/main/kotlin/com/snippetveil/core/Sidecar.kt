@@ -29,25 +29,19 @@ class RecordedInvocation(val at: Instant, val table: Map<String, String>)
  * on.** So the sidecar holds every placeholder a recent invocation minted, and reversal consults it
  * **first, then the persistent mapping.**
  *
- * ### It is cache; the mapping is data
+ * ### Losing a row costs recovery and can never cost correctness
  *
- * Losing this degrades to **under-recovery** — a placeholder past the horizon stays verbatim in the
- * reply, which is a visible gap — and it can **never** produce a wrong name. That is what makes it
- * safe to keep in the IDE's cache directory and to let *Invalidate Caches* wipe it, the exact
- * treatment the persistent mapping refuses. The asymmetry is not a preference: it falls out of
- * fail-obvious, and it is why the two are separate holders rather than one file with two halves.
+ * This is the property everything else about the sidecar is built on — including where the store
+ * that holds it is allowed to live, which is a decision that belongs to whoever writes the file and
+ * is argued there. A placeholder the window has forgotten decodes to nothing, and a reversal renders
+ * that by leaving the word alone: a visible gap in the reply rather than a name a reader has no way
+ * to doubt.
  *
- * **Never a wrong name** is a property of the counter rather than of anything here. A number is
- * burnt when it is handed out and no two symbols in the project's history ever share a placeholder,
- * so a row that survives eviction still says the only thing that row could ever have said. Eviction
- * removes rows; it cannot re-point one.
- *
- * ### It allocates nothing
- *
- * There is no counter in this file and no way to reach one. Numbers come from the single shared
- * counter in the persistent mapping, and the sidecar only ever writes down what the engine already
- * decided — so nothing recorded here can collide with anything in the mapping, by construction
- * rather than by care.
+ * **It holds because of the counter rather than because of anything here.** A number is burnt when
+ * it is handed out and no two symbols in the project's history ever share a placeholder, so a row
+ * that survives eviction still says the only thing that row could ever have said. Eviction removes
+ * rows; it cannot re-point one. And nothing in this file allocates: there is no counter here and no
+ * way to reach one, so what the sidecar holds is only ever what the engine already decided.
  */
 class Sidecar(val invocations: List<RecordedInvocation>) {
 
@@ -83,6 +77,12 @@ class Sidecar(val invocations: List<RecordedInvocation>) {
      *
      * Ordering the two rules does not matter — invocations arrive in time order, so both cuts take a
      * suffix — and they are written age-then-count because that is the order they are argued in.
+     *
+     * **The count cut trusts the order, the age cut trusts the clock, and only one of those can be
+     * moved.** A clock wound backwards between two pastes leaves an invocation whose [Instant] is
+     * older than the one before it, and the age cut can then drop it while keeping its elder. That
+     * costs recovery for one paste and nothing else: the rows it keeps are as true as they ever
+     * were, because what is in a row was never a function of when it was written.
      */
     fun bounded(now: Instant, bound: SidecarBound = SidecarBound.DEFAULT): Sidecar {
         val horizon = now.minus(bound.age)
