@@ -363,12 +363,13 @@ class InternalLibraryTest {
     }
 
     /**
-     * A library symbol whose package the plan could not name is preserved, which is the fail-open
-     * direction and the only one available: a prefix match over a package nobody reported would be a
-     * match against nothing at all.
+     * **A library symbol in the default package lies under no prefix**, so it is preserved — a
+     * correct negative rather than a fail-open on missing evidence. `null` here is not *the builder
+     * could not tell*; it is the fact that there is no package, and no prefix can claim or disown
+     * one that does not exist.
      */
     @Test
-    fun `a library symbol with no package is preserved`() {
+    fun `a library symbol in the default package is preserved`() {
         val plan = planOf(
             "Money total;",
             symbol("Money", SymbolRole.TYPE, SymbolOrigin.LIBRARY),
@@ -404,6 +405,66 @@ class InternalLibraryTest {
         )
 
         assertEquals("Type1 local2 = Assert.notNull(local3);", anonymize(plan, settings, LedgerSnapshot.EMPTY).text)
+    }
+
+    /**
+     * **A project method overriding an internal-library one renames**, and the two render as one
+     * name — which is the same rule the project's own chains follow, arriving here because the jar
+     * is now the project's too.
+     *
+     * Before this rule the project method was preserved, because its root was not `IN_CONTENT` and
+     * that was the whole test. It is a behaviour change rather than a side effect, and it is the
+     * coherent one: the root renames, so a call site keeping the old name is the contradiction the
+     * name constraint exists to prevent.
+     */
+    @Test
+    fun `a project method overriding an internal library method renames as one name`() {
+        val plan = planOf(
+            "public void post() { delegate.post(); }",
+            symbol(
+                "post",
+                SymbolRole.METHOD,
+                SymbolOrigin.IN_CONTENT,
+                key = "method:com.acme.web.Journal#post",
+                packageName = "com.acme.web",
+                overrideRoots = listOf(
+                    OverrideRoot("method:com.acme.commons.Postable#post", SymbolOrigin.LIBRARY, packageName = "com.acme.commons"),
+                ),
+            ),
+            symbol("delegate", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT),
+            rootPackage = "com.acme",
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals("public void method1() { local2.method1(); }", result.text)
+    }
+
+    /**
+     * And the same method against a *genuine* third-party root keeps its name, which is what says
+     * the test above is about ownership rather than about the constraint having been dropped.
+     */
+    @Test
+    fun `a project method overriding a third-party one still keeps its name`() {
+        val plan = planOf(
+            "public void post() { delegate.post(); }",
+            symbol(
+                "post",
+                SymbolRole.METHOD,
+                SymbolOrigin.IN_CONTENT,
+                key = "method:com.acme.web.Journal#post",
+                packageName = "com.acme.web",
+                overrideRoots = listOf(
+                    OverrideRoot("method:org.springframework.Postable#post", SymbolOrigin.LIBRARY, packageName = "org.springframework"),
+                ),
+            ),
+            symbol("delegate", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT),
+            rootPackage = "com.acme",
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals("public void post() { local1.post(); }", result.text)
     }
 
     /**

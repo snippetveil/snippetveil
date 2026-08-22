@@ -85,9 +85,10 @@ class NoPersistentStateIsRoamableTest {
      * could not tell* must never read the same as *the rule was satisfied*.
      */
     private fun roamableIn(holders: List<JavaClass>): List<String> =
-        holders.filter { holder -> roamingTypesOf(holder).let { it.isEmpty() || it.any { type -> type != DISABLED } } }
-            .map { it.name }
-            .distinct()
+        holders.filter { holder ->
+            val declared = roamingTypesOf(holder)
+            declared.isEmpty() || declared.any { it != DISABLED }
+        }.map { it.name }.distinct()
 
     /**
      * The roaming type of each `@Storage` on [holder], read out of the bytecode — and

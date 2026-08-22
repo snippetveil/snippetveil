@@ -48,6 +48,14 @@ internal class InternalLibrarySettings : PersistentStateComponent<InternalLibrar
     /**
      * The serialized bean, which is the shape the platform reads and writes by reflection.
      *
+     * **[State.autoDetectRootPackage] is persisted, and that is worth defending rather than
+     * assuming**, because switching it off is a reduction against what the plugin does out of the
+     * box. It clears the rule under the same argument the removals clear it: the baseline is a spine
+     * rule that preserved every library symbol, and off is exactly that baseline. It also adds no
+     * capability the removals do not already have — a project can disable the heuristic today by
+     * putting its own root package in [State.thirdPartyPrefixes], since a tie goes to the removal —
+     * so this is a more direct spelling of a switch the ticket authorised, not a second knob.
+     *
      * Mutable `var`s and a `MutableList` because that is what `XmlSerializer` requires, rather than
      * because anything here mutates them: [policy] copies the lists on the way out, so the engine
      * is handed the immutable value it expects and no caller can reach back through it.

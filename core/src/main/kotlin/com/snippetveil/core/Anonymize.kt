@@ -380,8 +380,8 @@ private fun countsOf(
  * a reason to keep a name, so it renames and shares a placeholder like any other project chain.
  */
 private fun isNameConstrained(symbol: SymbolEvidence, ownership: Ownership): Boolean =
-    ownership.owns(symbol.origin, symbol.packageName) &&
-        (symbol.overrideRoots.any { !ownership.owns(it.origin, it.packageName) } ||
+    ownership.owns(symbol) &&
+        (symbol.overrideRoots.any { !ownership.owns(it) } ||
             (symbol.role == SymbolRole.METHOD && symbol.declaredName in PLATFORM_CONSTRAINED_NAMES))
 
 /**
@@ -431,6 +431,11 @@ private val PLATFORM_CONSTRAINED_NAMES =
  * [AnonymizationSettings.preservedUnknowns] is read here and nowhere else, which is what confines
  * the product's one deliberate fail-open to the branch it was granted for: the spine rule above it
  * reads no setting at all.
+ *
+ * The first three arms are what [Ownership.owns] answers, and this deliberately does not delegate to
+ * it. An exhaustive `when` over [SymbolOrigin] is a compile error the day a fifth origin is added,
+ * which is exactly the moment somebody has to decide what becomes of it — and folding three arms
+ * into one call would trade that for two lines.
  */
 private fun isAnonymized(
     symbol: SymbolEvidence,
@@ -458,15 +463,11 @@ private fun isAnonymized(
 
 /**
  * **Which library packages this invocation treats as the project's own code**, resolved once from
- * [InternalLibraries] and the analysed file's root package.
+ * [InternalLibraries] — where the policy and the reasoning behind it are stated — and the analysed
+ * file's root package.
  *
  * The two prefix lists are combined into one classification rather than applied in sequence, because
- * a sequence has no answer for `com.acme` and `com.acme.oss` stated together: **the longest matching
- * prefix decides**, and on an exact tie the removal wins, since a human who typed a prefix out is
- * answering the heuristic that guessed it.
- *
- * A blank prefix is dropped rather than matched. It is what an empty row in the settings list
- * produces, and `""` is a prefix of everything.
+ * a sequence has no answer for `com.acme` and `com.acme.oss` stated together.
  */
 private class Ownership(libraries: InternalLibraries, rootPackage: String?) {
 
@@ -479,9 +480,10 @@ private class Ownership(libraries: InternalLibraries, rootPackage: String?) {
     /**
      * Whether a symbol declared in [packageName] is the company's own code arriving as a jar.
      *
-     * `null` — a symbol the plan builder could not place in a package — matches nothing. That is
-     * fail-open and it is the only direction available: a prefix match against a package nobody
-     * reported would be a match against nothing at all.
+     * **`null` is the default package, and the default package lies under no prefix** — so it is a
+     * correct negative rather than a fail-open on missing evidence. A library class with no package
+     * cannot be imported and therefore cannot be named from the file under analysis by anything but
+     * its bare name; there is no prefix that could claim it and none that could disown it.
      */
     fun claims(packageName: String?): Boolean {
         if (packageName == null) return false
@@ -491,10 +493,15 @@ private class Ownership(libraries: InternalLibraries, rootPackage: String?) {
     }
 
     /**
-     * Whether the project owns a symbol with this origin and package — the question every rule about
-     * *our code* asks, now that two origins can answer it.
+     * Whether the project owns this symbol — the question every rule about *our code* asks, now that
+     * two origins can answer it.
      */
-    fun owns(origin: SymbolOrigin, packageName: String?): Boolean = when (origin) {
+    fun owns(symbol: SymbolEvidence): Boolean = owns(symbol.origin, symbol.packageName)
+
+    /** The same question, of one root of an override chain. See [OverrideRoot.packageName]. */
+    fun owns(root: OverrideRoot): Boolean = owns(root.origin, root.packageName)
+
+    private fun owns(origin: SymbolOrigin, packageName: String?): Boolean = when (origin) {
         SymbolOrigin.IN_CONTENT -> true
         SymbolOrigin.LIBRARY -> claims(packageName)
         SymbolOrigin.JDK, SymbolOrigin.UNRESOLVED -> false

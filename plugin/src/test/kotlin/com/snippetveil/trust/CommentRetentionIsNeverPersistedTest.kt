@@ -33,9 +33,9 @@ class CommentRetentionIsNeverPersistedTest {
      * something to find today: the flag exists, on exactly one class, and that class is the
      * per-invocation settings object.
      *
-     * **This is the load-bearing assertion while there is no persistence to check.** It fails the
-     * moment `keepComments` is declared anywhere else — on a service, on a state bean, on a
-     * component — whether or not that class has yet been wired up to be persisted.
+     * It fails the moment `keepComments` is declared anywhere else — on a service, on a state bean,
+     * on a component — whether or not that class has yet been wired up to be persisted, which is
+     * what makes it a check on the *shape* of the flag rather than on today's wiring.
      */
     @Test
     fun `keeping comments is declared on the per-invocation settings and nowhere else`() {

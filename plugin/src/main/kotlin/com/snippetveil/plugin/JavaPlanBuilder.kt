@@ -836,10 +836,10 @@ internal object JavaPlanBuilder : PlanBuilder {
     /**
      * The analysed file's root package — `com.acme` out of `com.acme.web.PaymentController`.
      *
-     * Nothing reads it yet. It is here because it is a *fact about the file* that the ticket
-     * treating internal-org libraries as project code needs, and facts belong on the plan: the
-     * builder must not pre-judge, so the prefix match itself stays in the engine where it is
-     * testable against a plan literal with no IDE involved.
+     * A *fact about the file*, and the one the internal-library rule is derived from: a library
+     * symbol under this prefix is the company's own code arriving as a jar. Facts belong on the
+     * plan — the builder must not pre-judge, so the prefix match itself stays in the engine where it
+     * is testable against a plan literal with no IDE involved.
      */
     private fun rootPackageOf(file: PsiFile): String? =
         (file as? PsiJavaFile)?.packageName
