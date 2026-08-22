@@ -36,13 +36,13 @@ class PackageRenamingTest {
             }
         """.trimIndent()
 
-        val plan = planPlacing(
+        val plan = planOf(
             text,
-            at(0, pkg("com", SymbolOrigin.IN_CONTENT)),
-            at(0, pkg("com.acme", SymbolOrigin.IN_CONTENT)),
-            at(0, pkg("com.acme.billing", SymbolOrigin.IN_CONTENT)),
-            at(0, symbol("Payment", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.billing.Payment")),
-            at(0, symbol("payment", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:class:Ledger#payment")),
+            pkg("com", SymbolOrigin.IN_CONTENT),
+            pkg("com.acme", SymbolOrigin.IN_CONTENT),
+            pkg("com.acme.billing", SymbolOrigin.IN_CONTENT),
+            symbol("Payment", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.billing.Payment"),
+            symbol("payment", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:class:Ledger#payment"),
         )
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
@@ -66,7 +66,10 @@ class PackageRenamingTest {
      *
      * The numbers come from one counter shared by every role — `pkg2` and `Type3` are consecutive
      * because they were allocated consecutively — which is the invariant that makes a placeholder
-     * mean exactly one thing across a whole output.
+     * mean exactly one thing across a whole output. **That is why these are not the numbers the
+     * ticket illustrates** (`com.pkg1.pkg2.Type1`): a per-role counter is what would produce them,
+     * and it is the thing the shared counter exists to rule out. The structure the illustration is
+     * about — which segments agree and which do not — is exactly as drawn.
      */
     @Test
     fun `types in one package share their package placeholder and types elsewhere do not`() {
@@ -103,6 +106,35 @@ class PackageRenamingTest {
     }
 
     /**
+     * **The stated limit of the rule above, asserted rather than left to be discovered.**
+     *
+     * The pass-through is *positional* — the segment with nothing before it — so a project rooted at
+     * a single-segment package emits that segment verbatim, and `billing` is a domain word where
+     * `com` is not. The alternative is a list of names preserved by spelling, which is the one thing
+     * this product has ruled out everywhere else: a preserve list leaks by construction and there is
+     * nowhere to stop adding to it.
+     *
+     * This is green on purpose. It says what today's rule does, so that changing the rule is a
+     * deliberate edit to an assertion rather than a golden quietly shifting under someone.
+     */
+    @Test
+    fun `a single-segment project package is passed through, domain word and all`() {
+        val text = "billing.Payment payment;"
+
+        val plan = planOf(
+            text,
+            pkg("billing", SymbolOrigin.IN_CONTENT),
+            symbol("Payment", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:billing.Payment"),
+            symbol("payment", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:class:Ledger#payment"),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        result.assertKeptItsName(TOP_LEVEL, "billing")
+        assertEquals("billing.Type1 field2;", result.text)
+    }
+
+    /**
      * A package the project does not own is preserved whole, by the spine rule and nothing else:
      * `java.util` is not renamed because it is the JDK's, not because of where the dots fall.
      *
@@ -113,20 +145,22 @@ class PackageRenamingTest {
     fun `a JDK package is preserved whole`() {
         val text = "java.util.List<String> rows;"
 
-        val plan = planPlacing(
+        val plan = planOf(
             text,
-            at(0, pkg("java", SymbolOrigin.JDK)),
-            at(0, pkg("java.util", SymbolOrigin.JDK)),
-            at(0, symbol("List", SymbolRole.TYPE, SymbolOrigin.JDK, key = "class:java.util.List")),
-            at(0, symbol("String", SymbolRole.TYPE, SymbolOrigin.JDK, key = "class:java.lang.String")),
-            at(0, symbol("rows", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:class:Ledger#rows")),
+            pkg("java", SymbolOrigin.JDK),
+            pkg("java.util", SymbolOrigin.JDK),
+            symbol("List", SymbolRole.TYPE, SymbolOrigin.JDK, key = "class:java.util.List"),
+            symbol("String", SymbolRole.TYPE, SymbolOrigin.JDK, key = "class:java.lang.String"),
+            symbol("rows", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:class:Ledger#rows"),
         )
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
+        result.assertKeptItsName(NOT_OURS, "util")
         assertEquals("java.util.List<String> field1;", result.text)
     }
 }
 
 private const val TOP_LEVEL = "the top-level segment is passed through"
 private const val SAME_PACKAGE = "two types in one package share their package placeholder"
+private const val NOT_OURS = "a package the project does not own is preserved"

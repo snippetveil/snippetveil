@@ -248,8 +248,8 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
      */
     fun `test an import block is rewritten in place and third-party imports are byte-identical`() {
         assertTheHarnessResolves()
-        myFixture.addFileToProject("com/acme/billing/Refund.java", "package com.acme.billing; public class Refund {}")
-        myFixture.addFileToProject("com/acme/web/Controller.java", "package com.acme.web; public class Controller {}")
+        addClassInPackage("com.acme.billing", "Refund")
+        addClassInPackage("com.acme.web", "Controller")
         myFixture.configureByText(
             "Ledger.java",
             """
@@ -288,6 +288,69 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * A static import needs no rule of its own either: the segments resolve as packages, the type as
+     * a type and the member as a member, so the line is rewritten in place like any other import.
+     *
+     * It gets an assertion anyway because the resolution path is the one that could quietly differ —
+     * a static import's reference is its own PSI shape, and a member reported `UNRESOLVED` here
+     * would put `Unknown` in an import line and read as broken code rather than as anonymized code.
+     */
+    fun `test a static import is rewritten in place`() {
+        assertTheHarnessResolves()
+        myFixture.addFileToProject(
+            "com/acme/billing/Limits.java",
+            "package com.acme.billing; public class Limits { public static final int MAX = 5; }",
+        )
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            <selection>import static com.acme.billing.Limits.MAX;
+            import static org.junit.Assert.assertTrue;
+
+            class Ledger {
+                int ceiling = MAX;
+            }</selection>
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "import static com.pkg1.pkg2.Type3.field4;\n" +
+                "import static org.junit.Assert.assertTrue;\n" +
+                "\n" +
+                "class Type5 {\n" +
+                "    int field6 = field4;\n" +
+                "}",
+            clipboard(),
+        )
+    }
+
+    /**
+     * A nested type renames per segment as a package does, and for the same reason: `Payment.Status`
+     * is two symbols, and collapsing them would hide that the enum belongs to the class.
+     */
+    fun `test a qualified nested type renames with its nesting preserved`() {
+        assertTheHarnessResolves()
+        myFixture.addFileToProject(
+            "com/acme/billing/Payment.java",
+            "package com.acme.billing; public class Payment { public enum Status { ACTIVE } }",
+        )
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>com.acme.billing.Payment.Status state;</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals("com.pkg1.pkg2.Type3.Type4 field5;", clipboard())
+    }
+
+    /**
      * A sealed hierarchy needs no rule of its own, and this is the assertion that says so.
      *
      * The targets of a `permits` clause are ordinary type references and rename like any other, and
@@ -296,7 +359,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
      */
     fun `test a sealed hierarchy renames coherently with its permits clause`() {
         assertTheHarnessResolves()
-        myFixture.addFileToProject("com/acme/billing/Refund.java", "package com.acme.billing; public class Refund {}")
+        addClassInPackage("com.acme.billing", "Refund")
         myFixture.configureByText(
             "Payment.java",
             """
@@ -360,7 +423,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 
         assertEquals(
             "@FixMethodOrder(value = MethodSorters.NAME_ASCENDING)\n" +
-                "@Type1(attr2 = \"x\", attr3 = \"y\")\n" +
+                "@Anno1(attr2 = \"x\", attr3 = \"y\")\n" +
                 "class Type4 {\n" +
                 "}",
             clipboard(),

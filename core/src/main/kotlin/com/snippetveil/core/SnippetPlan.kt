@@ -73,10 +73,10 @@ class CommentOccurrence(override val start: Int, override val end: Int) : Occurr
  * @param origin where the symbol's declaring file lives
  * @param declaredName the symbol's own name, which is what a reverse mapping has to hand back
  * @param qualifiedName the symbol's fully-qualified name, for a symbol that has one — `com.acme` for
- *   the package segment written `acme`, and the binary name for a top-level class. The rule that
- *   passes a package's top-level segment through reads it and nothing else reads it at all: a
+ *   the package segment written `acme`, and `com.acme.Payment.Status` for a nested class. The rule
+ *   that passes a package's top-level segment through reads it and nothing else reads it at all: a
  *   qualified name with no dot in it is a top-level package. `null` wherever there is no such name,
- *   which is every local, parameter, member and anonymous class.
+ *   which is every local, parameter, method, field, type parameter and anonymous class.
  * @param signature a method's parameter types, or `null`. Evidence, deliberately **not** part of
  *   [key]: overloads share a name in source, so they share a placeholder, and the engine collapses
  *   them by ignoring this. Reporting it anyway is what lets a later rule change its mind without
@@ -188,6 +188,15 @@ enum class SymbolRole(val placeholderPrefix: String) {
      * name destroys it.
      */
     PACKAGE("pkg"),
+
+    /**
+     * **An annotation type** — `@interface`, which is a type but not one a reader reads as one.
+     *
+     * `@Anno1(attr2 = …)` says *an annotation you cannot see the name of* in a way `@Type1(…)` does
+     * not, and telling the two apart is free: an annotation type is a distinct declaration in Java's
+     * grammar rather than a judgment about what a class is for.
+     */
+    ANNOTATION("Anno"),
 
     /**
      * **An annotation type's attribute** — `name` in `@Column(name = …)`.

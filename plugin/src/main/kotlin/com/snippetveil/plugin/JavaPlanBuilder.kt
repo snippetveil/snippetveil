@@ -13,6 +13,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiField
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiIdentifier
+import com.intellij.psi.PsiImportStaticReferenceElement
 import com.intellij.psi.PsiJavaCodeReferenceElement
 import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiLabeledStatement
@@ -285,9 +286,18 @@ internal object JavaPlanBuilder : PlanBuilder {
      * name preserved verbatim; under fail-closed it would mean a name vouched for on evidence the
      * compiler rejects.
      *
-     * `isValidResult` is accessibility, static-scope correctness and applicability together, and it
-     * is the first two that decide anything here: a call no overload accepts resolves to no element
-     * at all, so applicability is a question that rarely gets asked with an answer in hand.
+     * `isValidResult` is accessibility, static-scope correctness and applicability together, and all
+     * three earn their place: a call whose argument is red code has no applicable overload, and
+     * failing that call closed alongside its argument is the decision *red code spreads, and
+     * fail-closed spreads with it*.
+     *
+     * **A static import is the one shape with no call for applicability to be about**, and it was
+     * failing closed for exactly that reason: `import static org.junit.Assert.assertTrue;` names two
+     * overloads, so `advancedResolve` reports no single element and a third-party name came out as
+     * `Unknown` *inside an import line* — a snippet that then reads as broken rather than as
+     * anonymized. So that shape, and only that shape, is allowed to read its candidates directly.
+     * Widening it to every reference would undo the rule above, which is the whole of why the
+     * fallback is spelled with a type test.
      *
      * `advancedResolve(false)` is the same resolution `PsiCall.resolveMethod()` and
      * `resolveConstructor()` perform for calls — they read the call's own reference — so there is
@@ -296,7 +306,8 @@ internal object JavaPlanBuilder : PlanBuilder {
      */
     private fun validResolutionOf(reference: PsiJavaCodeReferenceElement): PsiElement? {
         val result = reference.advancedResolve(false)
-        val element = result.element ?: return null
+        val element = result.element
+            ?: return if (reference is PsiImportStaticReferenceElement) oneSymbolOf(reference) else null
 
         // A package is not a member, and accessibility is a question about members. The platform
         // answers it for a package anyway, and answers it `false` for the root segment of a
@@ -305,6 +316,30 @@ internal object JavaPlanBuilder : PlanBuilder {
         if (element is PsiPackage) return element
 
         return element.takeIf { result.isValidResult }
+    }
+
+    /**
+     * The one declared symbol a static import's candidates name, or `null` when they name more
+     * than one.
+     *
+     * Overloads are the case this exists for and the only case it admits: they share a name and a
+     * declaring class, so they share a [keyOf] and a placeholder, and picking between them is not a
+     * choice that can be made wrongly. Anything else — two members of the same name reached through
+     * an on-demand import, a reference the IDE genuinely cannot pin down — comes back `null` and
+     * fails closed, because there the candidates are different symbols and the first one is a guess.
+     *
+     * Accessibility and static-scope correctness are still asked. Applicability is not, and cannot
+     * be: an import names a member, never a call.
+     */
+    private fun oneSymbolOf(reference: PsiImportStaticReferenceElement): PsiElement? {
+        val methods = reference.multiResolve(false)
+            .filter { it.isAccessible && it.isStaticsScopeCorrect }
+            .mapNotNull { it.element as? PsiMethod }
+        val first = methods.firstOrNull() ?: return null
+
+        val owner = first.containingClass?.qualifiedName ?: return null
+        val agree = methods.all { it.name == first.name && it.containingClass?.qualifiedName == owner }
+        return first.takeIf { agree }
     }
 
     /**
@@ -385,8 +420,11 @@ internal object JavaPlanBuilder : PlanBuilder {
      * the project contributes domain-named subpackages and classes to, and the segment naming it is
      * the project's word.
      *
-     * A package with no directories at all is nobody's, and is reported as the project's for the
-     * same reason: an unclassifiable name is not one the spine rule may preserve.
+     * A package with no directories at all — a package prefix, and nothing else in practice — is
+     * reported as the project's for the same reason: an unclassifiable name is not one the spine
+     * rule may preserve. **Not [SymbolOrigin.UNRESOLVED]**, which would be a false claim rather than
+     * a safe one: the reference resolved, and *the IDE could not resolve this* is a sentence the
+     * balloon shows a user and the preview lets them act on.
      */
     private fun packageOriginOf(project: Project, symbol: PsiPackage): SymbolOrigin {
         val index = ProjectFileIndex.getInstance(project)
@@ -471,7 +509,9 @@ internal object JavaPlanBuilder : PlanBuilder {
     private fun roleOf(symbol: PsiElement): SymbolRole = when (symbol) {
         // Before PsiClass: a type parameter is one, and a type by any reading of what it names.
         is PsiTypeParameter -> SymbolRole.TYPE
-        is PsiClass -> SymbolRole.TYPE
+        // An annotation type before a plain one: `@interface` is a class declaration and reads as
+        // nothing of the kind.
+        is PsiClass -> if (symbol.isAnnotationType) SymbolRole.ANNOTATION else SymbolRole.TYPE
 
         // One segment of a package name. Never the whole name: the engine renames these one at a
         // time so that same-package and different-package survive the rename.

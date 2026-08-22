@@ -67,6 +67,21 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
     }
 
     /**
+     * A class in [packageName], which is what puts that package in **project content**.
+     *
+     * Not decoration, and not always a class the snippet names: a `PsiPackage` is declared in no
+     * file, so its origin is read off the directories behind it. A fixture that never writes a file
+     * into `com/acme/billing` has no such directory, the package classifies as nobody's, and an
+     * assertion about how project packages rename would be an assertion about the fixture.
+     */
+    protected fun addClassInPackage(packageName: String, className: String) {
+        myFixture.addFileToProject(
+            packageName.replace('.', '/') + "/" + className + ".java",
+            "package $packageName; public class $className {}",
+        )
+    }
+
+    /**
      * Runs the action the way the IDE would — `update` first, then `actionPerformed` only if the
      * presentation came back enabled — and waits for the background analysis to land.
      *

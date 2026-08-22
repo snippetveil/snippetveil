@@ -180,7 +180,7 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
      */
     fun `test package segments are reported per segment with the package each one ends`() {
         assertTheHarnessResolves()
-        myFixture.addFileToProject("com/acme/billing/Refund.java", "package com.acme.billing; public class Refund {}")
+        addClassInPackage("com.acme.billing", "Refund")
         val plan = planFor(
             "Ledger.java",
             """

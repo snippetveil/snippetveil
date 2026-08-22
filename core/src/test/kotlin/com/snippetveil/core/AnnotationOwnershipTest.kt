@@ -35,7 +35,7 @@ class AnnotationOwnershipTest {
 
         val plan = planOf(
             text,
-            symbol("ManyToOne", SymbolRole.TYPE, SymbolOrigin.LIBRARY, key = "class:javax.persistence.ManyToOne"),
+            symbol("ManyToOne", SymbolRole.ANNOTATION, SymbolOrigin.LIBRARY, key = "class:javax.persistence.ManyToOne"),
             symbol(
                 "fetch",
                 SymbolRole.ATTRIBUTE,
@@ -55,9 +55,9 @@ class AnnotationOwnershipTest {
 
     /**
      * A project annotation goes whole the other way: the type **and** the attribute names it
-     * declares. The attribute renders in a namespace of its own — `@Type1(attr2 = …)` rather than
-     * `@Type1(method2 = …)` — because what a reader has to map back is an annotation attribute, and
-     * an attribute is what Java's grammar calls it wherever it is written.
+     * declares. Both render in namespaces of their own — `@Anno1(attr2 = …)` rather than
+     * `@Type1(method2 = …)` — because what a reader has to map back is an annotation and its
+     * attribute, and that is what Java's grammar calls them wherever they are written.
      */
     @Test
     fun `a project annotation's type and its attribute names are anonymized`() {
@@ -65,7 +65,7 @@ class AnnotationOwnershipTest {
 
         val plan = planOf(
             text,
-            symbol("AuditLogged", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.AuditLogged"),
+            symbol("AuditLogged", SymbolRole.ANNOTATION, SymbolOrigin.IN_CONTENT, key = "class:com.acme.AuditLogged"),
             symbol(
                 "action",
                 SymbolRole.ATTRIBUTE,
@@ -83,6 +83,6 @@ class AnnotationOwnershipTest {
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals("""@Type1(attr2 = "AUTHORIZE", attr3 = "PAYMENTS") void method4() {}""", result.text)
+        assertEquals("""@Anno1(attr2 = "AUTHORIZE", attr3 = "PAYMENTS") void method4() {}""", result.text)
     }
 }
