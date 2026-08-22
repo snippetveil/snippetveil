@@ -16,7 +16,9 @@
         into an AI chat.</p>
         <p>This build is a pre-release: <b>Copy Anonymized</b> replaces the names of project-owned
         types, methods, fields, parameters and locals with role-preserving placeholders, and leaves
-        JDK and third-party names untouched. Comments, string literals and package names are not
+        JDK and third-party names untouched. A name the IDE cannot resolve is replaced as well, from
+        an <code>Unknown</code> namespace of its own — so incomplete or not-yet-compiling code is
+        covered rather than copied through. Comments, string literals and package names are not
         handled yet.</p>
     ]]></description>
 

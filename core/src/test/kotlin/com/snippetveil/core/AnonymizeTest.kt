@@ -156,13 +156,13 @@ class AnonymizeTest {
     }
 
     /**
-     * A reference that did not resolve passes through verbatim **for now**. This is a known and
-     * deliberately temporary hole rather than an oversight — failing closed into an `Unknown`
-     * namespace is the next ticket, and pinning today's behaviour is what makes that change show up
-     * as a diff in this file rather than as a silent shift.
+     * **A reference that fails to resolve fails closed into its own namespace.** Passing it through
+     * verbatim is the silent privacy hole this rule exists to close: the snippet a developer is
+     * debugging is exactly the one most likely to contain red code, so this is the common case
+     * rather than an edge case.
      */
     @Test
-    fun `an unresolved reference is preserved by this ticket's rules`() {
+    fun `an unresolved reference is replaced rather than passed through`() {
         val plan = planOf(
             "MissingType x = undefinedVar;",
             symbol("MissingType", SymbolRole.TYPE, SymbolOrigin.UNRESOLVED),
@@ -171,7 +171,117 @@ class AnonymizeTest {
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals("MissingType x = undefinedVar;", result.text)
+        assertEquals("Unknown1 x = Unknown2;", result.text)
+
+        // And they are in the mapping like any other placeholder: a reader holding `Unknown1` out of
+        // the AI's reply has the same claim on knowing what it stood for as one holding `Type1`.
+        assertEquals(mapOf("Unknown1" to "MissingType", "Unknown2" to "undefinedVar"), result.mapping)
+    }
+
+    /**
+     * `Unknown` is a namespace, not a private counter: it draws from the same shared counter every
+     * other role draws from, and it burns a number that would collide with a name surviving into the
+     * output exactly as they do. A reader holding `Unknown1` from an AI's reply has no more scope
+     * context than one holding `Type1`, so the invariant is identical and so is the rule.
+     */
+    @Test
+    fun `an Unknown placeholder shares the counter and never collides with a surviving name`() {
+        val plan = planOf(
+            "Unknown1 mystery = Ledger.of();",
+            symbol("Unknown1", SymbolRole.TYPE, SymbolOrigin.LIBRARY),
+            symbol("mystery", SymbolRole.LOCAL, SymbolOrigin.UNRESOLVED),
+            symbol("Ledger", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT),
+            symbol("of", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        // `Unknown1` is a preserved library class here, so the unresolved name asking for number 1
+        // burns it whole rather than retrying under another prefix — and the project symbols after
+        // it carry on from the same counter, which is what makes the whole output sortable by eye.
+        assertEquals("Unknown1 Unknown2 = Type3.method4();", result.text)
+        assertEquals(5, result.delta.nextNumber)
+    }
+
+    /**
+     * **The result lists every unresolved name against the placeholder it became.** The preview
+     * dialog's per-item `Preserve` is built on exactly this: it needs the real name to show, the
+     * placeholder to show it against, and the key to hand back through [AnonymizationSettings]. A
+     * count alone would name a surface the user cannot act on.
+     */
+    @Test
+    fun `the result lists every unresolved name against its placeholder`() {
+        val plan = planOf(
+            "MissingType x = undefinedVar;",
+            symbol("MissingType", SymbolRole.TYPE, SymbolOrigin.UNRESOLVED, key = "unresolved:MissingType"),
+            symbol("undefinedVar", SymbolRole.LOCAL, SymbolOrigin.UNRESOLVED, key = "unresolved:undefinedVar"),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        // In document order of first occurrence, which is the order the dialog's rows are sorted in.
+        assertEquals(
+            listOf(
+                Triple("unresolved:MissingType", "MissingType", "Unknown1"),
+                Triple("unresolved:undefinedVar", "undefinedVar", "Unknown2"),
+            ),
+            result.unknowns.map { Triple(it.key, it.name, it.placeholder) },
+        )
+    }
+
+    /**
+     * **The one deliberate fail-open in the product**, and it is bought rather than assumed away: a
+     * typo'd JDK call hidden behind a placeholder makes a snippet unanswerable, so one unresolved
+     * item at a time can be released.
+     *
+     * It is **per-invocation only, never persistent**, because the governing rule is that persistent
+     * settings may only ever increase anonymization — a reduction that can be set once and forgotten
+     * silently leaks on every paste after it.
+     */
+    @Test
+    fun `preserving an unresolved name emits it verbatim`() {
+        val plan = planOf(
+            "MissingType x = undefinedVar;",
+            symbol("MissingType", SymbolRole.TYPE, SymbolOrigin.UNRESOLVED, key = "unresolved:MissingType"),
+            symbol("undefinedVar", SymbolRole.LOCAL, SymbolOrigin.UNRESOLVED, key = "unresolved:undefinedVar"),
+        )
+
+        val result = anonymize(
+            plan,
+            AnonymizationSettings(preservedUnknowns = setOf("unresolved:MissingType")),
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals("MissingType x = Unknown1;", result.text)
+
+        // The row stays in the list with no placeholder, so the dialog can offer to take the
+        // override back. And the count is unmoved: it reports what the IDE could not resolve, which
+        // the override does not change.
+        assertEquals(listOf(null, "Unknown1"), result.unknowns.map { it.placeholder })
+        assertEquals(2, result.counts.unknown)
+    }
+
+    /**
+     * **The override must not creep.** A preserve that reached resolved symbols would be the
+     * free-text preserve list this design already rejected, built out of keys instead of text — and
+     * it would put a reduction on the spine rule, which is the one thing no setting may touch. So
+     * the engine ignores a key that does not name an unresolved symbol rather than trusting whoever
+     * assembled the set.
+     */
+    @Test
+    fun `a preserve override cannot reach a resolved project-owned symbol`() {
+        val plan = planOf(
+            "Ledger ledger;",
+            symbol("Ledger", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.Ledger"),
+        )
+
+        val result = anonymize(
+            plan,
+            AnonymizationSettings(preservedUnknowns = setOf("class:com.acme.Ledger")),
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals("Type1 ledger;", result.text)
     }
 
     /**
@@ -195,7 +305,36 @@ class AnonymizeTest {
         assertTrue(result.delta.isEmpty)
     }
 
-    /** The balloon's two numbers count distinct names, not occurrences. */
+    /**
+     * **The three counts partition the distinct names in the snippet, by evidence rather than by
+     * outcome.** `IN_CONTENT` is replaced, `UNRESOLVED` is unknown, the JDK and libraries are
+     * preserved — so the numbers add up to what is in the snippet, and no name is counted twice.
+     *
+     * The `Unknown` count is broken out rather than folded into `replaced` because it is the one
+     * honest quality signal the tool has. Folding it in would hide it; giving it a warning's styling
+     * would invert it, because under fail-closed an `Unknown` *was* anonymized — it is a quality
+     * risk, never a privacy one.
+     */
+    @Test
+    fun `the counts partition the snippet into replaced unknown and preserved`() {
+        val plan = planOf(
+            "Ledger a = Ledger.open(mystery, String.valueOf(count));",
+            symbol("Ledger", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT),
+            symbol("open", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT),
+            symbol("mystery", SymbolRole.LOCAL, SymbolOrigin.UNRESOLVED),
+            symbol("count", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT),
+            symbol("String", SymbolRole.TYPE, SymbolOrigin.JDK),
+            symbol("valueOf", SymbolRole.METHOD, SymbolOrigin.JDK),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals(3, result.counts.replaced)
+        assertEquals(1, result.counts.unknown)
+        assertEquals(2, result.counts.preserved)
+    }
+
+    /** The balloon's numbers count distinct names, not occurrences. */
     @Test
     fun `the counts are distinct names replaced and distinct names preserved`() {
         val plan = planOf(

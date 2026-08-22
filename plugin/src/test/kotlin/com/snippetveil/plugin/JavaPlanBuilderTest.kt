@@ -99,6 +99,10 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
      * A reference that resolves to nothing is reported as unresolved rather than dropped. Red code
      * is ordinary — it is the state the snippet a developer is debugging is usually in — and what to
      * do about it is the engine's call, not the builder's.
+     *
+     * The builder's half of it has to be exact, though, now that the engine fails these closed and
+     * the count is on the balloon: **"the IDE could not resolve this" is a claim, and reporting it
+     * about a reference the builder never asked the IDE about would be a false one.**
      */
     fun `test an unresolved reference is reported as UNRESOLVED`() {
         assertTheHarnessResolves()
@@ -114,6 +118,31 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
         assertEquals(
             listOf("MissingType" to SymbolOrigin.UNRESOLVED, "undefinedVar" to SymbolOrigin.UNRESOLVED),
             plan.symbols().filter { it.text != "x" }.map { it.text to it.symbol.origin },
+        )
+    }
+
+    /**
+     * **A resolution the language would reject is not a resolution.** `String.length()` names a real
+     * JDK method and a plain `resolve()` hands it straight back, so the plan would report `JDK` and
+     * the engine would preserve the name on the strength of it. An instance method cannot be reached
+     * through a class name, so what the IDE can actually vouch for here is nothing, and that is what
+     * the plan says.
+     */
+    fun `test a reference the language rejects is reported as UNRESOLVED`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>static int broken() { return String.length(); }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        // The qualifier resolves cleanly and is unaffected: only the member reached through it goes.
+        assertEquals(
+            listOf("String" to SymbolOrigin.JDK, "length" to SymbolOrigin.UNRESOLVED),
+            plan.symbols().filter { it.text != "broken" }.map { it.text to it.symbol.origin },
         )
     }
 

@@ -15,8 +15,9 @@ import java.awt.datatransfer.StringSelection
  * clipboard, through the real action, the real PSI and the real index.
  *
  * Every test that depends on resolution calls [assertTheHarnessResolves] first. That is not
- * ceremony — an unresolved reference is *preserved* by this ticket's rules, so a fixture that
- * silently stopped resolving would turn this entire file green while proving nothing.
+ * ceremony — a fixture that silently stopped resolving would classify the JDK, every library and
+ * all of the user's own code alike as `Unknown`, and every assertion here that only checks a name
+ * was concealed would stay green while proving nothing.
  */
 class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 
@@ -387,15 +388,18 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
      */
     fun `test a snippet with nothing of the project's in it is copied anyway`() {
         assertTheHarnessResolves()
+        // Inside a method body, which is the only place this is legal Java. It used to sit straight
+        // in the class body, where `valueOf` does not resolve — so the assertion that a JDK call is
+        // *preserved* was passing on a name that was never classified as one.
         myFixture.configureByText(
             "Ledger.java",
-            "class Ledger { <selection>String.valueOf(1);</selection> }",
+            "class Ledger { void audit() { <selection>String.valueOf(1);</selection> } }",
         )
 
         invokeCopyAnonymized()
 
         assertEquals("String.valueOf(1);", clipboard())
-        assertEquals("0 names replaced · 2 preserved", notifications.single().content)
+        assertEquals("0 names replaced · 0 unknown · 2 preserved", notifications.single().content)
     }
 
     /** The balloon states mechanism and makes no claim about what it means. */
@@ -410,8 +414,148 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 
         val balloon = notifications.single()
         assertEquals("Anonymized snippet copied", balloon.title)
-        assertEquals("2 names replaced · 2 preserved", balloon.content)
+        assertEquals("2 names replaced · 0 unknown · 2 preserved", balloon.content)
         assertEquals(NotificationType.INFORMATION, balloon.type)
+    }
+
+    /**
+     * **Red code is the common case, not an edge case** — the snippet a developer is debugging is
+     * exactly the one most likely to contain names the IDE cannot resolve. Every one of them fails
+     * closed into its own namespace rather than passing through verbatim, which is what this used to
+     * do: `MerchantAccount`, `settlementStage` and `merchantReference` are precisely the domain
+     * vocabulary the tool exists to remove.
+     */
+    fun `test names in red code fail closed into the Unknown namespace`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>void audit(MerchantAccount account) {
+                    settlementStage = account.merchantReference;
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        // `Unknown`, never `Type` — a uniform type placeholder would invite the model to reason
+        // confidently about a phantom symbol, where `Unknown2` says the IDE could not resolve it.
+        assertEquals(
+            "void method1(Unknown2 param3) {\n" +
+                "        Unknown4 = param3.Unknown5;\n" +
+                "    }",
+            clipboard(),
+        )
+
+        // **Information level with the count at its highest, which is where the level is a
+        // decision.** Under fail-closed every one of these three *was* anonymized, so the count is a
+        // quality risk and never a privacy one — a warning here would train the user to read our
+        // alarm as "this might have leaked", which is exactly backwards.
+        val balloon = notifications.single()
+        assertEquals("2 names replaced · 3 unknown · 0 preserved", balloon.content)
+        assertEquals(NotificationType.INFORMATION, balloon.type)
+    }
+
+    /**
+     * A missing import, which is the shape red code most often takes — and the case that shows why
+     * unresolved names skew heavily project-owned. `Money` is the user's own class either way; the
+     * only difference between `Type` and `Unknown` here is whether the file imported it.
+     */
+    fun `test a missing import fails closed rather than passing the name through`() {
+        assertTheHarnessResolves()
+        myFixture.addFileToProject("com/acme/Money.java", "package com.acme; public class Money {}")
+        myFixture.configureByText(
+            "Ledger.java",
+            "class Ledger { <selection>Money settle(Money owed) { return owed; }</selection> }",
+        )
+
+        invokeCopyAnonymized()
+
+        // One name, one placeholder, both occurrences — unresolved names are keyed on what they are
+        // written as, which is all there is to key them on.
+        assertEquals("Unknown1 method2(Unknown1 param3) { return param3; }", clipboard())
+        assertEquals("2 names replaced · 1 unknown · 0 preserved", notifications.single().content)
+    }
+
+    /**
+     * **A reference resolution reaches only by breaking a rule of the language has not resolved.**
+     * `String.length()` names a real JDK method and a plain `resolve()` hands it straight back; the
+     * compiler rejects the call, because an instance method cannot be reached through a class name.
+     * Fail-closed asks whether the resolution was *valid*, so this reads as red code and is reported
+     * as such rather than being vouched for as a JDK name.
+     *
+     * This is the exact case the per-item `Preserve` override exists to buy off — a typo'd JDK call
+     * hidden behind a placeholder — which is why the answer here can afford to be the strict one.
+     */
+    fun `test a reference the language rejects is treated as unresolved`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            "class Ledger { <selection>static int broken() { return String.length(); }</selection> }",
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals("static int method1() { return String.Unknown2(); }", clipboard())
+    }
+
+    /**
+     * A label is reached through the statement's own reference rather than through the identifier's
+     * parent, so the walk has to ask for it by name. Until this ticket that omission was invisible —
+     * the label passed through verbatim, which was a leak. Failing closed made it visible instead, as
+     * `break Unknown3` against a `local1:` declaration.
+     *
+     * Reporting it as unresolved would be the builder saying *the IDE could not resolve this* about a
+     * reference it never asked the IDE about — and now that the `Unknown` count is a product surface,
+     * that is a false reading of the one quality signal the tool has.
+     */
+    fun `test a label reference renders as the label's own placeholder`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                void audit() {
+                    <selection>settlement:
+                    for (int row = 0; row < 2; row++) { break settlement; }</selection>
+                }
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "local1:\n" +
+                "        for (int local2 = 0; local2 < 2; local2++) { break local1; }",
+            clipboard(),
+        )
+    }
+
+    /**
+     * **Red code spreads, and fail-closed spreads with it.** An argument the IDE cannot resolve
+     * leaves the surrounding call with no overload to pick, so `valueOf` — a name nobody needs
+     * hidden — resolves to nothing and fails closed alongside it.
+     *
+     * This is the case the per-item `Preserve` override was created for and the reason it is a
+     * stated residual gap rather than a problem assumed away: a JDK call hidden behind a placeholder
+     * can cost a snippet its answerability, and one click in the preview buys it back for that
+     * invocation only.
+     */
+    fun `test a JDK call is failed closed when its argument is red code`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            "class Ledger { void audit() { <selection>String.valueOf(undefinedVar);</selection> } }",
+        )
+
+        invokeCopyAnonymized()
+
+        // `String` still resolves and is still preserved: only the call the unresolved argument
+        // took down with it goes.
+        assertEquals("String.Unknown1(Unknown2);", clipboard())
     }
 
     /**

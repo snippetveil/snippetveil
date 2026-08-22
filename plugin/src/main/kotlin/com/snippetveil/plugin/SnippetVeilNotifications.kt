@@ -25,16 +25,23 @@ internal object SnippetVeilNotifications {
     /**
      * States what happened, in mechanism, and makes no claim about what it means.
      *
-     * *"14 names replaced · 22 preserved"* is a count of an operation. There is no "safe to paste",
-     * no "sanitized", no adjective at all — a category claim is the one thing a user would act on,
-     * and it is the one thing this tool is not in a position to make. Zero replacements gets the
-     * same balloon with a zero in it, which is a truthful and useful reading: it is the moment
-     * someone discovers the snippet they were worried about contains nothing of theirs.
+     * *"14 names replaced · 3 unknown · 22 preserved"* is a count of an operation. There is no "safe
+     * to paste", no "sanitized", no adjective at all — a category claim is the one thing a user would
+     * act on, and it is the one thing this tool is not in a position to make. Zero gets the same
+     * balloon with a zero in it, which is a truthful and useful reading: it is the moment someone
+     * discovers the snippet they were worried about contains nothing of theirs. Every number is shown
+     * every time for that reason, rather than the middle one appearing only when it fires.
+     *
+     * **The unknown count is here at information level, and the level is the decision.** Under
+     * fail-closed an `Unknown` *was* anonymized — it is a quality risk, never a privacy one — so
+     * styling it as a warning would train the user to read our alarm as *"this might have leaked"*,
+     * which is precisely the inversion this product cannot afford. It is a displayable measure of
+     * how much of the snippet the IDE could not vouch for, and that is all it claims to be.
      */
     fun copied(project: Project, counts: NameCounts) {
         group().createNotification(
             "Anonymized snippet copied",
-            "${counts.replaced} names replaced · ${counts.preserved} preserved",
+            "${counts.replaced} names replaced · ${counts.unknown} unknown · ${counts.preserved} preserved",
             NotificationType.INFORMATION,
         ).notify(project)
     }

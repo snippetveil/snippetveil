@@ -4,8 +4,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.JdkOrderEntry
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.TextRange
+import com.intellij.psi.PsiBreakStatement
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiComment
+import com.intellij.psi.PsiContinueStatement
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiField
 import com.intellij.psi.PsiFile
@@ -163,15 +165,23 @@ internal object JavaPlanBuilder : PlanBuilder {
      * What is known about the symbol [identifier] names, or `null` when this ticket's rules have
      * nothing to say about it.
      *
-     * Two shapes and no more: an identifier is either part of a reference, which resolves, or the
-     * name of a declaration, which *is* the symbol. Everything else — keywords, the segments of a
-     * package name — falls through.
+     * Three shapes: an identifier is part of a reference, which resolves; or the name of a
+     * declaration, which *is* the symbol; or a label named by a `break` or `continue`, where the
+     * reference hangs off the statement rather than off the identifier's own parent and has to be
+     * asked for by name. Everything else — keywords, the segments of a package name — falls through.
+     *
+     * The label case is small and it is not optional. Without it a jump to a label the selection
+     * declares reports as *unresolved* — which would fail the name closed into `Unknown3` while its
+     * own declaration two lines up rendered as `local1`, and would put a name the builder never
+     * asked the IDE about into the count the balloon shows.
      */
     private fun evidenceFor(project: Project, identifier: PsiIdentifier): SymbolEvidence? {
         val parent = identifier.parent
         val declaration = when {
-            parent is PsiJavaCodeReferenceElement -> parent.resolve()
+            parent is PsiJavaCodeReferenceElement -> validResolutionOf(parent)
             parent is PsiNameIdentifierOwner && parent.nameIdentifier === identifier -> parent
+            parent is PsiBreakStatement && parent.labelIdentifier === identifier -> parent.reference?.resolve()
+            parent is PsiContinueStatement && parent.labelIdentifier === identifier -> parent.reference?.resolve()
             else -> null
         }
 
@@ -188,13 +198,18 @@ internal object JavaPlanBuilder : PlanBuilder {
 
         val declaredName = (declaration as? PsiNameIdentifierOwner)?.name ?: identifier.text
 
-        // An identifier that resolved to nothing is reported as unresolved rather than dropped: the
-        // engine decides what that means, and the ticket that fails it closed into an `Unknown`
-        // namespace changes its mind about it.
+        // An identifier that resolved to nothing is reported as unresolved rather than dropped, and
+        // the engine fails it closed into the `Unknown` namespace. Red or incomplete code is normal
+        // rather than exceptional, and the snippet a developer is debugging is the likely one.
         //
-        // The role of a name that did not resolve is not knowable, and no rule reads this one — an
-        // unresolved symbol is never given a placeholder, so the prefix it would have used never
-        // comes up. It is filled in rather than made nullable so that every other role stays a fact.
+        // Keyed on the text, which is the only thing there is to key an unresolved name on. Two
+        // distinct symbols spelled alike therefore share a placeholder — the reverse mapping stays
+        // well-defined, since `Unknown1` still stands for exactly one *name*, which is all a reader
+        // can be handed back about a name that resolved to nothing.
+        //
+        // The role of a name that did not resolve is not knowable, and no rule reads this one: the
+        // engine takes the namespace off the origin precisely because the role would be an
+        // invention. It is filled in rather than made nullable so that every other role stays a fact.
         val symbol = declaration?.let(::declaredSymbolOf) ?: return SymbolEvidence(
             key = "unresolved:" + identifier.text,
             role = SymbolRole.TYPE,
@@ -211,6 +226,39 @@ internal object JavaPlanBuilder : PlanBuilder {
                 method.parameterList.parameters.joinToString(",", "(", ")") { it.type.canonicalText }
             },
         )
+    }
+
+    /**
+     * What [reference] resolves to, or `null` when the resolution is one the language would reject.
+     *
+     * `resolve()` is not enough. It hands back `advancedResolve(false).element` whatever the resolve
+     * result says about it, so a reference that only reaches its target by breaking a rule — an
+     * inaccessible member, an instance member reached through a class name — comes back looking
+     * exactly like a clean resolution. Under the old rules that meant a JDK or library origin and a
+     * name preserved verbatim; under fail-closed it would mean a name vouched for on evidence the
+     * compiler rejects.
+     *
+     * `isValidResult` is accessibility, static-scope correctness and applicability together, and it
+     * is the first two that decide anything here: a call no overload accepts resolves to no element
+     * at all, so applicability is a question that rarely gets asked with an answer in hand.
+     *
+     * `advancedResolve(false)` is the same resolution `PsiCall.resolveMethod()` and
+     * `resolveConstructor()` perform for calls — they read the call's own reference — so there is
+     * nothing further to ask on their behalf. A constructor is handled a step later, by
+     * [declaredSymbolOf], because its identifier names its class rather than the constructor.
+     */
+    private fun validResolutionOf(reference: PsiJavaCodeReferenceElement): PsiElement? {
+        val result = reference.advancedResolve(false)
+        val element = result.element ?: return null
+
+        // A package is not a member, and accessibility is a question about members. The platform
+        // answers it for a package anyway, and answers it `false` for the root segment of a
+        // qualified name — `java` in `java.util.List` — so gating on it here would fail the segment
+        // closed and put `Unknown2.util.List` on the clipboard. Packages are left alone by the rule
+        // below for reasons of their own; this only keeps them from being called unresolved.
+        if (element is PsiPackage) return element
+
+        return element.takeIf { result.isValidResult }
     }
 
     /**
