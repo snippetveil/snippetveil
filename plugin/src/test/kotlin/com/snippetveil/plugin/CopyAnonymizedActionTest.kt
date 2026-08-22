@@ -200,12 +200,15 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
-     * Package names are left alone, deliberately and temporarily. They rename per segment, so that
-     * same-package and different-package stay distinguishable, and that rule is its own ticket —
-     * until it lands, folding `java` in `java.util.List` into the type namespace would be strictly
-     * worse than leaving it be.
+     * A qualified name the project does not own survives segment by segment, and a selection that
+     * excludes the file's import block simply has nothing to rewrite — which is the common case, and
+     * the one a user selecting a method body gets.
+     *
+     * `java.util.List` is preserved because the JDK owns every part of it, not because of where the
+     * dots fall: a package's origin is asked of the directories behind it exactly as a type's is
+     * asked of its file.
      */
-    fun `test package names are not touched yet`() {
+    fun `test a qualified JDK name is preserved segment by segment`() {
         assertTheHarnessResolves()
         myFixture.configureByText(
             "Ledger.java",
@@ -223,6 +226,205 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         assertEquals(
             "class Type1 {\n" +
                 "    java.util.List<String> field2;\n" +
+                "}",
+            clipboard(),
+        )
+    }
+
+    /**
+     * **The golden for an import block rewritten in place** — and one of the few things here a
+     * structural assertion cannot express, because what is being asserted is that the lines are
+     * still *there*, still in order, and still spelled like imports.
+     *
+     * **A missing import is indistinguishable from a bug and the reviewer will report it.** That is
+     * the manufactured-false-positive failure this rule exists to prevent, and dropping lines a user
+     * selected is separately the kind of surprise that costs trust. So imports of anonymized project
+     * types are rewritten, never deleted, and third-party imports come out byte-identical.
+     *
+     * Read the package placeholders across the three qualified names: `com` is passed through,
+     * `com.acme` is `pkg1` in both of the project's own, and `com.acme.web` is `pkg3` where
+     * `com.acme.billing` is `pkg2`. Same-package and different-package survive the rename, which is
+     * the whole reason segments are renamed one at a time.
+     */
+    fun `test an import block is rewritten in place and third-party imports are byte-identical`() {
+        assertTheHarnessResolves()
+        addClassInPackage("com.acme.billing", "Refund")
+        addClassInPackage("com.acme.web", "Controller")
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            <selection>package com.acme.billing;
+
+            import com.acme.web.Controller;
+            import org.junit.Assert;
+
+            class Ledger {
+                Controller controller;
+
+                void audit() {
+                    Assert.assertNotNull(controller);
+                }
+            }</selection>
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "package com.pkg1.pkg2;\n" +
+                "\n" +
+                "import com.pkg1.pkg3.Type4;\n" +
+                "import org.junit.Assert;\n" +
+                "\n" +
+                "class Type5 {\n" +
+                "    Type4 field6;\n" +
+                "\n" +
+                "    void method7() {\n" +
+                "        Assert.assertNotNull(field6);\n" +
+                "    }\n" +
+                "}",
+            clipboard(),
+        )
+    }
+
+    /**
+     * A static import needs no rule of its own either: the segments resolve as packages, the type as
+     * a type and the member as a member, so the line is rewritten in place like any other import.
+     *
+     * It gets an assertion anyway because the resolution path is the one that could quietly differ —
+     * a static import's reference is its own PSI shape, and a member reported `UNRESOLVED` here
+     * would put `Unknown` in an import line and read as broken code rather than as anonymized code.
+     */
+    fun `test a static import is rewritten in place`() {
+        assertTheHarnessResolves()
+        myFixture.addFileToProject(
+            "com/acme/billing/Limits.java",
+            "package com.acme.billing; public class Limits { public static final int MAX = 5; }",
+        )
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            <selection>import static com.acme.billing.Limits.MAX;
+            import static org.junit.Assert.assertTrue;
+
+            class Ledger {
+                int ceiling = MAX;
+            }</selection>
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "import static com.pkg1.pkg2.Type3.field4;\n" +
+                "import static org.junit.Assert.assertTrue;\n" +
+                "\n" +
+                "class Type5 {\n" +
+                "    int field6 = field4;\n" +
+                "}",
+            clipboard(),
+        )
+    }
+
+    /**
+     * A nested type renames per segment as a package does, and for the same reason: `Payment.Status`
+     * is two symbols, and collapsing them would hide that the enum belongs to the class.
+     */
+    fun `test a qualified nested type renames with its nesting preserved`() {
+        assertTheHarnessResolves()
+        myFixture.addFileToProject(
+            "com/acme/billing/Payment.java",
+            "package com.acme.billing; public class Payment { public enum Status { ACTIVE } }",
+        )
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>com.acme.billing.Payment.Status state;</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals("com.pkg1.pkg2.Type3.Type4 field5;", clipboard())
+    }
+
+    /**
+     * A sealed hierarchy needs no rule of its own, and this is the assertion that says so.
+     *
+     * The targets of a `permits` clause are ordinary type references and rename like any other, and
+     * per-segment package renaming is what keeps the rest coherent: a sealed type and its permitted
+     * subclasses have to sit in one package, and after the rename they still visibly do.
+     */
+    fun `test a sealed hierarchy renames coherently with its permits clause`() {
+        assertTheHarnessResolves()
+        addClassInPackage("com.acme.billing", "Refund")
+        myFixture.configureByText(
+            "Payment.java",
+            """
+            <selection>package com.acme.billing;
+
+            sealed interface Payment permits Card, Wire {}
+
+            final class Card implements Payment {}
+
+            final class Wire implements Payment {}</selection>
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "package com.pkg1.pkg2;\n" +
+                "\n" +
+                "sealed interface Type3 permits Type4, Type5 {}\n" +
+                "\n" +
+                "final class Type4 implements Type3 {}\n" +
+                "\n" +
+                "final class Type5 implements Type3 {}",
+            clipboard(),
+        )
+    }
+
+    /**
+     * **An annotation attribute name inherits the ownership of the annotation type that declares
+     * it**, and a library annotation is preserved whole — type, attribute names and the enum
+     * constant it is given. Annotations are the densest metadata in a snippet and frequently the
+     * reason it is answerable at all.
+     *
+     * `AuditLogged` is meta-annotated by a third-party annotation and is anonymized regardless.
+     * **There is deliberately no carve-out for project annotations that behave like framework
+     * markers**: such a rule fires on precisely the annotations most likely to be domain-named —
+     * `@MerchantFacing`, `@PciScope` — and breaks the one-sentence spine rule that makes the model
+     * explainable.
+     *
+     * The string values are untouched here because literal redaction is its own ticket. What this
+     * asserts is the *names*: `action` and `scope` are the project's vocabulary and they go.
+     */
+    fun `test a library annotation is preserved whole and a project annotation loses its attribute names`() {
+        assertTheHarnessResolves()
+        myFixture.addFileToProject("com/acme/audit/AuditLogged.java", PROJECT_ANNOTATION)
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            import com.acme.audit.AuditLogged;
+            import org.junit.FixMethodOrder;
+            import org.junit.runners.MethodSorters;
+
+            <selection>@FixMethodOrder(value = MethodSorters.NAME_ASCENDING)
+            @AuditLogged(action = "x", scope = "y")
+            class Ledger {
+            }</selection>
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "@FixMethodOrder(value = MethodSorters.NAME_ASCENDING)\n" +
+                "@Anno1(attr2 = \"x\", attr3 = \"y\")\n" +
+                "class Type4 {\n" +
                 "}",
             clipboard(),
         )

@@ -67,6 +67,21 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
     }
 
     /**
+     * A class in [packageName], which is what puts that package in **project content**.
+     *
+     * Not decoration, and not always a class the snippet names: a `PsiPackage` is declared in no
+     * file, so its origin is read off the directories behind it. A fixture that never writes a file
+     * into `com/acme/billing` has no such directory, the package classifies as nobody's, and an
+     * assertion about how project packages rename would be an assertion about the fixture.
+     */
+    protected fun addClassInPackage(packageName: String, className: String) {
+        myFixture.addFileToProject(
+            packageName.replace('.', '/') + "/" + className + ".java",
+            "package $packageName; public class $className {}",
+        )
+    }
+
+    /**
      * Runs the action the way the IDE would — `update` first, then `actionPerformed` only if the
      * presentation came back enabled — and waits for the background analysis to land.
      *
@@ -150,3 +165,25 @@ private val JUNIT4_JAR: String = PathManager.getJarPathForClass(org.junit.Test::
 
 /** The plan's symbol occurrences, in document order. */
 internal fun SnippetPlan.symbols(): List<SymbolOccurrence> = occurrences.filterIsInstance<SymbolOccurrence>()
+
+/**
+ * A project-owned annotation that is itself meta-annotated by a third-party one.
+ *
+ * The meta-annotation is the point of the fixture rather than decoration: it is the shape the
+ * rejected carve-out — *preserve a project annotation meta-annotated by a library annotation* —
+ * would have keyed on, and this one is anonymized like any other project type.
+ */
+internal val PROJECT_ANNOTATION = """
+    package com.acme.audit;
+
+    import java.lang.annotation.Retention;
+    import java.lang.annotation.RetentionPolicy;
+    import org.junit.Ignore;
+
+    @Ignore
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface AuditLogged {
+        String action();
+        String scope() default "";
+    }
+""".trimIndent()

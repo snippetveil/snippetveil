@@ -201,23 +201,59 @@ private val PLATFORM_CONSTRAINED_NAMES =
 /**
  * Whether a symbol is replaced rather than emitted under its own name.
  *
- * Two rules, and it is worth seeing them side by side because they answer different questions.
- * [SymbolOrigin.IN_CONTENT] is the spine rule — *we own it, so it goes* — while
+ * Two rules of ownership, and it is worth seeing them side by side because they answer different
+ * questions. [SymbolOrigin.IN_CONTENT] is the spine rule — *we own it, so it goes* — while
  * [SymbolOrigin.UNRESOLVED] is a rule about **not knowing**: nothing here can tell whose name it
  * is, and a name nobody can vouch for is treated as the user's own.
+ *
+ * [isTopLevelPackageSegment] sits in front of both, and it is the only rule here that is not about
+ * ownership at all — `com` is the project's and is preserved anyway, because there is nothing in it
+ * to conceal. It is checked first rather than folded into the spine rule so that the spine rule
+ * stays the one sentence it has to stay.
  *
  * [AnonymizationSettings.preservedUnknowns] is read here and nowhere else, which is what confines
  * the product's one deliberate fail-open to the branch it was granted for: the spine rule above it
  * reads no setting at all.
  */
-private fun isAnonymized(symbol: SymbolEvidence, settings: AnonymizationSettings): Boolean = when (symbol.origin) {
-    SymbolOrigin.IN_CONTENT -> true
-    SymbolOrigin.UNRESOLVED -> symbol.key !in settings.preservedUnknowns
+private fun isAnonymized(symbol: SymbolEvidence, settings: AnonymizationSettings): Boolean = when {
+    isTopLevelPackageSegment(symbol) -> false
 
-    // Preserved, and not by omission: concealing the tech stack is a declared non-goal, and library
-    // names are what make a snippet answerable at all.
-    SymbolOrigin.LIBRARY, SymbolOrigin.JDK -> false
+    else -> when (symbol.origin) {
+        SymbolOrigin.IN_CONTENT -> true
+        SymbolOrigin.UNRESOLVED -> symbol.key !in settings.preservedUnknowns
+
+        // Preserved, and not by omission: concealing the tech stack is a declared non-goal, and
+        // library names are what make a snippet answerable at all.
+        SymbolOrigin.LIBRARY, SymbolOrigin.JDK -> false
+    }
 }
+
+/**
+ * **Whether this is the top-level segment of a package name** — `com` out of `com.acme.billing`.
+ *
+ * It is passed through, and it is the one place a project-owned name is preserved on the strength of
+ * *what it is* rather than of who owns it. There are three of these words in practice — `com`, `org`,
+ * `io` — none of them carries a byte of domain, and renaming one buys nothing while costing a row in
+ * the mapping table and a word the reader has to hold.
+ *
+ * Everything under it renames, which is what keeps the rule from eating the thing it sits next to:
+ * `com.acme.billing` still comes out as `com.pkg1.pkg2`, so same-package and different-package stay
+ * as distinguishable as they were.
+ *
+ * A package whose qualified name the plan did not report falls through to the spine rule and is
+ * anonymized, which is the fail-closed direction: a segment nobody can place is not one this rule
+ * may vouch for.
+ *
+ * **The stated limit, because it is the one case where this rule preserves a domain word.** The
+ * test is *positional* — the segment with nothing before it — rather than a check against `com`,
+ * `org` and `io` by spelling. A project rooted at a single-segment package, `package billing;`,
+ * therefore has `billing` passed through. The alternative is a list of names preserved by spelling,
+ * which is the one thing this product has ruled out everywhere else: a preserve list leaks by
+ * construction and there is nowhere to stop adding to it. Reverse-domain packages are the Java
+ * convention and the positional rule is right for all of them.
+ */
+private fun isTopLevelPackageSegment(symbol: SymbolEvidence): Boolean =
+    symbol.role == SymbolRole.PACKAGE && symbol.qualifiedName?.contains('.') == false
 
 /**
  * The placeholder namespace a symbol renders into.

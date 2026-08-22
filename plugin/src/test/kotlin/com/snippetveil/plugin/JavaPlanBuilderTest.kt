@@ -4,6 +4,7 @@ import com.snippetveil.core.CommentOccurrence
 import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.SymbolOccurrence
 import com.snippetveil.core.SymbolOrigin
+import com.snippetveil.core.SymbolRole
 
 /**
  * The seam from the plugin's side: what the plan *says*, rather than what the engine does with it.
@@ -160,6 +161,99 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
         assertEquals(
             setOf(SymbolOrigin.IN_CONTENT),
             plan.symbols().map { it.symbol.origin }.toSet(),
+        )
+    }
+
+    /**
+     * **A package is reported one segment at a time, each carrying the package it ends.**
+     *
+     * The qualified name is the fact the engine's rules are stated over: the top-level segment is
+     * the one with no dot before it, and two types share a package placeholder by sharing this
+     * string. Reporting the segment alone would leave `acme` in `com.acme` indistinguishable from
+     * `acme` in `org.acme`, and reporting the whole name at one occurrence would be reporting a
+     * symbol the snippet does not contain.
+     *
+     * **A package's origin cannot be read off a `VirtualFile`, because a `PsiPackage` has none.**
+     * It is a directory question instead, and getting it wrong in the fail-closed direction would
+     * rename `util` in `java.util.List` — which is why the JDK half of this assertion is here
+     * rather than left to the engine's own tests.
+     */
+    fun `test package segments are reported per segment with the package each one ends`() {
+        assertTheHarnessResolves()
+        addClassInPackage("com.acme.billing", "Refund")
+        val plan = planFor(
+            "Ledger.java",
+            """
+            <selection>package com.acme.billing;
+
+            class Ledger {
+                java.util.List<String> rows;
+            }</selection>
+            """.trimIndent(),
+        )
+
+        val packages = plan.symbols().filter { it.symbol.role == SymbolRole.PACKAGE }
+        assertEquals(
+            listOf(
+                "com" to "com",
+                "acme" to "com.acme",
+                "billing" to "com.acme.billing",
+                "java" to "java",
+                "util" to "java.util",
+            ),
+            packages.map { it.text to it.symbol.qualifiedName },
+        )
+        assertEquals(
+            listOf(
+                SymbolOrigin.IN_CONTENT,
+                SymbolOrigin.IN_CONTENT,
+                SymbolOrigin.IN_CONTENT,
+                SymbolOrigin.JDK,
+                SymbolOrigin.JDK,
+            ),
+            packages.map { it.symbol.origin },
+        )
+    }
+
+    /**
+     * **An annotation attribute name is a PSI shape a plain `PsiIdentifier` walk misses entirely.**
+     *
+     * `action` in `@AuditLogged(action = …)` hangs off a `PsiNameValuePair`, which is not a
+     * `PsiNameIdentifierOwner` and whose identifier is not part of any reference element — so the
+     * walk that finds every other name in this file walks straight past it, and the name is copied
+     * through verbatim. Resolving it is a required path rather than an optimisation, and this test
+     * is the one that goes red if it is ever dropped: without `PsiNameValuePair.reference` there is
+     * no `ATTRIBUTE`-role occurrence in the plan at all, and this list comes back empty.
+     *
+     * What the reference resolves to is the annotation type's own member, which is what carries the
+     * ownership: `action` is declared by a project annotation and `timeout` by JUnit's, and each
+     * inherits the origin of the type that declares it.
+     */
+    fun `test an annotation attribute name resolves through the name-value pair's reference`() {
+        assertTheHarnessResolves()
+        myFixture.addFileToProject("com/acme/audit/AuditLogged.java", PROJECT_ANNOTATION)
+        val plan = planFor(
+            "Ledger.java",
+            """
+            import com.acme.audit.AuditLogged;
+            import org.junit.Test;
+
+            class Ledger {
+                <selection>@AuditLogged(action = "x")
+                @Test(timeout = 100)
+                void audit() {}</selection>
+            }
+            """.trimIndent(),
+        )
+
+        val attributes = plan.symbols().filter { it.symbol.role == SymbolRole.ATTRIBUTE }
+        assertEquals(
+            listOf("action" to SymbolOrigin.IN_CONTENT, "timeout" to SymbolOrigin.LIBRARY),
+            attributes.map { it.text to it.symbol.origin },
+        )
+        assertEquals(
+            listOf("method:class:com.acme.audit.AuditLogged#action", "method:class:org.junit.Test#timeout"),
+            attributes.map { it.symbol.key },
         )
     }
 
