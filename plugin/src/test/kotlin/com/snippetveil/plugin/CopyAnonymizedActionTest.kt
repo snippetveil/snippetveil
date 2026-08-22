@@ -691,11 +691,14 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
-     * **The uniqueness invariant extends to preserved names.** `local1` here is a JDK-declared local
-     * type name in scope; a placeholder colliding with it would make the mapping many-to-one at the
-     * exact moment a human reads the AI's reply back onto real code.
+     * **The uniqueness invariant is about the output, and a stripped comment is not in it.**
+     *
+     * A placeholder colliding with a name that survives would make the mapping many-to-one at the
+     * exact moment a human reads the AI's reply back onto real code, so such a number is burnt. A
+     * word in a comment that was removed is not such a name: it stands for nothing, because it is
+     * not there.
      */
-    fun `test a placeholder never collides with an identifier that survives into the output`() {
+    fun `test a placeholder-shaped word in a stripped comment does not burn its number`() {
         assertTheHarnessResolves()
         myFixture.configureByText(
             "Ledger.java",
@@ -711,13 +714,11 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 
         invokeCopyAnonymized()
 
-        // `amount` is the first symbol allocated, so it asks for number 1 — and `local1` is already
-        // in the output. The number is burnt rather than reused under another prefix.
-        assertEquals(
-            "// local1 was the old name for this\n" +
-                "        int local2 = 0;",
-            clipboard(),
-        )
+        // The reservation is about the output, not about the snippet: the comment holding `local1`
+        // is not on the clipboard, so `local1` there stands for nothing and `amount` takes number 1.
+        // The rule that burns a number against a name that *does* survive is asserted in `:core`
+        // over a plan literal, where every rule of that shape is asserted.
+        assertEquals("        int local1 = 0;", clipboard())
     }
 
     /**
@@ -784,7 +785,114 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         invokeCopyAnonymized()
 
         assertEquals("String.valueOf(1);", clipboard())
-        assertEquals("0 names replaced · 0 unknown · 2 preserved", notifications.single().content)
+        assertEquals("0 names replaced · 0 unknown · 2 preserved · 0 comments stripped", notifications.single().content)
+    }
+
+    /**
+     * **Comments and javadoc are stripped, on the fast path, with nothing to set and nothing to
+     * forget.**
+     *
+     * This is the largest single domain leak the product has. Renaming symbols does essentially
+     * nothing to prose — an experiment measured 28/29/29 distinct domain words surviving across three
+     * naming schemes against 36 in the original, enough to reconstruct the business domain — and
+     * `// reconcile against the merchant ledger` sitting two lines above `field1` is incoherent on
+     * its face.
+     *
+     * The line the comment was on goes with it. A blank indented line where a comment used to be
+     * reads as a bug in this tool rather than as anonymization, and the output is *read*.
+     */
+    fun `test comments and javadoc are stripped and their lines go with them`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>/** Reconciles a batch against the merchant ledger. */
+                void settle(int amount) {
+                    // this.customer.setOrder(order);
+                    audit(amount); // the ledger is authoritative
+                }</selection>
+
+                void audit(int amount) {}
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        // The first line keeps the indentation the selection started inside, because the javadoc's
+        // own line went and nothing else moved.
+        assertEquals(
+            "    void method1(int param2) {\n" +
+                "        method3(param2);\n" +
+                "    }",
+            clipboard(),
+        )
+    }
+
+    /**
+     * **A comment can sit between any two tokens, and the output still parses without it.**
+     *
+     * That invariant is one of the two classes of bug this project has actually been bitten by, so
+     * the awkward shapes are asserted rather than assumed: a block comment mid-expression, a javadoc
+     * in front of a member, and a trailing comment after the last statement of a block.
+     */
+    fun `test the output still parses with every comment taken out of it`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>/** The running total. */
+                int total = /* pennies, never pounds */ 0;
+
+                int audit(int amount) {
+                    return total + amount; // the ledger is authoritative
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "    int field1 = 0;\n" +
+                "\n" +
+                "    int method2(int param3) {\n" +
+                "        return field1 + param3;\n" +
+                "    }",
+            clipboard(),
+        )
+        assertParses("stripped", clipboard())
+    }
+
+    /**
+     * **The strip is reported, because a stripped comment is invisible in the output.** The text
+     * that comes back is clean, compiles and reads as ordinary code, and the AI answers accurately
+     * about a snippet the defect has been lifted out of — that is the quietest failure in the design,
+     * and the response to it is disclosure at the point of use.
+     *
+     * On the balloon rather than only in the preview: `Copy Anonymized` has no preview, so a
+     * disclosure the dialog carried alone would never fire for the people who never open it.
+     */
+    fun `test the balloon reports the number of comments stripped`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>void audit(int amount) {
+                    // TODO: fix this
+                    // this.customer.setOrder(order);
+                    String.valueOf(amount);
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals("2 names replaced · 0 unknown · 2 preserved · 2 comments stripped", notifications.single().content)
     }
 
     /** The balloon states mechanism and makes no claim about what it means. */
@@ -799,7 +907,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 
         val balloon = notifications.single()
         assertEquals("Anonymized snippet copied", balloon.title)
-        assertEquals("2 names replaced · 0 unknown · 2 preserved", balloon.content)
+        assertEquals("2 names replaced · 0 unknown · 2 preserved · 0 comments stripped", balloon.content)
         assertEquals(NotificationType.INFORMATION, balloon.type)
     }
 
@@ -839,7 +947,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         // quality risk and never a privacy one — a warning here would train the user to read our
         // alarm as "this might have leaked", which is exactly backwards.
         val balloon = notifications.single()
-        assertEquals("2 names replaced · 3 unknown · 0 preserved", balloon.content)
+        assertEquals("2 names replaced · 3 unknown · 0 preserved · 0 comments stripped", balloon.content)
         assertEquals(NotificationType.INFORMATION, balloon.type)
     }
 
@@ -861,7 +969,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         // One name, one placeholder, both occurrences — unresolved names are keyed on what they are
         // written as, which is all there is to key them on.
         assertEquals("Unknown1 method2(Unknown1 param3) { return param3; }", clipboard())
-        assertEquals("2 names replaced · 1 unknown · 0 preserved", notifications.single().content)
+        assertEquals("2 names replaced · 1 unknown · 0 preserved · 0 comments stripped", notifications.single().content)
     }
 
     /**

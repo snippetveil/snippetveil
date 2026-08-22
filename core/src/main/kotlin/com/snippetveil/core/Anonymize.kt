@@ -13,8 +13,22 @@ fun anonymize(
     ledger: LedgerSnapshot,
 ): AnonymizationResult {
     val occurrences = plan.occurrences.sortedBy { it.start }
-    val symbols = occurrences.filterIsInstance<SymbolOccurrence>()
-    val literals = occurrences.filterIsInstance<LiteralOccurrence>()
+
+    // **Comments and javadoc go, unless this invocation says otherwise.** The strip is the default
+    // and the reduction is per-invocation, because prose is the largest single domain leak there is
+    // and a reduction that can be set once and forgotten leaks on every paste after it.
+    val stripped = if (settings.keepComments) emptyList() else occurrences.filterIsInstance<CommentOccurrence>()
+
+    // Everything a stripped comment takes with it leaves every rule below, because none of them is
+    // about the snippet — they are about **the clipboard**. A name written only inside a stripped
+    // comment is not replaced, not counted, not put in the mapping table and not offered as an
+    // unknown to preserve: there is nothing left in the output for any of that to be true of.
+    val surviving = occurrences.filter { occurrence ->
+        occurrence is CommentOccurrence || stripped.none { occurrence.start >= it.start && occurrence.end <= it.end }
+    }
+
+    val symbols = surviving.filterIsInstance<SymbolOccurrence>()
+    val literals = surviving.filterIsInstance<LiteralOccurrence>()
 
     // **Name constraint is a property of the symbol, never of the occurrence.** One occurrence
     // carrying a non-project override root keeps the name everywhere the symbol appears, which is
@@ -33,7 +47,7 @@ fun anonymize(
 
     val allocator = PlaceholderAllocator(
         ledger.nextNumber,
-        namesSurviving(plan, symbols.filter { isReplaced(it.symbol) }),
+        namesSurviving(plan, symbols.filter { isReplaced(it.symbol) } + stripped),
     )
     val placeholderByKey = LinkedHashMap<String, String>(ledger.placeholders)
     val allocated = LinkedHashMap<String, String>()
@@ -83,7 +97,7 @@ fun anonymize(
     // order falls out rather than being arranged — with one deliberate exception: an accessor seen
     // before its field allocates the field there and then, because the two names have to agree and
     // only one of them can be first.
-    for (occurrence in occurrences) {
+    for (occurrence in surviving) {
         when (occurrence) {
             is SymbolOccurrence -> {
                 namedSymbols += occurrence.symbol
@@ -106,14 +120,16 @@ fun anonymize(
                 }
             }
 
-            is CommentOccurrence -> Unit
+            is CommentOccurrence -> if (!settings.keepComments) {
+                edits += stripOf(plan.text, occurrence, after = edits.lastOrNull()?.end ?: 0)
+            }
         }
     }
 
     // Right to left, so that every replacement lands at an offset the ones before it have not
     // moved. Splicing into the original string is also why formatting comes out byte-perfect: no
-    // PSI is mutated, no formatter is invoked, and nothing but the identifiers and the insides of
-    // literals changes.
+    // PSI is mutated, no formatter is invoked, and nothing changes but the identifiers, the insides
+    // of literals, and the lines the comments were on.
     val text = StringBuilder(plan.text)
     for (edit in edits.asReversed()) text.replace(edit.start, edit.end, edit.text)
 
@@ -147,9 +163,63 @@ fun anonymize(
         mapping = mapping,
         unknowns = unknowns,
         counts = countsOf(namedSymbols, ::isReplaced, unknowns.size),
+        comments = CommentCounts(
+            prose = stripped.count { it.verdict == CommentVerdict.PROSE },
+            code = stripped.count { it.verdict == CommentVerdict.CODE },
+        ),
         delta = LedgerDelta(allocated, allocator.nextNumber),
     )
 }
+
+/**
+ * **What a stripped comment takes with it: itself, and the layout that would otherwise be left
+ * behind.**
+ *
+ * Removing the comment's own range and nothing else is the obvious rule and it produces litter — a
+ * blank indented line where a comment was, a trailing space after every `foo();`. That reads as a
+ * bug in this tool rather than as anonymization, which is the same standard the literal rule is held
+ * to: the output is *read*, and visible incoherence costs the reader's trust in everything else on
+ * the clipboard.
+ *
+ * Three cases, and each takes the whitespace the comment is responsible for and no more:
+ *
+ *  - **Alone on its line**: the line goes, terminator included. The alternative is a blank line
+ *    holding indentation, which is the litter above.
+ *  - **Something before it on the line** — `foo(); // why` — the comment and the run of spaces in
+ *    front of it go, so the code keeps its own line ending where it always was.
+ *  - **Something after it on the line** — a block comment in front of an argument — the comment and
+ *    the run of spaces behind it go, so the indentation of what follows is the indentation it had.
+ *
+ * This is layout, never content: which characters are whitespace is not a question about what a
+ * comment says, and no rule here reads a character of the comment itself.
+ *
+ * @param after where the last edit ended. Two block comments in a row share one run of whitespace,
+ *   so a strip never reaches back past an edit already made. Nothing else can collide with it,
+ *   because whitespace holds no identifier and no literal.
+ */
+private fun stripOf(text: String, comment: CommentOccurrence, after: Int): Edit {
+    val lineStart = text.lastIndexOf('\n', comment.start - 1) + 1
+    val lineEnd = text.indexOf('\n', comment.end).takeIf { it >= 0 } ?: text.length
+
+    val onlyIndentBefore = (lineStart until comment.start).all { text[it].isWhitespace() }
+    val onlySpaceAfter = (comment.end until lineEnd).all { text[it].isWhitespace() }
+
+    val (start, end) = when {
+        onlyIndentBefore && onlySpaceAfter -> lineStart to minOf(lineEnd + 1, text.length)
+        onlyIndentBefore -> comment.start to (comment.end + spaceRun(text, comment.end, lineEnd))
+        else -> (comment.start - spaceRunBefore(text, comment.start, lineStart)) to comment.end
+    }
+
+    return Edit(maxOf(start, after), end, "")
+}
+
+/** How many spaces or tabs run forwards from [from], stopping at [limit]. */
+private fun spaceRun(text: String, from: Int, limit: Int): Int =
+    (from until limit).takeWhile { text[it].isWhitespace() }.count()
+
+/** How many spaces or tabs run backwards from [before], stopping at [limit]. */
+private fun spaceRunBefore(text: String, before: Int, limit: Int): Int =
+    (before - 1 downTo limit).takeWhile { text[it].isWhitespace() }.count()
 
 /** One replacement, as a half-open range `[start, end)` into the plan's text and what goes there. */
 private class Edit(val start: Int, val end: Int, val text: String)
@@ -409,22 +479,26 @@ private fun namespaceOf(symbol: SymbolEvidence): String =
 
 /**
  * Every identifier-shaped word that survives into the output — which is every word in the snippet
- * except the ones about to be replaced.
+ * except the ones about to leave it.
  *
  * Read wider than "the preserved symbols" on purpose. The invariant is that a reader can take a
  * placeholder out of the AI's reply and map it back to exactly one thing, and that fails the moment
  * the output contains `Type1` meaning something else — whether that `Type1` is a preserved library
- * class, an identifier no rule here recognises yet, or a word sitting in a comment. Scanning the
- * text costs one pass and closes all three at once.
+ * class, an identifier no rule here recognises yet, or a word sitting in a comment this invocation
+ * kept. Scanning the text costs one pass and closes all three at once.
  *
  * A word inside a literal that is about to be replaced is reserved along with them, and that
  * over-reservation is deliberate: what becomes of a literal is decided against this set, so a set
  * that already knew would have to be built out of the answer it feeds. The cost is a burnt number,
  * which is the direction this may err in.
+ *
+ * @param removed everything the output will not contain: the identifiers about to become
+ *   placeholders, and the comments about to be stripped. A word that was deleted stands for nothing,
+ *   so reserving it would burn a number to protect a reader from a collision they cannot have.
  */
-private fun namesSurviving(plan: SnippetPlan, replaced: List<SymbolOccurrence>): Set<String> {
+private fun namesSurviving(plan: SnippetPlan, removed: List<Occurrence>): Set<String> {
     val isReplaced = BooleanArray(plan.text.length)
-    for (occurrence in replaced) {
+    for (occurrence in removed) {
         for (offset in occurrence.start until occurrence.end) isReplaced[offset] = true
     }
     return IDENTIFIER.findAll(plan.text)

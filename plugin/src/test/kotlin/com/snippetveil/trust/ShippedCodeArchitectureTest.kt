@@ -247,7 +247,7 @@ private fun JavaAccess<*>.isReflectiveEscapeHatch(): Boolean {
  * checks that this class itself was excluded. The dangerous direction — main output starting to
  * match — is guarded there too, by naming a class that has to be present.
  */
-private val NON_TEST_CODE = ImportOption { location ->
+internal val NON_TEST_CODE = ImportOption { location ->
     !location.matches(Pattern.compile(".*/(test-classes|classes/[^/]+/test|instrumented/instrumentTestCode)/.*"))
 }
 
@@ -255,7 +255,11 @@ private val NON_TEST_CODE = ImportOption { location ->
  * The main output of both subprojects, taken off this test's own runtime classpath: `:plugin`'s
  * because these tests live in it, `:core`'s because `:plugin` depends on it. That is the same set
  * of classes the distribution's `lib/` is built from.
+ *
+ * Internal rather than private so that [CommentRetentionIsNeverPersistedTest] reads the same set
+ * these rules do. A second importer would be a second definition of *what ships*, and the two would
+ * drift on the day one of them is updated.
  */
-private val SHIPPED_CLASSES: JavaClasses = ClassFileImporter()
+internal val SHIPPED_CLASSES: JavaClasses = ClassFileImporter()
     .withImportOption(NON_TEST_CODE)
     .importPackages("com.snippetveil")

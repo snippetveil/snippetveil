@@ -131,8 +131,46 @@ enum class LiteralKind {
  */
 class LiteralReference(val start: Int, val end: Int, val symbol: SymbolEvidence)
 
-/** A comment or javadoc block, whole. Reported but not yet acted on, for the reason above. */
-class CommentOccurrence(override val start: Int, override val end: Int) : Occurrence()
+/**
+ * A comment or javadoc block, whole — together with what a Java parser made of the text inside it.
+ *
+ * The whole block, delimiters included, because a comment is stripped by removing it: half a comment
+ * left behind is not a comment removed, it is a file that no longer parses.
+ *
+ * @param verdict what the body parses as. **A parse verdict, not a guess** — see [CommentVerdict].
+ */
+class CommentOccurrence(
+    override val start: Int,
+    override val end: Int,
+    val verdict: CommentVerdict,
+) : Occurrence()
+
+/**
+ * **What one comment's body is, as Java's own parser reads it.**
+ *
+ * Commented-out code is not prose, and it separates exactly: try to parse the body as a Java code
+ * block. `// this.customer.setOrder(order);` parses; `// TODO: fix this` does not. That is a fact
+ * about the text produced by the parser, in the same way [LiteralKind] is a fact about a literal's
+ * type — so it crosses this seam like any other evidence, and what becomes of a comment is decided
+ * in [anonymize] and nowhere near the builder.
+ *
+ * It is here because the split is what makes the strip count actionable. *`2 comments stripped`* is
+ * not something a user can act on; *`2 comments stripped, 1 of them commented-out code`* is, and the
+ * keep-comments tick is the thing they act with.
+ *
+ * That distinction matters more than it looks. The one question every variant of the naming
+ * experiment answered at a full 9/9 was *"find the commented-out assignment"* — the ground-truth bug
+ * **was** a comment, and a reviewer called that line *"the single most useful surviving clue."* The
+ * default deletes it on every paste. The default does not flip; the loss is disclosed instead.
+ */
+enum class CommentVerdict {
+
+    /** The body does not parse as a code block: it is prose, which is where the domain leak is. */
+    PROSE,
+
+    /** The body parses as a code block: it is code somebody commented out. */
+    CODE,
+}
 
 /**
  * What the plan builder observed about one declared symbol.

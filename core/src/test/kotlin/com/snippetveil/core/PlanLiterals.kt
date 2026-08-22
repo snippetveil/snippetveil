@@ -232,3 +232,27 @@ internal fun coveringUnresolved(text: String) = Cover(
 
 private fun occurrencesOf(text: String, part: String): List<Int> =
     generateSequence(text.indexOf(part)) { text.indexOf(part, it + 1) }.takeWhile { it >= 0 }.toList()
+
+/**
+ * The same plan with one more comment in it — the next occurrence of [comment] in the snippet's
+ * text, counting past the comments this plan already has.
+ *
+ * The comment is written out in full, delimiters included, exactly as it appears in the code the
+ * test is quoting — which is what a `CommentOccurrence` covers, and it keeps these tests free of
+ * offsets like the literal helper above.
+ *
+ * The [verdict] is stated rather than computed, and that is the seam: whether a body parses as a
+ * code block is a question for a Java parser, which lives on the other side of this boundary. These
+ * tests are about what the engine does once the verdict is in.
+ */
+internal fun SnippetPlan.withComment(comment: String, verdict: CommentVerdict): SnippetPlan {
+    val already = occurrences.filterIsInstance<CommentOccurrence>().count { text.startsWith(comment, it.start) }
+    val start = occurrencesOf(text, comment).getOrNull(already)
+        ?: error("`$comment` does not occur in the snippet ${already + 1} time(s)")
+
+    return SnippetPlan(
+        text,
+        (occurrences + CommentOccurrence(start, start + comment.length, verdict)).sortedBy { it.start },
+        rootPackage,
+    )
+}

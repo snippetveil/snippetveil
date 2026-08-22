@@ -19,9 +19,30 @@ package com.snippetveil.core
  *   rejected, built out of keys instead of text, and it would put a reduction on the spine rule.
  *   Enforcing it here rather than in the dialog puts it where creep cannot happen by adding a
  *   checkbox.
+ * @param keepComments whether comments and javadoc survive into the output. **Off by default, and
+ *   per-invocation only** — a later ticket puts it in the preview as a tick that resets to *strip*
+ *   on every invocation, and it is **never persisted**, by the rule above.
+ *
+ *   Comments are the largest single domain leak in the product. Renaming symbols does essentially
+ *   nothing to prose: an experiment measured **28/29/29 distinct domain words surviving** across
+ *   three naming schemes against **36** in the original — enough to reconstruct the business domain
+ *   — and `// reconcile against the merchant ledger` sitting two lines above `field1` is incoherent
+ *   on its face. Under an adversary model whose primary threat is retention, a reduction that can be
+ *   ticked once and forgotten is the severe failure mode: **one tick set a year ago silently leaks
+ *   the domain on every paste since.**
+ *
+ *   **One flag, not two.** The leak is prose, and prose is in comments and javadoc alike; two knobs
+ *   would be a settings surface with no use case behind it.
+ *
+ *   Rejected on the way here, so it need not be re-litigated: a persistent toggle plus a README
+ *   non-goal (*"we told you"* is a weak answer for a tool whose moat is trust); a persistent toggle
+ *   plus a preview banner (a warning shown on every invocation stops being read within a week); and
+ *   removing the control altogether, which hands the developer who genuinely always wants comments a
+ *   forced loss with no escape hatch.
  */
 class AnonymizationSettings(
     val preservedUnknowns: Set<String> = emptySet(),
+    val keepComments: Boolean = false,
 ) {
     companion object {
         /** Everything anonymized that can be: no reduction of any kind. */
@@ -75,7 +96,8 @@ class LedgerDelta(
  * @param mapping placeholder -> the real name it stands for. **Injective**, which is the whole
  *   point: a reverse mapping is well-defined only if no two symbols render to one placeholder, and
  *   the AI's reply carries no scope context to disambiguate with if they did.
- * @param counts what the balloon reports
+ * @param counts the distinct names in the snippet, partitioned by what became of them
+ * @param comments what the strip removed, split by parse verdict
  * @param unknowns every name that failed to resolve, in document order of first occurrence
  * @param delta what to commit, if the caller gets as far as committing
  */
@@ -83,9 +105,35 @@ class AnonymizationResult(
     val text: String,
     val mapping: Map<String, String>,
     val counts: NameCounts,
+    val comments: CommentCounts,
     val unknowns: List<UnknownName>,
     val delta: LedgerDelta,
 )
+
+/**
+ * **What the strip removed, split by [CommentVerdict].**
+ *
+ * Reported so that removal is never silent. A comment stripped is a loss the anonymized output gives
+ * no sign of: the text that comes back is clean, compiles, and reads as ordinary code, which is the
+ * quietest failure the design has. The answer is disclosure at the point of use — the tool says what
+ * it removed, and the human, who can still see the original, judges whether it mattered.
+ *
+ * Split rather than totalled, because the split is the part a user can act on: *`2 comments
+ * stripped`* is a number, *`2 comments stripped, 1 of them commented-out code`* is a reason to open
+ * the preview and tick the box.
+ *
+ * Both are zero when this invocation kept its comments. This counts what was **removed**, not what
+ * was there — a count of comments in the snippet would be a fact about the input, and the thing a
+ * user needs to know is what is missing from the output.
+ *
+ * @param prose comments whose body does not parse as code
+ * @param code comments whose body does
+ */
+class CommentCounts(val prose: Int, val code: Int) {
+
+    /** How many comments the strip removed, which is what the balloon says. */
+    val stripped: Int get() = prose + code
+}
 
 /**
  * One name the IDE could not resolve, and what this invocation did with it.

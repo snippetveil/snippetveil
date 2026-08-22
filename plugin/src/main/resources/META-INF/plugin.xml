@@ -23,8 +23,11 @@
         JDK or library one keeps its real name — renaming it would stop it overriding, and the
         snippet would read as broken rather than as anonymized. A name the IDE cannot resolve is
         replaced as well, from an <code>Unknown</code> namespace of its own — so incomplete or
-        not-yet-compiling code is covered rather than copied through. Comments and string literals
-        are not handled yet.</p>
+        not-yet-compiling code is covered rather than copied through. String literals are replaced
+        as well, unless every part of one resolves to a symbol — a class name written in a string
+        renames with the class. <b>Comments and javadoc are stripped</b>, and the balloon says how
+        many were removed: prose is where a snippet's domain vocabulary actually lives, and renaming
+        symbols does nothing to it.</p>
     ]]></description>
 
     <!-- The bundled Java plugin: IDEA Community/Ultimate and Android Studio, nowhere else. -->

@@ -1,6 +1,7 @@
 package com.snippetveil.plugin
 
 import com.snippetveil.core.CommentOccurrence
+import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
@@ -61,8 +62,10 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
     }
 
     /**
-     * A comment is described and not yet acted on — comment stripping is its own ticket — and a
-     * literal is described down to where its own text starts and ends inside its delimiters.
+     * A comment is described whole and with the verdict a parser reached about its body; a literal is
+     * described down to where its own text starts and ends inside its delimiters. Neither carries a
+     * judgment about what becomes of it — see [CommentEvidenceTest] for the verdict either side of
+     * the line.
      *
      * **The delimiters are read here rather than in the engine**, which is what lets the engine
      * preserve a literal's syntactic form without knowing how one is spelled: it rewrites the
@@ -83,6 +86,7 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
         val comment = plan.occurrences.filterIsInstance<CommentOccurrence>().single()
         val literal = plan.occurrences.filterIsInstance<LiteralOccurrence>().single()
         assertEquals("/** merchant ledger */", plan.text.substring(comment.start, comment.end))
+        assertEquals(CommentVerdict.PROSE, comment.verdict)
         assertEquals("\"settlement\"", plan.text.substring(literal.start, literal.end))
         assertEquals(LiteralKind.STRING, literal.kind)
         assertEquals("settlement", plan.text.substring(literal.contentStart, literal.contentEnd))
