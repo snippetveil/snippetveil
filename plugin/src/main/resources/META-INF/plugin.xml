@@ -14,10 +14,39 @@
     <description><![CDATA[
         <p>SnippetVeil is an IntelliJ IDEA plugin for anonymizing a Java snippet before it is pasted
         into an AI chat.</p>
-        <p>This build is a pre-release skeleton: it installs and loads, and adds no actions to the
-        IDE yet.</p>
+        <p>This build is a pre-release: <b>Copy Anonymized</b> replaces the names of project-owned
+        types, methods, fields, parameters and locals with role-preserving placeholders, and leaves
+        JDK and third-party names untouched. Comments, string literals and package names are not
+        handled yet.</p>
     ]]></description>
 
     <!-- The bundled Java plugin: IDEA Community/Ultimate and Android Studio, nowhere else. -->
     <depends>com.intellij.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- A group of SnippetVeil's own, so that a user who does not want these balloons can turn
+             off exactly these and nothing else. -->
+        <notificationGroup id="SnippetVeil" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <!-- No <keyboard-shortcut>, and that is a decision rather than an omission. Every
+             combination worth having is taken, differently across the Default, macOS, Eclipse and
+             VS Code keymaps — so a binding that is clean on one machine ships a conflict badge on
+             another, which reads as carelessness from a plugin selling carefulness. Find Action
+             already serves the population that wants one. -->
+        <action id="SnippetVeil.CopyAnonymized"
+                class="com.snippetveil.plugin.CopyAnonymizedAction"
+                text="Copy Anonymized"
+                description="Copy the selection with project-owned names replaced by placeholders">
+            <!-- Flat in the editor popup, not a submenu, directly after the Copy/Paste Special
+                 group: it is a copy, and it belongs where the other copies are. -->
+            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Copy.Paste.Special"/>
+        </action>
+
+        <group id="SnippetVeil.ToolsMenu" text="SnippetVeil" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <reference ref="SnippetVeil.CopyAnonymized"/>
+        </group>
+    </actions>
 </idea-plugin>

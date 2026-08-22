@@ -1,0 +1,130 @@
+package com.snippetveil.core
+
+/**
+ * A truthful description of one snippet — and the only thing that crosses the boundary between the
+ * IDE and the anonymization engine.
+ *
+ * **Evidence crosses this seam, never judgments.** The plan says where a symbol's declaring file
+ * lives, what the symbol is called and what shape it has; it never says whether the symbol should
+ * be anonymized. That decision belongs to [anonymize], as a pure function over data an IDE never
+ * touched — which is what makes every policy rule in this module testable in milliseconds against
+ * a plan literal, with no fixture and no platform.
+ *
+ * The rule has a sharp edge worth stating: the plan builder **must not "helpfully" pre-judge.** A
+ * [SymbolOrigin.LIBRARY] symbol is reported as `LIBRARY` even when its package obviously matches
+ * something the engine would care about. The moment the builder starts deciding, the decision
+ * leaves the module that can be tested cheaply and moves into one that needs an IDE booted.
+ *
+ * @param text the snapped selection, verbatim — every offset below indexes into this string
+ * @param occurrences everything the engine may act on, in document order
+ * @param rootPackage the analysed file's root package (`com.acme` from `com.acme.web.Controller`),
+ *   or `null` for the default package. Nothing here reads it yet; it is the evidence the
+ *   internal-library prefix rule needs, and it is a fact about the file rather than a judgment.
+ */
+class SnippetPlan(
+    val text: String,
+    val occurrences: List<Occurrence>,
+    val rootPackage: String? = null,
+)
+
+/**
+ * Something in [SnippetPlan.text] the engine may act on, as a half-open range `[start, end)`.
+ *
+ * Ranges never overlap and never split a token: the plan builder snaps the selection outward to
+ * whole-token boundaries before it walks anything.
+ */
+sealed class Occurrence {
+    abstract val start: Int
+    abstract val end: Int
+}
+
+/**
+ * An identifier, together with everything known about the symbol it names.
+ *
+ * @param text the identifier exactly as it is written at this position
+ */
+class SymbolOccurrence(
+    override val start: Int,
+    override val end: Int,
+    val text: String,
+    val symbol: SymbolEvidence,
+) : Occurrence()
+
+/**
+ * A literal — string, character or numeric.
+ *
+ * Reported but not yet acted on: literal handling is its own ticket. It is in the plan from the
+ * start because the plan is a description of the snippet rather than a work list, and a description
+ * that omitted the literals would be a lie about what the snippet contains.
+ */
+class LiteralOccurrence(override val start: Int, override val end: Int) : Occurrence()
+
+/** A comment or javadoc block, whole. Reported but not yet acted on, for the reason above. */
+class CommentOccurrence(override val start: Int, override val end: Int) : Occurrence()
+
+/**
+ * What the plan builder observed about one declared symbol.
+ *
+ * @param key the identity of the **declared symbol**, not of this occurrence. Two occurrences of
+ *   one symbol carry one key however far apart they are — across the selection's gaps, and across
+ *   files — which is what makes a rename consistent. Two *distinct* symbols never share a key, so a
+ *   parameter shadowing a field is two keys and therefore two placeholders.
+ * @param role what the symbol is in Java's grammar; decides the placeholder's prefix
+ * @param origin where the symbol's declaring file lives
+ * @param declaredName the symbol's own name, which is what a reverse mapping has to hand back
+ * @param signature a method's parameter types, or `null`. Evidence, deliberately **not** part of
+ *   [key]: overloads share a name in source, so they share a placeholder, and the engine collapses
+ *   them by ignoring this. Reporting it anyway is what lets a later rule change its mind without
+ *   the builder changing at all.
+ */
+class SymbolEvidence(
+    val key: String,
+    val role: SymbolRole,
+    val origin: SymbolOrigin,
+    val declaredName: String,
+    val signature: String? = null,
+)
+
+/**
+ * Where the file declaring a symbol lives.
+ *
+ * The spine rule reads exactly one of these — [IN_CONTENT] — and preserves everything else. The
+ * other three are still reported separately rather than collapsed into "not ours", because the
+ * distinctions are facts, and later rules are built on them.
+ */
+enum class SymbolOrigin {
+    /** The declaring file is project content: the symbol is the user's own code. */
+    IN_CONTENT,
+
+    /** A third-party library. Preserved: library names are what make a snippet answerable at all. */
+    LIBRARY,
+
+    /** The JDK. Preserved for the same reason, and told apart from [LIBRARY] because it is a fact. */
+    JDK,
+
+    /**
+     * The reference did not resolve. Normal rather than exceptional — red or incomplete code
+     * resolves to nothing, and the snippet a developer is debugging is the likely one.
+     */
+    UNRESOLVED,
+}
+
+/**
+ * What a symbol is, which is what its placeholder says it is.
+ *
+ * The prefixes are role-preserving on **read-back ergonomics**, not answer quality: an experiment
+ * found five of six questions at parity across opaque, role-preserving and structure-hinting
+ * schemes *and the untouched original*, so no scheme wins on answers. What a human then has to do
+ * is map the AI's reply back onto real code by hand, and `Repository2` is far cheaper to map than
+ * `Class7`.
+ */
+enum class SymbolRole(val placeholderPrefix: String) {
+    /** A class, interface, enum, record — or a type parameter, which is a type by any other name. */
+    TYPE("Type"),
+    METHOD("method"),
+    FIELD("field"),
+    PARAMETER("param"),
+
+    /** A local variable, or a label: named, block-scoped, and invisible outside its own method. */
+    LOCAL("local"),
+}

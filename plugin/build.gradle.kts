@@ -1,4 +1,5 @@
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.objectweb.asm.ClassReader
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
@@ -46,6 +47,13 @@ dependencies {
         bundledPlugin("com.intellij.java")
 
         pluginVerifier()
+
+        // The fixture-based tests below drive a real IDE core: `Platform` is the fixture itself,
+        // `Plugin.Java` is the Java PSI and index the anonymizer resolves against. Both are
+        // test-scope, so neither reaches the distribution — `assertNothingThirdPartyIsShipped`
+        // fails the build if that ever stops being true.
+        testFramework(TestFrameworkType.Platform)
+        testFramework(TestFrameworkType.Plugin.Java)
     }
 
     // Test-scope only, and it stays that way: `assertNothingThirdPartyIsShipped` below fails the
@@ -53,6 +61,13 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // The IntelliJ fixture base classes are JUnit 3 `TestCase`s and there is no JUnit 5 equivalent,
+    // so the vintage engine runs them alongside the Jupiter tests rather than the build having to
+    // pick one. `junit:junit` is named explicitly rather than taken transitively: the version the
+    // fixtures run under is not something to inherit by accident.
+    testImplementation("junit:junit:4.13.2")
+    testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
 
     // The plain library, not archunit-junit5: the rules are ordinary @Test methods, so nothing here
     // has to agree with the platform's own bundled test engines about which JUnit is in charge.
