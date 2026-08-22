@@ -1,5 +1,6 @@
 package com.snippetveil.plugin
 
+import com.intellij.lang.java.beans.PropertyKind
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.JdkOrderEntry
 import com.intellij.openapi.roots.ProjectFileIndex
@@ -24,11 +25,15 @@ import com.intellij.psi.PsiParameter
 import com.intellij.psi.PsiRecordComponent
 import com.intellij.psi.PsiTypeParameter
 import com.intellij.psi.PsiWhiteSpace
+import com.intellij.psi.util.JavaPsiRecordUtil
+import com.intellij.psi.util.PropertyUtilBase
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
+import com.snippetveil.core.AccessorEvidence
 import com.snippetveil.core.CommentOccurrence
 import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.Occurrence
+import com.snippetveil.core.OverrideRoot
 import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.SymbolEvidence
 import com.snippetveil.core.SymbolOccurrence
@@ -225,7 +230,51 @@ internal object JavaPlanBuilder : PlanBuilder {
             signature = (symbol as? PsiMethod)?.let { method ->
                 method.parameterList.parameters.joinToString(",", "(", ")") { it.type.canonicalText }
             },
+            overrideRoots = (symbol as? PsiMethod)?.let { overrideRootsOf(project, it) }.orEmpty(),
+            accessor = (symbol as? PsiMethod)?.let(::accessorEvidenceOf),
         )
+    }
+
+    /**
+     * The roots of [method]'s override chain: the methods it overrides that override nothing
+     * themselves. Empty when it overrides nothing, which is most methods.
+     *
+     * `findDeepestSuperMethods()` rather than `findSuperMethods()`, because both rules that read
+     * this are statements about the whole chain rather than about one link: a chain reaching a
+     * framework type is name-constrained however many project classes sit between, and a chain keyed
+     * by anything but its root splits an interface from its implementation.
+     *
+     * Reported as evidence and judged nowhere near here — the origins come back as the plain facts
+     * they are, and whether a JDK root means *keep this name* is the engine's call.
+     */
+    private fun overrideRootsOf(project: Project, method: PsiMethod): List<OverrideRoot> =
+        method.findDeepestSuperMethods().map { OverrideRoot(keyOf(it), originOf(project, it)) }
+
+    /**
+     * The field [method] reads or writes, when it is a JavaBeans accessor of one — and `null`
+     * otherwise, which is the answer for the overwhelming majority of methods.
+     *
+     * **Matched on the name and the arity rather than on the body**, and that is the case this
+     * exists for rather than a shortcut: with Lombok the accessor has no body, no declaration and no
+     * `TextRange` at all. A body-reading match would find every accessor except the ones that need
+     * it most.
+     *
+     * `getPropertyNameAndKind` is what keeps fluent accessors out. `merchantId()` is not a JavaBeans
+     * accessor, so nothing is reported for it, and the engine leaves it an ordinary method —
+     * deliberately, because nothing in Java forces a fluent accessor's name to track its field's.
+     *
+     * The field is looked up on the declaring class alone, never up the hierarchy: a superclass's
+     * field is a symbol of that superclass, and an accessor deriving from a name it does not declare
+     * would tie two placeholders together on a resemblance rather than on a rule.
+     */
+    private fun accessorEvidenceOf(method: PsiMethod): AccessorEvidence? {
+        val owner = method.containingClass ?: return null
+        val property = PropertyUtilBase.getPropertyNameAndKind(method.name) ?: return null
+        val parameters = if (property.second == PropertyKind.SETTER) 1 else 0
+        if (method.parameterList.parametersCount != parameters) return null
+
+        val field = owner.findFieldByName(property.first, false) ?: return null
+        return AccessorEvidence(keyOf(field), property.second.prefix)
     }
 
     /**
@@ -270,9 +319,20 @@ internal object JavaPlanBuilder : PlanBuilder {
      * does not read as anonymized, it reads as broken. The wider rule this belongs to, along with
      * the other forced-sharing cases, is its own ticket; this much is not policy but grammar.
      */
-    private fun declaredSymbolOf(declaration: PsiElement): PsiElement =
-        if (declaration is PsiMethod && declaration.isConstructor) declaration.containingClass ?: declaration
-        else declaration
+    private fun declaredSymbolOf(declaration: PsiElement): PsiElement = when {
+        declaration !is PsiMethod -> declaration
+
+        // Rule 4 — a constructor's identifier is its class's name.
+        declaration.isConstructor -> declaration.containingClass ?: declaration
+
+        // Rule 5 — a record accessor's identifier is its component's name. `merchantRef()` is not a
+        // method that happens to be named after a field; the component, the implicit field and the
+        // accessor are one declared symbol with three PSI faces, and Java forces all three to agree.
+        // Naming the component as the symbol is what makes the accessor render as `field1` rather
+        // than as rule 3's `getField1()` — records carry no `get` prefix, so the derivation that
+        // keeps a Lombok accessor coherent would be actively wrong here.
+        else -> JavaPsiRecordUtil.getRecordComponentForAccessor(declaration) ?: declaration
+    }
 
     /**
      * **The spine rule's evidence: anonymize a symbol iff its declaring file is project-owned.**
@@ -322,11 +382,26 @@ internal object JavaPlanBuilder : PlanBuilder {
      * Anything with no qualified name — an anonymous class, a local, a parameter, a label — is keyed
      * on where it is written. That key is stable for exactly as long as the file is not edited,
      * which is exactly as long as one invocation lasts.
+     *
+     * **Anonymous and local class members inherit that fallback through their owner**, and that is
+     * the point of routing every member key through [ownerKeyOf]. `PsiClass.getQualifiedName()` is
+     * `null` inside one, so an owner keyed by name alone collapsed the `state` fields of two
+     * different anonymous classes onto one placeholder — two unrelated symbols rendered as one name,
+     * which is precisely what the injectivity invariant forbids.
+     *
+     * **A Lombok light member is keyed by `(owner FQN, kind, name)` and nothing else**, which is
+     * what these three branches already say: a light member has no `TextRange` to anchor on, so a
+     * key that reached for one would have nothing to read.
      */
     private fun keyOf(symbol: PsiElement): String = when (symbol) {
         is PsiClass -> "class:" + (symbol.qualifiedName ?: anchorOf(symbol))
         is PsiMethod -> "method:" + ownerKeyOf(symbol.containingClass) + "#" + symbol.name
         is PsiField -> "field:" + ownerKeyOf(symbol.containingClass) + "#" + symbol.name
+
+        // Keyed as the field it compiles to, which is rule 5 stated as identity: one declared symbol
+        // wearing three PSI faces reaches one key from whichever face the walk arrives at.
+        is PsiRecordComponent -> "field:" + ownerKeyOf(symbol.containingClass) + "#" + symbol.name
+
         else -> "local:" + anchorOf(symbol)
     }
 

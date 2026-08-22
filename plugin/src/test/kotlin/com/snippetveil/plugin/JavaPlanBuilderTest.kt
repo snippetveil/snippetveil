@@ -2,7 +2,6 @@ package com.snippetveil.plugin
 
 import com.snippetveil.core.CommentOccurrence
 import com.snippetveil.core.LiteralOccurrence
-import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.SymbolOccurrence
 import com.snippetveil.core.SymbolOrigin
 
@@ -164,14 +163,4 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
         )
     }
 
-    /** The plan's text is the snapped selection verbatim, which is what every offset indexes into. */
-    private fun planFor(path: String, text: String): SnippetPlan {
-        val file = myFixture.configureByText(path.substringAfterLast('/'), text)
-        // The production walk, not a copy of it: a reimplementation here could pass while the
-        // action's own reading of the selection drifted out from under it.
-        return JavaPlanBuilder.build(SnippetRequest(project, file, selectedRangesOf(myFixture.editor)))
-    }
-
 }
-
-private fun SnippetPlan.symbols(): List<SymbolOccurrence> = occurrences.filterIsInstance<SymbolOccurrence>()
