@@ -494,6 +494,7 @@ internal object JavaPlanBuilder : PlanBuilder {
             },
             overrideRoots = (symbol as? PsiMethod)?.let { overrideRootsOf(project, it) }.orEmpty(),
             accessor = (symbol as? PsiMethod)?.let(::accessorEvidenceOf),
+            keyIsQualified = keyIsQualified(symbol),
         )
     }
 
@@ -510,7 +511,9 @@ internal object JavaPlanBuilder : PlanBuilder {
      * they are, and whether a JDK root means *keep this name* is the engine's call.
      */
     private fun overrideRootsOf(project: Project, method: PsiMethod): List<OverrideRoot> =
-        method.findDeepestSuperMethods().map { OverrideRoot(keyOf(it), originOf(project, it), packageNameOf(it)) }
+        method.findDeepestSuperMethods().map {
+            OverrideRoot(keyOf(it), originOf(project, it), packageNameOf(it), keyIsQualified(it))
+        }
 
     /**
      * The field [method] reads or writes, when it is a JavaBeans accessor of one — and `null`
@@ -536,7 +539,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         if (method.parameterList.parametersCount != parameters) return null
 
         val field = owner.findFieldByName(property.first, false) ?: return null
-        return AccessorEvidence(keyOf(field), property.second.prefix)
+        return AccessorEvidence(keyOf(field), property.second.prefix, keyIsQualified(field))
     }
 
     /**
@@ -777,6 +780,30 @@ internal object JavaPlanBuilder : PlanBuilder {
      */
     private fun memberKeyOf(kind: String, owner: PsiClass?, name: String): String =
         kind + ":" + (owner?.let(::keyOf) ?: "<none>") + "#" + name
+
+    /**
+     * **Whether [keyOf] derived this symbol's key from a fully-qualified name**, which is the fact the
+     * engine reads when it decides what may be written down. See [SymbolEvidence.keyIsQualified].
+     *
+     * It answers the branches of [keyOf] one for one, and that is the point of writing it as a `when`
+     * over the same shapes rather than as a test on the resulting string: the two are one decision
+     * made twice, and a rule that parsed the key back out would go quietly wrong the day a key format
+     * changed. A member inherits the answer from its owner, exactly as its key inherits the owner's,
+     * so an anonymous class's field is positional however ordinary the field itself looks.
+     *
+     * Everything not named here — a local, a parameter, a label, a type parameter — is keyed on where
+     * it is written, and so is a class with no qualified name and every member of one. A name that
+     * did not resolve never reaches this at all: it is keyed on its own text, and [evidenceOf] returns
+     * before it gets here.
+     */
+    private fun keyIsQualified(symbol: PsiElement): Boolean = when (symbol) {
+        is PsiPackage -> true
+        is PsiClass -> symbol.qualifiedName != null
+        is PsiMethod -> symbol.containingClass?.let(::keyIsQualified) == true
+        is PsiField -> symbol.containingClass?.let(::keyIsQualified) == true
+        is PsiRecordComponent -> symbol.containingClass?.let(::keyIsQualified) == true
+        else -> false
+    }
 
     private fun anchorOf(symbol: PsiElement): String =
         (PsiUtilCore.getVirtualFile(symbol)?.url ?: "<light>") + "@" + symbol.textOffset

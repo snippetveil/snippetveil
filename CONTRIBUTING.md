@@ -122,6 +122,55 @@ goes red rather than green — and it proves it can fail, against a fixture whos
 says nothing about roaming, which is the shape the mistake actually takes: nobody writes
 `RoamingType.DEFAULT` out in full. The rule fails closed on anything it cannot read as `DISABLED`.
 
+### Where the placeholder mapping lives
+
+Beside the one *setting* above, SnippetVeil persists one other thing, and it is the larger one:
+**the placeholder mapping**, which is what makes `CustomerService` come out as `Type1` today,
+tomorrow and after a restart. It is not a setting — nothing in it is a choice a user makes — and it
+is the densest collection of employer vocabulary the product holds, so where the file sits is a
+decision worth reading rather than a default.
+
+Four properties, and **no project-level `@Storage` satisfies them all**:
+
+1. **Outside the project tree, never `.idea/`** — `.idea/` is routinely committed, and a mapping
+   there publishes the domain vocabulary into git history and every fork.
+2. **Never roaming** — settings sync would copy it to JetBrains' servers.
+3. **Not the cache directory** — *Invalidate Caches* is routine IDE hygiene aimed at unrelated
+   indexing problems, and letting it silently destroy every outstanding reverse mapping is a trap.
+4. **Project-scoped** — one project's vocabulary must never be handed to another project's paste.
+
+Every project-level storage resolves inside `.idea/` — `$PROJECT_FILE$`, `$PROJECT_CONFIG_DIR$`,
+`$WORKSPACE_FILE$` and `$PRODUCT_WORKSPACE_FILE$` all do — with one exception, `$CACHE_FILE$`, which
+resolves to `<system>/projects/<hash>/cache-state.xml`: outside the tree, and the platform's own
+cache slot. So (1) and (3) cannot both be had from a project-level component.
+
+**The resolution: the component is application-level and the data is project-partitioned.** The file
+lands in the IDE config directory, which is neither the project tree nor the cache, and every entry
+is filed under the project it belongs to. What that gives up is the *component* being project-level.
+What the alternative gives up is a reverse mapping that a routine Invalidate Caches destroys — and
+that is the failure a user actually experiences. The reason project-level was wanted in the first
+place, *application-level settings roam*, is closed directly and checkably by `RoamingType.DISABLED`,
+which is an absolute rule here and has a test of its own. Roaming off also keeps the file out of
+**Export Settings**, which collects roamable components only.
+
+It is **plaintext**, deliberately. The file holds names already sitting in plaintext `.java` files on
+the same disk, and a compromised local machine is out of the threat model; the genuine risks are
+accidental commit and cloud sync, and both are *location* problems closed above. Encryption would
+cost auditability, and greppable state is worth more to a product whose pitch is *audit me*.
+
+`PlaceholderLedgerTest` asserts each of these rather than describing them: the roaming type, the
+component level, and the resolved path being neither under the project nor under the system
+directory.
+
+**Two costs, written down rather than left to be discovered.** Entries are filed under the project's
+location hash, which is derived from its path — so moving or renaming the project directory reads as
+a new project and the mapping starts from empty. A file in `.idea/` would have travelled with the
+tree. Nothing decodes to the wrong name when that happens; what is lost is stability across the move.
+And a mapping that survives an IDE restart also means a placeholder issued weeks ago is emitted even
+when today's snippet preserves a library name spelled the same way, so that word can appear twice
+standing for two things. Both are argued where they live, in `PlaceholderLedger` and in
+`Anonymize.placeholderFor`, and both are pinned by a test.
+
 ### Known limits
 
 This is deliberate, and it is stated here rather than left for a reader to discover, because a trust
@@ -238,6 +287,14 @@ A licence-report tool, if one ever arrives, must:
 Test-scope dependencies are not covered by any of this, and are added on ordinary engineering
 judgement — for the same reason the architecture rules do not read test code. Nothing test-scope is
 distributed, so none of it carries an outbound licence obligation.
+
+There are three of them today — JUnit, ArchUnit and **jqwik**, the property-based testing library the
+mapping's history invariants are written against. jqwik's licence was **checked against the list
+above rather than assumed**: it is EPL-2.0, which that list allows as an unmodified dependency, and
+it is used unmodified. It was preferred over the Apache-2.0 alternative on weight rather than on
+licence — it is a JUnit Platform engine with three small transitive dependencies, where the
+alternative brings a competing test framework and a coroutines runtime into a module that had two
+dependencies.
 
 ## Issues
 

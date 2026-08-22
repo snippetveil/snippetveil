@@ -32,8 +32,11 @@ class NoPersistentStateIsRoamableTest {
     @Test
     fun `the rule below is applied to state that actually ships`() {
         assertEquals(
-            listOf("com.snippetveil.plugin.InternalLibrarySettings"),
-            SHIPPED_STATE_HOLDERS.map { it.name },
+            listOf(
+                "com.snippetveil.plugin.InternalLibrarySettings",
+                "com.snippetveil.plugin.PlaceholderLedger",
+            ),
+            SHIPPED_STATE_HOLDERS.map { it.name }.sorted(),
             "the shipped state holders are not what this rule was written against",
         )
     }

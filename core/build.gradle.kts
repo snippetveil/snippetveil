@@ -11,6 +11,16 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // Property-based testing, for the one class of failure that cannot appear in a single-invocation
+    // test: a second paste contradicting the first. See LedgerHistoryTest.
+    //
+    // **Licence checked rather than assumed**, against the allow-list in CONTRIBUTING.md: jqwik is
+    // EPL-2.0, which that list allows as an unmodified dependency, and this is one — no fork, no
+    // patch. It is also test scope, so it is not on the shipped runtime classpath and carries no
+    // outbound obligation at all; `assertNothingThirdPartyIsShipped` holds that to be true rather
+    // than taking it on trust.
+    testImplementation("net.jqwik:jqwik:1.10.1")
 }
 
 kotlin {

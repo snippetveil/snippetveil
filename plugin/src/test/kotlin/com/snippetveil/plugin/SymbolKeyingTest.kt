@@ -5,6 +5,7 @@ import com.intellij.psi.PsiDocumentManager
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.SnippetPlan
+import com.snippetveil.core.SymbolEvidence
 import com.snippetveil.core.anonymize
 
 /**
@@ -131,14 +132,71 @@ class SymbolKeyingTest : JavaSnippetTestCase() {
         )
     }
 
+    /**
+     * **The table's `persistable` column, asserted against the evidence the walk actually reports.**
+     *
+     * Until this existed the column was a claim the file made about itself: the row said *this key
+     * cannot be persisted* and the only thing holding it to that was the edit test above, which
+     * measures a *consequence* of the key's shape rather than what the walk tells the engine. The
+     * engine does not look at key shapes — it reads [SymbolEvidence.keyIsQualified] — so a walk that
+     * reported the flag wrongly would write anchored keys into a durable file with every test here
+     * still green.
+     */
+    fun `test the walk reports whether each key is derived from a qualified name`() {
+        assertTheHarnessResolves()
+        val plan = planFor(FIXTURE_PATH, FIXTURE)
+
+        for (kind in KINDS) {
+            assertEquals(
+                "${kind.description}: the walk reported the wrong answer for `keyIsQualified`",
+                kind.persistable,
+                plan.evidenceOf(kind.token, kind.ordinal).keyIsQualified,
+            )
+        }
+    }
+
+    /**
+     * **The whole fixture through the engine: everything the delta holds is qualified, and every
+     * qualified kind is in it.**
+     *
+     * Both halves are needed and neither is the other. *Nothing anchored got in* is the rule that
+     * keeps a durable file from filling with keys that re-point at a different symbol after an edit;
+     * *everything qualified did* is what stops the rule being satisfied by writing nothing down at
+     * all, which is the shape a fail-closed bug takes here.
+     */
+    fun `test the delta holds every qualified key and nothing else`() {
+        assertTheHarnessResolves()
+        val plan = planFor(FIXTURE_PATH, FIXTURE)
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals(
+            "a key the walk anchored to a file offset reached the durable mapping",
+            emptyList<String>(),
+            result.delta.placeholders.keys.filter { "@" in it || it.startsWith("unresolved:") },
+        )
+        assertEquals(
+            "a symbol whose key is qualified was left out of the durable mapping",
+            emptyList<String>(),
+            KINDS.filter { it.persistable }
+                .map { it.key }
+                .distinct()
+                .filterNot { it in result.delta.placeholders },
+        )
+    }
+
     /** The [ordinal]-th occurrence of [token] in the plan, and the key the walk gave it. */
-    private fun SnippetPlan.keyOf(token: String, ordinal: Int): String {
+    private fun SnippetPlan.keyOf(token: String, ordinal: Int): String =
+        evidenceOf(token, ordinal).key
+
+    /** The [ordinal]-th occurrence of [token] in the plan, and everything the walk observed about it. */
+    private fun SnippetPlan.evidenceOf(token: String, ordinal: Int): SymbolEvidence {
         val occurrences = symbols().filter { it.text == token }
         assertTrue(
             "`$token` occurs ${occurrences.size} times in the fixture; there is no #$ordinal",
             ordinal < occurrences.size,
         )
-        return occurrences[ordinal].symbol.key
+        return occurrences[ordinal].symbol
     }
 
     /** The file-and-offset anchor, reduced to the word `<anchor>` so a table can state a key. */

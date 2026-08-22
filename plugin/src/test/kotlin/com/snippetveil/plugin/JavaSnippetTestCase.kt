@@ -2,6 +2,7 @@ package com.snippetveil.plugin
 
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
+import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.projectRoots.JavaSdk
@@ -85,15 +86,27 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
      * Runs the action the way the IDE would — `update` first, then `actionPerformed` only if the
      * presentation came back enabled — and waits for the background analysis to land.
      *
+     * **The balloons from any earlier invocation are dropped first**, which is what lets a test
+     * invoke the action twice: [awaitBackgroundWork] waits for a balloon to appear, and one already
+     * sitting in the list would satisfy that wait before the second analysis had even started.
+     * Dropping them here rather than counting them is the version that cannot race — the platform is
+     * free to deliver the first balloon before or after `testAction` returns, so any count taken
+     * afterwards is a guess.
+     *
      * @return the presentation `update` produced, which is what the Java-file gate is asserted on
      */
-    protected fun invokeCopyAnonymized(action: CopyAnonymizedAction = CopyAnonymizedAction()) =
-        myFixture.testAction(action).also { if (it.isEnabled) awaitBackgroundWork() }
+    protected fun invokeCopyAnonymized(action: CopyAnonymizedAction = CopyAnonymizedAction()): Presentation {
+        raised.clear()
+        return myFixture.testAction(action).also { if (it.isEnabled) awaitBackgroundWork() }
+    }
 
     /**
      * Drains the pooled thread the analysis runs on and the event queue its result comes back
      * through. The action returns before either has happened, so an assertion made without this
      * would be racing a thread it cannot see.
+     *
+     * A test that invokes the action twice goes through [invokeCopyAnonymized], which drops the
+     * earlier balloons so that this wait is about the invocation in hand.
      */
     protected fun awaitBackgroundWork() {
         val deadline = System.currentTimeMillis() + 60_000
@@ -118,7 +131,10 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
         return JavaPlanBuilder.build(SnippetRequest(project, file, selectedRangesOf(myFixture.editor)))
     }
 
-    /** Every balloon this test has raised, in order. The action's only observable side effect. */
+    /**
+     * Every balloon the most recent invocation raised, in order — the action's only observable side
+     * effect. See [invokeCopyAnonymized] for why an earlier invocation's are not kept.
+     */
     protected val notifications: List<Notification> get() = raised
 
     private val raised = mutableListOf<Notification>()
@@ -132,6 +148,11 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
         // than in the one class that writes it: the hazard belongs to the shared project, not to the
         // test that happens to exercise it.
         InternalLibrarySettings.of(project).loadState(InternalLibrarySettings.State())
+
+        // The mapping is application-level state, so it is shared by every test in this JVM and not
+        // only by the tests sharing the light project — a stronger version of the same hazard, and
+        // reset in the same place for the same reason.
+        PlaceholderLedger.getInstance().loadState(PlaceholderLedger.State())
 
         project.messageBus.connect(testRootDisposable).subscribe(
             Notifications.TOPIC,

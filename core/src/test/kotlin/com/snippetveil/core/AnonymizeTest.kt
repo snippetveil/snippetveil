@@ -284,7 +284,8 @@ class AnonymizeTest {
         assertEquals("List<String> names = new ArrayList<>();", result.text)
         assertEquals(0, result.counts.replaced)
         assertTrue(result.mapping.isEmpty())
-        assertTrue(result.delta.isEmpty)
+        assertTrue(result.delta.placeholders.isEmpty())
+        assertEquals(LedgerSnapshot.EMPTY.nextNumber, result.delta.nextNumber)
     }
 
     /**

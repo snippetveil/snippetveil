@@ -9,6 +9,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbService
 import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.util.PsiTreeUtil
+import com.snippetveil.core.LedgerDelta
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 
@@ -1127,6 +1128,123 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **The whole reason the mapping is persisted, end to end: the second paste agrees with the
+     * first.**
+     *
+     * The fixture is the conversation this design exists for. `settle` is named in the first paste
+     * and named again in the second, and in the second it is *not* the first name met — `refund`
+     * is. Under fresh-per-invocation numbering `refund` would take `method1`, the number `settle`
+     * already went out under, and the model would be reading two different methods under one name.
+     *
+     * So this asserts both halves at once: `settle` keeps `method1` wherever it appears, and
+     * **stability outranks allocation ordering** — first-occurrence order now decides only which of
+     * the newcomers takes the next number.
+     */
+    fun `test a symbol named in an earlier invocation keeps its placeholder in a later one`() {
+        assertTheHarnessResolves()
+
+        myFixture.configureByText(LEDGER_PATH, ledgerSelecting(SETTLE))
+        invokeCopyAnonymized()
+        assertEquals("void method1() {}", clipboard())
+
+        myFixture.configureByText(LEDGER_PATH, ledgerSelecting(REFUND))
+        invokeCopyAnonymized()
+
+        assertEquals("void method2() { method1(); }", clipboard())
+    }
+
+    /**
+     * **And it survives the IDE being shut down in between**, which is the case that rules out
+     * keeping the mapping in memory: a restart would silently strip the ability to decode yesterday's
+     * reply, and the user would find out by reading a decode that quietly says the wrong thing.
+     *
+     * The restart is the state written out and read back the way `@State` writes and reads it. That
+     * is the honest form of the test available in-process, and it is the half that can actually
+     * break: a field the serializer drops leaves every in-memory assertion green.
+     */
+    fun `test a placeholder survives the mapping being written out and read back`() {
+        assertTheHarnessResolves()
+
+        myFixture.configureByText(LEDGER_PATH, ledgerSelecting(SETTLE))
+        invokeCopyAnonymized()
+        assertEquals("void method1() {}", clipboard())
+
+        PlaceholderLedger.getInstance().let { it.loadState(asWrittenAndReadBack(it.state)) }
+
+        myFixture.configureByText(LEDGER_PATH, ledgerSelecting(REFUND))
+        invokeCopyAnonymized()
+
+        assertEquals("void method2() { method1(); }", clipboard())
+    }
+
+    /**
+     * **The clipboard write is the single moment this invocation has happened at all**, so an
+     * invocation that never got there leaves the mapping byte-identical — no entry, and no number
+     * burnt.
+     *
+     * That matters beyond tidiness: numbers burnt by a failure are numbers no reply will ever
+     * mention, and a mapping that drifted forwards on every failed attempt would make the
+     * placeholders in a real paste depend on how many times the analysis had fallen over.
+     *
+     * **The stated limit.** What this reaches is an analysis that throws. The other half of the rule
+     * — that the commit happens *after* the clipboard write rather than before it, so a clipboard
+     * write that throws also commits nothing — is not reachable from here, because nothing can make
+     * the platform's clipboard write fail on demand. It is stated in `CopyAnonymizedAction.deliver`
+     * and held by the ordering of two lines, and that is worth saying out loud rather than leaving a
+     * reader to assume this test covers it.
+     */
+    fun `test a failed invocation commits nothing to the mapping`() {
+        assertTheHarnessResolves()
+
+        myFixture.configureByText(LEDGER_PATH, ledgerSelecting(SETTLE))
+        invokeCopyAnonymized()
+
+        val committed = PlaceholderLedger.getInstance().snapshotOf(project)
+
+        myFixture.configureByText(LEDGER_PATH, ledgerSelecting(REFUND))
+        invokeCopyAnonymized(CopyAnonymizedAction { error("the analysis fell over") })
+
+        val after = PlaceholderLedger.getInstance().snapshotOf(project)
+        assertEquals("a failed invocation named a symbol", committed.placeholders, after.placeholders)
+        assertEquals("a failed invocation burnt a number", committed.nextNumber, after.nextNumber)
+    }
+
+    /**
+     * **Two invocations at once must not be handed the same number.**
+     *
+     * `queue()` serializes nothing, so two analyses over a large file run side by side, read the
+     * same ledger and are each handed the same next number — one placeholder standing for two
+     * different symbols, which is the one thing the design forbids. The clipboard write is on the
+     * EDT, so that is where the ledger is read a second time and the analysis re-run if it moved.
+     *
+     * Made deterministic rather than raced: the plan build is precisely the window between this
+     * invocation reading the ledger and committing to it, so a plan builder that commits during it
+     * *is* another invocation getting there first — and it is a window a real slow analysis has.
+     */
+    fun `test an invocation whose ledger moved underneath it is re-run against the ledger that moved`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(LEDGER_PATH, ledgerSelecting(SETTLE))
+
+        invokeCopyAnonymized(
+            CopyAnonymizedAction { request ->
+                PlaceholderLedger.getInstance().commit(
+                    request.project,
+                    LedgerDelta(mapOf(INTERLOPER to "method1"), nextNumber = 2),
+                )
+                JavaPlanBuilder.build(request)
+            },
+        )
+
+        // `method1` is the number the stale analysis was handed. It went to the interloper, so the
+        // re-run hands `settle` the next one — rather than both of them `method1`.
+        assertEquals("void method2() {}", clipboard())
+        assertEquals(
+            mapOf(INTERLOPER to "method1", "method:class:Ledger#settle" to "method2"),
+            PlaceholderLedger.getInstance().snapshotOf(project).placeholders,
+        )
+    }
+
+    /**
      * Asserts that [snippet] is still Java the parser accepts, wrapped in the class body it came out
      * of. A rewrite that broke a literal's delimiters would leave an error element here.
      */
@@ -1155,6 +1273,25 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 }
 
 private const val PREVIOUS_CLIPBOARD = "the raw snippet the user copied a minute ago"
+
+private const val LEDGER_PATH = "Ledger.java"
+
+/** A symbol another invocation named while this one was still analysing. */
+private const val INTERLOPER = "method:class:com.other.Interloper#run"
+
+private const val SETTLE = "void settle() {}"
+
+private const val REFUND = "void refund() { settle(); }"
+
+/**
+ * The two-method fixture with [selected] selected, so that two invocations run over one file and one
+ * symbol is named by both. Written as one source with a moving selection rather than as two files,
+ * because the point is that `settle` is *the same symbol* in both pastes.
+ */
+private fun ledgerSelecting(selected: String): String {
+    val body = listOf(SETTLE, REFUND).joinToString("\n    ") { if (it == selected) "<selection>$it</selection>" else it }
+    return "class Ledger {\n    $body\n}"
+}
 
 internal fun clipboard(): String =
     CopyPasteManager.getInstance().contents?.getTransferData(DataFlavor.stringFlavor) as? String ?: ""

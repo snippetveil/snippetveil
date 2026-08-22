@@ -59,6 +59,7 @@ internal fun symbol(
     signature: String? = null,
     overrideRoots: List<OverrideRoot> = emptyList(),
     accessor: AccessorEvidence? = null,
+    keyIsQualified: Boolean = false,
 ) = SymbolEvidence(
     key = key,
     role = role,
@@ -69,6 +70,7 @@ internal fun symbol(
     signature = signature,
     overrideRoots = overrideRoots,
     accessor = accessor,
+    keyIsQualified = keyIsQualified,
 )
 
 /**
@@ -86,6 +88,8 @@ internal fun pkg(qualifiedName: String, origin: SymbolOrigin) = symbol(
     key = "package:" + qualifiedName,
     qualifiedName = qualifiedName,
     packageName = qualifiedName,
+    // A package's key *is* its qualified name, so there is no shape of package this is untrue of.
+    keyIsQualified = true,
 )
 
 internal fun symbolAt(
@@ -95,11 +99,19 @@ internal fun symbolAt(
     origin: SymbolOrigin,
     key: String = name,
     signature: String? = null,
+    keyIsQualified: Boolean = false,
 ) = SymbolOccurrence(
     start,
     start + name.length,
     name,
-    SymbolEvidence(key = key, role = role, origin = origin, declaredName = name, signature = signature),
+    SymbolEvidence(
+        key = key,
+        role = role,
+        origin = origin,
+        declaredName = name,
+        signature = signature,
+        keyIsQualified = keyIsQualified,
+    ),
 )
 
 /**
