@@ -5,8 +5,8 @@ plugins {
 }
 
 /**
- * Fails if a GitHub Actions workflow uses an action it has not pinned to a commit SHA, or does not
- * say what token it runs with.
+ * Fails if a GitHub Actions workflow uses an action it has not pinned to a commit SHA, pins one
+ * without naming the version the SHA is, or does not say what token it runs with.
  *
  * This is a Gradle task for the same reason the trust checks are: **a check that exists only in
  * YAML cannot be run by the person reading the claim.** Two of the hardening rules in
@@ -33,18 +33,34 @@ val assertWorkflowsAreHardened by tasks.registering {
         // mutable and can be repointed by whoever controls the action's repository.
         val commitSha = Regex("""^[0-9a-f]{40}$""")
 
-        // `- uses: owner/repo/path@ref # v1.2.3`, as a step or as a bare mapping key. The trailing
-        // comment is optional to *match* and required to *pass* — see below.
-        val usesStep = Regex("""^\s*(?:-\s+)?uses:\s*(\S+)(?:\s*#\s*(.*?))?\s*$""")
+        // `- uses: owner/repo/path@ref # v1.2.3`, as a step or as a bare mapping key. Written
+        // tightly on purpose: a permissive pattern would "read" a quoted or folded value and check
+        // the wrong string, which is worse than not reading it, because `usesAnything` below turns
+        // a line this cannot read into a violation. A local (`./…`) or Docker action would be
+        // flagged too — extending the rules to one is a deliberate act, not a silent skip.
+        //
+        // The trailing comment is optional to *match* and required to *pass* — see below.
+        val usesStep = Regex("""^\s*(?:-\s+)?uses:\s*([\w.-]+/[\w./-]+@[\w.-]+)(?:\s+#\s*(\S.*?))?\s*$""")
+
+        // Anything that names an action at all. A line this matches and `usesStep` does not is a
+        // `uses:` written in a shape the rules cannot read — a hole in the check rather than a line
+        // to skip quietly, in the same way a file in `lib/` that the distribution scan cannot open
+        // is a violation rather than a skip.
+        val usesAnything = Regex("""^\s*(?:-\s+)?uses:.*""")
 
         // A workflow's own `permissions:`, at column 0. A job-level one is indented and does not
         // match, which is the point: a job that asks for more is fine, a file that asks for nothing
         // and inherits the repository default is not.
         val declaredPermissions = Regex("""(?m)^permissions:""")
 
-        /** Every hardening rule this project's workflows have to clear, over one file's text. */
-        fun violationsIn(name: String, text: String): List<String> {
+        /**
+         * Every hardening rule this project's workflows have to clear, over one file's text, and
+         * the number of `uses:` lines the rules actually read — which is the check's own coverage
+         * and is asserted below rather than assumed.
+         */
+        fun inspect(name: String, text: String): Pair<List<String>, Int> {
             val violations = mutableListOf<String>()
+            var actionsRead = 0
 
             if (!declaredPermissions.containsMatchIn(text)) {
                 violations += "$name declares no top-level `permissions:`, so its jobs run with " +
@@ -52,8 +68,16 @@ val assertWorkflowsAreHardened by tasks.registering {
             }
 
             text.lines().forEachIndexed { index, line ->
-                val (reference, version) = usesStep.matchEntire(line)?.destructured ?: return@forEachIndexed
+                if (!usesAnything.matches(line)) return@forEachIndexed
                 val where = "$name:${index + 1}"
+
+                val (reference, version) = usesStep.matchEntire(line)?.destructured ?: run {
+                    violations += "$where names an action in a shape these rules cannot read, so " +
+                        "it was not checked"
+                    return@forEachIndexed
+                }
+
+                actionsRead++
                 when {
                     !commitSha.matches(reference.substringAfterLast('@', "")) ->
                         violations += "$where uses $reference, which is a tag or a branch: whoever " +
@@ -65,8 +89,10 @@ val assertWorkflowsAreHardened by tasks.registering {
                 }
             }
 
-            return violations
+            return violations to actionsRead
         }
+
+        fun violationsIn(name: String, text: String) = inspect(name, text).first
 
         // The rules prove they can fail before they report that nothing failed. A red path that is
         // never exercised decays into a check that always passes, which is the failure mode the
@@ -92,6 +118,12 @@ val assertWorkflowsAreHardened by tasks.registering {
         check(violationsIn("fixture", hardened.substringAfter("contents: read\n")).size == 1) {
             "The rules failed to flag a workflow with no top-level permissions."
         }
+        check(violationsIn("fixture", hardened.replace("uses: actions", "uses: \"actions")).size == 1) {
+            "The rules skipped a `uses:` they could not parse instead of flagging it."
+        }
+        check(inspect("fixture", hardened).second == 1) {
+            "The rules read no action out of a fixture that has one. They are not counting coverage."
+        }
 
         val files = workflows.asFile.listFiles().orEmpty()
             .filter { it.isFile && (it.name.endsWith(".yml") || it.name.endsWith(".yaml")) }
@@ -100,15 +132,26 @@ val assertWorkflowsAreHardened by tasks.registering {
         // A check that found nothing to check is not a pass.
         check(files.isNotEmpty()) { "No workflows were found in ${workflows.asFile}. Nothing was checked." }
 
-        val violations = files.flatMap { violationsIn(it.name, it.readText()) }
+        val inspected = files.map { it to inspect(it.name, it.readText()) }
+        val violations = inspected.flatMap { (_, result) -> result.first }
+        val actionsRead = inspected.sumOf { (_, result) -> result.second }
+
+        // A check that read no action is not a pass, however many files it opened. Every workflow
+        // here uses at least one action, so a zero means the rules stopped matching the shape these
+        // files are written in — the one failure a green build would otherwise hide completely.
+        check(actionsRead > 0) {
+            "No `uses:` was read out of ${files.size} workflow(s). The pin rule checked nothing."
+        }
 
         report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
             buildString {
-                appendLine("Workflows checked: ${files.size}")
+                appendLine("Workflows checked: ${files.size}; actions read: $actionsRead")
                 appendLine("Every `uses:` must be pinned to a commit SHA and name its version,")
                 appendLine("and every workflow must declare its own top-level `permissions:`.")
                 appendLine()
-                files.forEach { appendLine(".github/workflows/${it.name}") }
+                inspected.forEach { (file, result) ->
+                    appendLine(".github/workflows/${file.name} — ${result.second} action(s)")
+                }
             }
         )
 

@@ -158,12 +158,18 @@ one-line diff — `platformLatestVersion` going stale is a maintenance chore not
   supply-chain surface of its own.
 
 The first two are not left to habit. `assertWorkflowsAreHardened`, in the root `build.gradle.kts`
-and wired into `check`, fails the build if a workflow uses an action it has not pinned to a SHA, or
-does not declare its own top-level `permissions:`. It is a Gradle task for the same reason the trust
-checks are, and like them it proves it can fail — over fixtures — before it reports that nothing
-failed. What it does not check is what the permissions actually *are*: "minimal" is a judgement
-about what a job does, and a rule that guessed at it would be the kind of noise that teaches people
-to suppress a check.
+and wired into `check`, fails the build if a workflow uses an action it has not pinned to a SHA,
+pins one without a `# vX.Y.Z` comment naming what the SHA is, or does not declare its own top-level
+`permissions:`. It is a Gradle task for the same reason the trust checks are, and like them it
+proves it can fail — over fixtures — before it reports that nothing failed, and it asserts its own
+coverage: a `uses:` written in a shape the rules cannot read is a violation rather than a skip, and
+a run that read no action at all fails outright.
+
+The version comment is a rule and not a nicety, because a bare 40-character SHA is unauditable by
+eye, and these files are read by people deciding whether to trust the build. What the check does
+*not* look at is what the permissions actually **are**: "minimal" is a judgement about what a job
+does, and a rule that guessed at it would be the kind of noise that teaches people to suppress a
+check.
 
 ## Inbound dependency policy
 

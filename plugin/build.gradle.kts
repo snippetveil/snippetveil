@@ -25,7 +25,7 @@ plugins {
 fun platformProperty(name: String) = providers.gradleProperty(name).orNull
     ?: error("$name is not set. gradle.properties defines it; see the platformProfile block there.")
 
-val platformProfile = providers.gradleProperty("platformProfile").orElse("floor").get()
+val platformProfile = platformProperty("platformProfile")
 val (platformType, platformVersion) = when (platformProfile) {
     "floor" -> platformProperty("platformFloorType") to platformProperty("platformFloorVersion")
     "latest" -> platformProperty("platformLatestType") to platformProperty("platformLatestVersion")

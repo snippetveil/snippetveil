@@ -122,15 +122,26 @@ jobs:
           validate-wrappers: true
           cache-provider: basic
 
-      # `ides { recommended() }` is several IDE downloads. Cached, they are a one-off per IDE
-      # release rather than a cost on every run.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # `ides { recommended() }` is several IDE downloads, and which IDEs it recommends changes
+      # whenever JetBrains ships one. Restore-then-save rather than one cache step, because a
+      # fixed key would hit forever and never take a newly recommended IDE with it.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.pluginVerifier/ides
-          key: plugin-verifier-ides-${{ runner.os }}
+          key: plugin-verifier-ides-${{ runner.os }}-
+          restore-keys: plugin-verifier-ides-${{ runner.os }}-
 
       - name: verifyPlugin
         run: ./gradlew verifyPlugin
+
+      # Written only from `main`. A pull request restores `main`'s entry and adds nothing, and an
+      # entry per pull request would churn the repository's cache budget out from under the IDEs
+      # this is here to keep.
+      - if: ${{ github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pluginVerifier/ides
+          key: plugin-verifier-ides-${{ runner.os }}-${{ github.run_id }}
 
       - if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -155,13 +166,25 @@ jobs:
 
       # Yesterday's draft is not a release anybody wants to publish by accident, and the tag is
       # never pushed until a draft is published, so replacing it costs nothing.
+      #
+      # Scoped to `v*` — the tags this job itself creates. A draft under any other tag is somebody
+      # working by hand, and a push to `main` does not get to delete that.
       - name: Replace the previous draft
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
+          # `version` is a constant in gradle.properties, so once v$VERSION is published the tag
+          # exists and `gh release create` would fail on every later push. Bumping the version is a
+          # human release step; being red until someone does is not a useful way to say so.
+          published="$(gh release view "v$VERSION" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [ "$published" = "false" ]; then
+            echo "::warning::v$VERSION is already published. Bump version in gradle.properties for main to draft again."
+            exit 0
+          fi
+
           gh release list --limit 100 --json tagName,isDraft \
-            --jq '.[] | select(.isDraft) | .tagName' \
+            --jq '.[] | select(.isDraft) | .tagName | select(startswith("v"))' \
             | while read -r tag; do gh release delete "$tag" --yes; done
           gh release create "v$VERSION" --draft --title "v$VERSION" \
             --target "$GITHUB_SHA" --generate-notes

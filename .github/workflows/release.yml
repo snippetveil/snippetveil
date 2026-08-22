@@ -36,17 +36,24 @@ jobs:
           validate-wrappers: true
           cache-provider: basic
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.pluginVerifier/ides
-          key: plugin-verifier-ides-${{ runner.os }}
+          key: plugin-verifier-ides-${{ runner.os }}-
+          restore-keys: plugin-verifier-ides-${{ runner.os }}-
 
-      # Three steps rather than one `./gradlew check verifyPlugin publishPlugin`, for one reason:
-      # Gradle orders a task graph by dependency, not by the order the tasks were named on the
-      # command line, and `publishPlugin` depends on neither of the two before it. A step boundary
-      # is a barrier no scheduler gets to reorder.
-      - name: check
+      # Separate steps rather than one `./gradlew check verifyPlugin publishPlugin`, for one
+      # reason: Gradle orders a task graph by dependency, not by the order the tasks were named on
+      # the command line, and `publishPlugin` depends on none of the ones before it. A step
+      # boundary is a barrier no scheduler gets to reorder.
+      #
+      # Both platform legs, not just the floor. The whole point of re-checking here is that the tag
+      # need not be anything `main` ever ran, and half a gate would only half deliver that.
+      - name: check (floor)
         run: ./gradlew check
+
+      - name: check (latest)
+        run: ./gradlew check -PplatformProfile=latest
 
       - name: verifyPlugin
         run: ./gradlew verifyPlugin
