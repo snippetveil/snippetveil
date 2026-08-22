@@ -36,28 +36,6 @@ class AnonymizeTest {
     }
 
     /**
-     * Overloads share a name in source, so they share a placeholder. The plan reports each one's
-     * signature as evidence and keys them identically; the engine collapses them by never reading
-     * the signature. Emitting two placeholders here would produce a *plausible* artifact — output
-     * that reads as two unrelated methods — which is the prohibited class.
-     */
-    @Test
-    fun `overloads collapse to one placeholder`() {
-        val plan = SnippetPlan(
-            "void send(String body) {} void send(String body, int retries) {}",
-            listOf(
-                symbolAt(5, "send", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, signature = "(String)"),
-                symbolAt(31, "send", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, signature = "(String,int)"),
-            ),
-        )
-
-        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
-
-        assertEquals("void method1(String body) {} void method1(String body, int retries) {}", result.text)
-        assertEquals(mapOf("method1" to "send"), result.mapping)
-    }
-
-    /**
      * Two distinct symbols never share a placeholder, however identical they look in source. A
      * parameter shadowing a field is the case that proves it: one name, two symbols, two keys.
      */
@@ -393,38 +371,3 @@ class AnonymizeTest {
         assertEquals(text, result.text)
     }
 }
-
-/**
- * A plan over [text] whose occurrences are located by searching [text] for each symbol's name, so a
- * test states the code and the evidence and never an offset. Each symbol is keyed by its own name,
- * which is what a test wants by default: same name, same symbol.
- */
-internal fun planOf(text: String, vararg symbols: SymbolEvidence): SnippetPlan {
-    val occurrences = mutableListOf<Occurrence>()
-    for (symbol in symbols) {
-        var from = 0
-        while (true) {
-            val at = text.indexOf(symbol.declaredName, from).takeIf { it >= 0 } ?: break
-            occurrences += SymbolOccurrence(at, at + symbol.declaredName.length, symbol.declaredName, symbol)
-            from = at + symbol.declaredName.length
-        }
-    }
-    return SnippetPlan(text, occurrences.sortedBy { it.start })
-}
-
-internal fun symbol(
-    name: String,
-    role: SymbolRole,
-    origin: SymbolOrigin,
-    key: String = name,
-    signature: String? = null,
-) = SymbolEvidence(key, role, origin, name, signature)
-
-internal fun symbolAt(
-    start: Int,
-    name: String,
-    role: SymbolRole,
-    origin: SymbolOrigin,
-    key: String = name,
-    signature: String? = null,
-) = SymbolOccurrence(start, start + name.length, name, SymbolEvidence(key, role, origin, name, signature))

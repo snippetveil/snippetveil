@@ -13,6 +13,8 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
+import com.snippetveil.core.SnippetPlan
+import com.snippetveil.core.SymbolOccurrence
 import java.io.File
 
 /**
@@ -88,6 +90,19 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
         fail("The analysis produced no notification within 60s; nothing came back from the background thread.")
     }
 
+    /**
+     * The plan the production walk builds for [text], whose `<selection>` markers say what is
+     * selected. The plan's text is the snapped selection verbatim, which is what every offset in it
+     * indexes into.
+     *
+     * The production walk, not a copy of it: a reimplementation here could pass while the action's
+     * own reading of the selection drifted out from under it.
+     */
+    protected fun planFor(path: String, text: String): SnippetPlan {
+        val file = myFixture.configureByText(path.substringAfterLast('/'), text)
+        return JavaPlanBuilder.build(SnippetRequest(project, file, selectedRangesOf(myFixture.editor)))
+    }
+
     /** Every balloon this test has raised, in order. The action's only observable side effect. */
     protected val notifications: List<Notification> get() = raised
 
@@ -132,3 +147,6 @@ private val REAL_CLASSPATH: LightProjectDescriptor = object : DefaultLightProjec
 
 private val JUNIT4_JAR: String = PathManager.getJarPathForClass(org.junit.Test::class.java)
     ?: error("JUnit 4 is not on the test classpath as a jar, so no real library can be attached.")
+
+/** The plan's symbol occurrences, in document order. */
+internal fun SnippetPlan.symbols(): List<SymbolOccurrence> = occurrences.filterIsInstance<SymbolOccurrence>()

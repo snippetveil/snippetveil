@@ -111,22 +111,28 @@ class UnknownName(
  * The balloon's three numbers, counted in **distinct names** rather than occurrences — "14 names
  * replaced" is a claim about names.
  *
- * They **partition** the snippet's named symbols, by the evidence the plan carried rather than by
- * what happened to each one: project-owned is [replaced], unresolved is [unknown], the JDK and
- * third-party libraries are [preserved]. So the three add up to what is in the snippet and nothing
- * is counted twice.
+ * They **partition** the snippet's named symbols: every distinct name is counted once, so the three
+ * add up to what is in the snippet and nothing is counted twice.
+ *
+ * They are counted by **outcome** — replaced, or surviving verbatim — rather than by the origin the
+ * plan reported, and that is a correction the name-constrained rules forced rather than a
+ * preference. A project method that keeps its real name because it implements `Runnable` is
+ * project-owned *evidence* and a preserved *name*, and [replaced] is a claim about what is on the
+ * clipboard. [unknown] is the exception and stays evidence-shaped, because it reports what the IDE
+ * could not resolve rather than what became of it.
  *
  * All three are mechanism, and stay that way: no "safe to paste", no "sanitized", no adjective. A
  * category claim is one the tool is not in a position to make, and it is the claim a user would act
  * on.
  *
- * @param replaced distinct project-owned names that became placeholders
+ * @param replaced distinct names that became placeholders
  * @param unknown distinct names the IDE could not resolve. **An information-level number, never a
  *   warning.** Under fail-closed an `Unknown` *was* anonymized, so it is a quality risk and never a
  *   privacy one — styling it as an alarm would train the user to read our alarm as "this might have
  *   leaked", which is precisely the inversion to avoid. It counts what did not resolve, so it is
  *   unmoved by a per-invocation preserve: the override changes what was emitted, not what the IDE
  *   knew.
- * @param preserved distinct JDK and third-party names that survive verbatim
+ * @param preserved distinct names that survive verbatim — the JDK and third-party libraries, and
+ *   the project's own names that Java forbids from being anything else
  */
 class NameCounts(val replaced: Int, val unknown: Int, val preserved: Int)

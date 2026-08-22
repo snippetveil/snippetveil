@@ -76,6 +76,13 @@ class CommentOccurrence(override val start: Int, override val end: Int) : Occurr
  *   [key]: overloads share a name in source, so they share a placeholder, and the engine collapses
  *   them by ignoring this. Reporting it anyway is what lets a later rule change its mind without
  *   the builder changing at all.
+ * @param overrideRoots the roots of a method's override chain — what `findDeepestSuperMethods()`
+ *   returns — and empty for everything that is not a method or overrides nothing. Two rules read
+ *   it, and they read different halves: whether the name may be renamed at all reads the roots'
+ *   [OverrideRoot.origin], and which placeholder the chain shares reads their [OverrideRoot.key].
+ * @param accessor the field this method reads or writes, when it is a JavaBeans accessor of one.
+ *   `null` otherwise, which includes every fluent accessor: `merchantId()` is deliberately not
+ *   covered, because nothing in Java forces a fluent accessor's name to agree with its field's.
  */
 class SymbolEvidence(
     val key: String,
@@ -83,7 +90,38 @@ class SymbolEvidence(
     val origin: SymbolOrigin,
     val declaredName: String,
     val signature: String? = null,
+    val overrideRoots: List<OverrideRoot> = emptyList(),
+    val accessor: AccessorEvidence? = null,
 )
+
+/**
+ * One root of a method's override chain: a method that overrides nothing itself.
+ *
+ * A root rather than the immediate super, because both rules that read it are statements about the
+ * whole chain. Keying an override chain by the *declaring* class split an interface from its
+ * implementation, so the `@Override` no longer implemented anything; and a chain reaching a
+ * framework type is name-constrained however many project classes sit in between.
+ *
+ * @param key the root method's own [SymbolEvidence.key]. All roots of one chain share the method's
+ *   name, so ordering these orders their owners.
+ * @param origin where the root's declaring file lives. Anything but [SymbolOrigin.IN_CONTENT] means
+ *   the name is not ours to change.
+ */
+class OverrideRoot(val key: String, val origin: SymbolOrigin)
+
+/**
+ * A method's backing field, and the prefix its own name puts in front of that field's.
+ *
+ * Both are observations about source rather than judgments: the builder saw a method named
+ * `getMerchantId` next to a field named `merchantId`, and it reports the pair. What follows from
+ * that — `merchantId → field1` implying `getMerchantId() → getField1()` — is the engine's rule.
+ *
+ * @param fieldKey the backing field's [SymbolEvidence.key]. The field need not appear in the
+ *   snippet at all: with Lombok the accessor has no declaration in source either, and a key is
+ *   still enough to name the same symbol.
+ * @param prefix the accessor prefix as it is written — `get`, `is` or `set`.
+ */
+class AccessorEvidence(val fieldKey: String, val prefix: String)
 
 /**
  * Where the file declaring a symbol lives.
