@@ -15,13 +15,16 @@
         <p>SnippetVeil is an IntelliJ IDEA plugin for anonymizing a Java snippet before it is pasted
         into an AI chat.</p>
         <p>This build is a pre-release: <b>Copy Anonymized</b> replaces the names of project-owned
-        types, methods, fields, parameters and locals with role-preserving placeholders, and leaves
-        JDK and third-party names untouched. A project method that overrides a JDK or library one
-        keeps its real name — renaming it would stop it overriding, and the snippet would read as
-        broken rather than as anonymized. A name the IDE cannot resolve is replaced as well, from
-        an <code>Unknown</code> namespace of its own — so incomplete or not-yet-compiling code is
-        covered rather than copied through. Comments, string literals and package names are not
-        handled yet.</p>
+        types, methods, fields, parameters, locals and annotation attributes with role-preserving
+        placeholders, and leaves JDK and third-party names untouched. Package names are replaced one
+        segment at a time — <code>com.acme.billing</code> becomes <code>com.pkg1.pkg2</code> — so
+        that two classes in the same package still read as being in the same package, and imports of
+        renamed types are rewritten in place rather than dropped. A project method that overrides a
+        JDK or library one keeps its real name — renaming it would stop it overriding, and the
+        snippet would read as broken rather than as anonymized. A name the IDE cannot resolve is
+        replaced as well, from an <code>Unknown</code> namespace of its own — so incomplete or
+        not-yet-compiling code is covered rather than copied through. Comments and string literals
+        are not handled yet.</p>
     ]]></description>
 
     <!-- The bundled Java plugin: IDEA Community/Ultimate and Android Studio, nowhere else. -->

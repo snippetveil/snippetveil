@@ -54,10 +54,36 @@ internal fun symbol(
     role: SymbolRole,
     origin: SymbolOrigin,
     key: String = name,
+    qualifiedName: String? = null,
     signature: String? = null,
     overrideRoots: List<OverrideRoot> = emptyList(),
     accessor: AccessorEvidence? = null,
-) = SymbolEvidence(key, role, origin, name, signature, overrideRoots, accessor)
+) = SymbolEvidence(
+    key = key,
+    role = role,
+    origin = origin,
+    declaredName = name,
+    qualifiedName = qualifiedName,
+    signature = signature,
+    overrideRoots = overrideRoots,
+    accessor = accessor,
+)
+
+/**
+ * One segment of a package name, named by the package it *ends* — `pkg("com.acme")` is the segment
+ * written `acme`, in a snippet that says `com.acme`.
+ *
+ * Naming the whole package rather than the segment is what a test wants, because every rule about
+ * packages is a rule about the qualified name: the top-level segment is the one with no dot before
+ * it, and two types share a package placeholder by sharing this key.
+ */
+internal fun pkg(qualifiedName: String, origin: SymbolOrigin) = symbol(
+    name = qualifiedName.substringAfterLast('.'),
+    role = SymbolRole.PACKAGE,
+    origin = origin,
+    key = "package:" + qualifiedName,
+    qualifiedName = qualifiedName,
+)
 
 internal fun symbolAt(
     start: Int,
@@ -66,7 +92,12 @@ internal fun symbolAt(
     origin: SymbolOrigin,
     key: String = name,
     signature: String? = null,
-) = SymbolOccurrence(start, start + name.length, name, SymbolEvidence(key, role, origin, name, signature))
+) = SymbolOccurrence(
+    start,
+    start + name.length,
+    name,
+    SymbolEvidence(key = key, role = role, origin = origin, declaredName = name, signature = signature),
+)
 
 /**
  * Every distinct placeholder the output uses for a symbol whose real name is [name].

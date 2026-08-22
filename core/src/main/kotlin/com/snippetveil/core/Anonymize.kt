@@ -210,14 +210,37 @@ private val PLATFORM_CONSTRAINED_NAMES =
  * the product's one deliberate fail-open to the branch it was granted for: the spine rule above it
  * reads no setting at all.
  */
-private fun isAnonymized(symbol: SymbolEvidence, settings: AnonymizationSettings): Boolean = when (symbol.origin) {
-    SymbolOrigin.IN_CONTENT -> true
-    SymbolOrigin.UNRESOLVED -> symbol.key !in settings.preservedUnknowns
+private fun isAnonymized(symbol: SymbolEvidence, settings: AnonymizationSettings): Boolean = when {
+    isTopLevelPackageSegment(symbol) -> false
 
-    // Preserved, and not by omission: concealing the tech stack is a declared non-goal, and library
-    // names are what make a snippet answerable at all.
-    SymbolOrigin.LIBRARY, SymbolOrigin.JDK -> false
+    else -> when (symbol.origin) {
+        SymbolOrigin.IN_CONTENT -> true
+        SymbolOrigin.UNRESOLVED -> symbol.key !in settings.preservedUnknowns
+
+        // Preserved, and not by omission: concealing the tech stack is a declared non-goal, and
+        // library names are what make a snippet answerable at all.
+        SymbolOrigin.LIBRARY, SymbolOrigin.JDK -> false
+    }
 }
+
+/**
+ * **Whether this is the top-level segment of a package name** — `com` out of `com.acme.billing`.
+ *
+ * It is passed through, and it is the one place a project-owned name is preserved on the strength of
+ * *what it is* rather than of who owns it. There are three of these words in practice — `com`, `org`,
+ * `io` — none of them carries a byte of domain, and renaming one buys nothing while costing a row in
+ * the mapping table and a word the reader has to hold.
+ *
+ * Everything under it renames, which is what keeps the rule from eating the thing it sits next to:
+ * `com.acme.billing` still comes out as `com.pkg1.pkg2`, so same-package and different-package stay
+ * as distinguishable as they were.
+ *
+ * A package whose qualified name the plan did not report falls through to the spine rule and is
+ * anonymized, which is the fail-closed direction: a segment nobody can place is not one this rule
+ * may vouch for.
+ */
+private fun isTopLevelPackageSegment(symbol: SymbolEvidence): Boolean =
+    symbol.role == SymbolRole.PACKAGE && symbol.qualifiedName?.contains('.') == false
 
 /**
  * The placeholder namespace a symbol renders into.

@@ -20,8 +20,10 @@ import com.intellij.psi.PsiLiteralExpression
 import com.intellij.psi.PsiLocalVariable
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNameIdentifierOwner
+import com.intellij.psi.PsiNameValuePair
 import com.intellij.psi.PsiPackage
 import com.intellij.psi.PsiParameter
+import com.intellij.psi.PsiQualifiedNamedElement
 import com.intellij.psi.PsiRecordComponent
 import com.intellij.psi.PsiTypeParameter
 import com.intellij.psi.PsiWhiteSpace
@@ -170,36 +172,31 @@ internal object JavaPlanBuilder : PlanBuilder {
      * What is known about the symbol [identifier] names, or `null` when this ticket's rules have
      * nothing to say about it.
      *
-     * Three shapes: an identifier is part of a reference, which resolves; or the name of a
-     * declaration, which *is* the symbol; or a label named by a `break` or `continue`, where the
-     * reference hangs off the statement rather than off the identifier's own parent and has to be
-     * asked for by name. Everything else — keywords, the segments of a package name — falls through.
+     * Four shapes: an identifier is part of a reference, which resolves — and a package segment is
+     * such a reference like any other; or the name of a declaration, which *is* the symbol; or an
+     * annotation attribute name, whose reference hangs off the enclosing `PsiNameValuePair`; or a
+     * label named by a `break` or `continue`, where the reference hangs off the statement rather
+     * than off the identifier's own parent and has to be asked for by name. Everything else —
+     * keywords, punctuation — falls through.
      *
-     * The label case is small and it is not optional. Without it a jump to a label the selection
-     * declares reports as *unresolved* — which would fail the name closed into `Unknown3` while its
-     * own declaration two lines up rendered as `local1`, and would put a name the builder never
-     * asked the IDE about into the count the balloon shows.
+     * **Two of those four are shapes a plain identifier walk misses entirely**, and neither is an
+     * optimisation. Without the label case, a jump to a label the selection declares reports as
+     * *unresolved* — failing the name closed into `Unknown3` while its own declaration two lines up
+     * rendered as `local1`, and putting a name the builder never asked the IDE about into the count
+     * the balloon shows. Without the name-value-pair case, `action` in `@AuditLogged(action = …)`
+     * is not part of any reference element and is not a declaration either, so it is copied through
+     * verbatim — and annotation attribute names on project annotations are domain vocabulary.
      */
     private fun evidenceFor(project: Project, identifier: PsiIdentifier): SymbolEvidence? {
         val parent = identifier.parent
         val declaration = when {
             parent is PsiJavaCodeReferenceElement -> validResolutionOf(parent)
             parent is PsiNameIdentifierOwner && parent.nameIdentifier === identifier -> parent
+            parent is PsiNameValuePair && parent.nameIdentifier === identifier -> parent.reference?.resolve()
             parent is PsiBreakStatement && parent.labelIdentifier === identifier -> parent.reference?.resolve()
             parent is PsiContinueStatement && parent.labelIdentifier === identifier -> parent.reference?.resolve()
             else -> null
         }
-
-        // A package segment is a reference like any other and resolves like one. Renaming packages
-        // is a separate ticket with a rule of its own — segment by segment, so that same-package and
-        // different-package stay distinguishable — and until it lands, folding `java` in
-        // `java.util.List` into the type namespace would be strictly worse than leaving it alone.
-        //
-        // **This is the one place a project-owned name still passes through**, and it is a stated
-        // gap rather than a discovered one: the plugin description says package names are not
-        // handled yet, and it is the only `return null` left in this function for exactly that
-        // reason — every other unrecognised shape is concealed by [roleOf]'s fallback.
-        if (declaration is PsiPackage) return null
 
         val declaredName = (declaration as? PsiNameIdentifierOwner)?.name ?: identifier.text
 
@@ -227,6 +224,7 @@ internal object JavaPlanBuilder : PlanBuilder {
             role = roleOf(symbol),
             origin = originOf(project, symbol),
             declaredName = (symbol as? PsiNameIdentifierOwner)?.name ?: declaredName,
+            qualifiedName = (symbol as? PsiQualifiedNamedElement)?.qualifiedName,
             signature = (symbol as? PsiMethod)?.let { method ->
                 method.parameterList.parameters.joinToString(",", "(", ")") { it.type.canonicalText }
             },
@@ -303,8 +301,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         // A package is not a member, and accessibility is a question about members. The platform
         // answers it for a package anyway, and answers it `false` for the root segment of a
         // qualified name — `java` in `java.util.List` — so gating on it here would fail the segment
-        // closed and put `Unknown2.util.List` on the clipboard. Packages are left alone by the rule
-        // below for reasons of their own; this only keeps them from being called unresolved.
+        // closed and put `Unknown2.util.List` on the clipboard.
         if (element is PsiPackage) return element
 
         return element.takeIf { result.isValidResult }
@@ -352,6 +349,11 @@ internal object JavaPlanBuilder : PlanBuilder {
      * multi-module project needs no rule of its own.
      */
     private fun originOf(project: Project, symbol: PsiElement): SymbolOrigin {
+        // A package declares nothing and lives in no file, so the question is asked of the
+        // directories behind it instead. Left to fall through, the light-element branch below would
+        // read the missing file as *fail closed* and rename `util` in `java.util.List`.
+        if (symbol is PsiPackage) return packageOriginOf(project, symbol)
+
         // Project-owned by construction: none of these can be declared anywhere but in the file
         // under analysis, so there is no file to classify and no index to ask.
         if (symbol is PsiLocalVariable || symbol is PsiParameter ||
@@ -368,6 +370,32 @@ internal object JavaPlanBuilder : PlanBuilder {
         return when {
             index.isInContent(virtualFile) -> SymbolOrigin.IN_CONTENT
             index.getOrderEntriesForFile(virtualFile).any { it is JdkOrderEntry } -> SymbolOrigin.JDK
+            else -> SymbolOrigin.LIBRARY
+        }
+    }
+
+    /**
+     * Where a package lives, asked of **every directory the package has**, because that is the only
+     * file-level thing a `PsiPackage` has: it is not declared anywhere, and
+     * [PsiUtilCore.getVirtualFile] answers `null` for it.
+     *
+     * Any directory in project content makes the whole package the project's, and that is the
+     * fail-closed direction rather than a tie-break. A package split across a source root and a jar
+     * — the project's own `com.acme` alongside a shaded `com.acme` from a dependency — is a package
+     * the project contributes domain-named subpackages and classes to, and the segment naming it is
+     * the project's word.
+     *
+     * A package with no directories at all is nobody's, and is reported as the project's for the
+     * same reason: an unclassifiable name is not one the spine rule may preserve.
+     */
+    private fun packageOriginOf(project: Project, symbol: PsiPackage): SymbolOrigin {
+        val index = ProjectFileIndex.getInstance(project)
+        val directories = symbol.directories.map { it.virtualFile }
+        return when {
+            directories.any { index.isInContent(it) } -> SymbolOrigin.IN_CONTENT
+            directories.isEmpty() -> SymbolOrigin.IN_CONTENT
+            directories.any { file -> index.getOrderEntriesForFile(file).any { it is JdkOrderEntry } } ->
+                SymbolOrigin.JDK
             else -> SymbolOrigin.LIBRARY
         }
     }
@@ -395,6 +423,11 @@ internal object JavaPlanBuilder : PlanBuilder {
      * key that reached for one would have nothing to read.
      */
     private fun keyOf(symbol: PsiElement): String = when (symbol) {
+        // A package is keyed by the whole qualified name and not by the segment that ends it, which
+        // is what makes `com.acme.billing` and `org.acme.billing` two symbols and what makes two
+        // types in one package share a placeholder for it.
+        is PsiPackage -> "package:" + symbol.qualifiedName
+
         is PsiClass -> "class:" + (symbol.qualifiedName ?: anchorOf(symbol))
         is PsiMethod -> memberKeyOf("method", symbol.containingClass, symbol.name)
         is PsiField -> memberKeyOf("field", symbol.containingClass, symbol.name)
@@ -439,7 +472,20 @@ internal object JavaPlanBuilder : PlanBuilder {
         // Before PsiClass: a type parameter is one, and a type by any reading of what it names.
         is PsiTypeParameter -> SymbolRole.TYPE
         is PsiClass -> SymbolRole.TYPE
-        is PsiMethod -> SymbolRole.METHOD
+
+        // One segment of a package name. Never the whole name: the engine renames these one at a
+        // time so that same-package and different-package survive the rename.
+        is PsiPackage -> SymbolRole.PACKAGE
+
+        // An annotation type's member is a method in the bytecode and an attribute everywhere it is
+        // written, and what is written is what a reader has to map back. Asked of the declaring
+        // type rather than of `PsiAnnotationMethod`, which every *compiled* method implements.
+        is PsiMethod -> if (symbol.containingClass?.isAnnotationType == true) {
+            SymbolRole.ATTRIBUTE
+        } else {
+            SymbolRole.METHOD
+        }
+
         is PsiField -> SymbolRole.FIELD
 
         // A record component is compiled to a private final field of the same name, and Java forces

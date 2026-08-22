@@ -72,6 +72,11 @@ class CommentOccurrence(override val start: Int, override val end: Int) : Occurr
  * @param role what the symbol is in Java's grammar; decides the placeholder's prefix
  * @param origin where the symbol's declaring file lives
  * @param declaredName the symbol's own name, which is what a reverse mapping has to hand back
+ * @param qualifiedName the symbol's fully-qualified name, for a symbol that has one — `com.acme` for
+ *   the package segment written `acme`, and the binary name for a top-level class. The rule that
+ *   passes a package's top-level segment through reads it and nothing else reads it at all: a
+ *   qualified name with no dot in it is a top-level package. `null` wherever there is no such name,
+ *   which is every local, parameter, member and anonymous class.
  * @param signature a method's parameter types, or `null`. Evidence, deliberately **not** part of
  *   [key]: overloads share a name in source, so they share a placeholder, and the engine collapses
  *   them by ignoring this. Reporting it anyway is what lets a later rule change its mind without
@@ -89,6 +94,7 @@ class SymbolEvidence(
     val role: SymbolRole,
     val origin: SymbolOrigin,
     val declaredName: String,
+    val qualifiedName: String? = null,
     val signature: String? = null,
     val overrideRoots: List<OverrideRoot> = emptyList(),
     val accessor: AccessorEvidence? = null,
@@ -171,6 +177,27 @@ enum class SymbolRole(val placeholderPrefix: String) {
     METHOD("method"),
     FIELD("field"),
     PARAMETER("param"),
+
+    /**
+     * **One segment of a package name**, never a whole qualified name: `com.acme.billing` is three
+     * symbols, and the two under the root render as `pkg1.pkg2`.
+     *
+     * Segment-at-a-time is the grammar and it is also the point. Same-package versus
+     * different-package is what package-private access, a sealed type's `permits` clause and every
+     * "why can't this see that" question ride on, and one placeholder standing for a whole qualified
+     * name destroys it.
+     */
+    PACKAGE("pkg"),
+
+    /**
+     * **An annotation type's attribute** — `name` in `@Column(name = …)`.
+     *
+     * A member of an annotation type is a method in the bytecode and an attribute everywhere it is
+     * written, and it is written that a reader has to map back. It is its own role rather than
+     * [METHOD] for that reason alone: the two are the same symbol, and `@Type1(attr2 = …)` is what
+     * the reader sees.
+     */
+    ATTRIBUTE("attr"),
 
     /** A local variable, or a label: named, block-scoped, and invisible outside its own method. */
     LOCAL("local"),

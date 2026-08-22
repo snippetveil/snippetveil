@@ -150,3 +150,25 @@ private val JUNIT4_JAR: String = PathManager.getJarPathForClass(org.junit.Test::
 
 /** The plan's symbol occurrences, in document order. */
 internal fun SnippetPlan.symbols(): List<SymbolOccurrence> = occurrences.filterIsInstance<SymbolOccurrence>()
+
+/**
+ * A project-owned annotation that is itself meta-annotated by a third-party one.
+ *
+ * The meta-annotation is the point of the fixture rather than decoration: it is the shape the
+ * rejected carve-out — *preserve a project annotation meta-annotated by a library annotation* —
+ * would have keyed on, and this one is anonymized like any other project type.
+ */
+internal val PROJECT_ANNOTATION = """
+    package com.acme.audit;
+
+    import java.lang.annotation.Retention;
+    import java.lang.annotation.RetentionPolicy;
+    import org.junit.Ignore;
+
+    @Ignore
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface AuditLogged {
+        String action();
+        String scope() default "";
+    }
+""".trimIndent()
