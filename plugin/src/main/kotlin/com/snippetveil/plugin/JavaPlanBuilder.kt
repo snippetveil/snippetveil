@@ -25,6 +25,7 @@ import com.intellij.psi.PsiNameValuePair
 import com.intellij.psi.PsiPackage
 import com.intellij.psi.PsiParameter
 import com.intellij.psi.PsiQualifiedNamedElement
+import com.intellij.psi.PsiReference
 import com.intellij.psi.PsiRecordComponent
 import com.intellij.psi.PsiTypeParameter
 import com.intellij.psi.PsiWhiteSpace
@@ -34,7 +35,9 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.snippetveil.core.AccessorEvidence
 import com.snippetveil.core.CommentOccurrence
+import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
+import com.snippetveil.core.LiteralReference
 import com.snippetveil.core.Occurrence
 import com.snippetveil.core.OverrideRoot
 import com.snippetveil.core.SnippetPlan
@@ -58,7 +61,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         val fragments = fragmentsOf(file, request.selections)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
-        val occurrences = (symbolsIn(request.project, file, fragments) + literalsAndCommentsIn(file, fragments))
+        val occurrences = (symbolsIn(request.project, file, fragments) + literalsAndCommentsIn(request.project, file, fragments))
             .sortedBy { it.start }
 
         return SnippetPlan(text, occurrences, rootPackageOf(file))
@@ -134,14 +137,12 @@ internal object JavaPlanBuilder : PlanBuilder {
             var leaf: PsiElement? = file.findElementAt(fragment.range.startOffset)
             while (leaf != null && leaf.textRange.startOffset < fragment.range.endOffset) {
                 if (leaf is PsiIdentifier && fragment.range.contains(leaf.textRange)) {
-                    evidenceFor(project, leaf)?.let { evidence ->
-                        occurrences += SymbolOccurrence(
-                            start = fragment.translate(leaf.textRange.startOffset),
-                            end = fragment.translate(leaf.textRange.endOffset),
-                            text = leaf.text,
-                            symbol = evidence,
-                        )
-                    }
+                    occurrences += SymbolOccurrence(
+                        start = fragment.translate(leaf.textRange.startOffset),
+                        end = fragment.translate(leaf.textRange.endOffset),
+                        text = leaf.text,
+                        symbol = evidenceFor(project, leaf),
+                    )
                 }
                 leaf = PsiTreeUtil.nextLeaf(leaf)
             }
@@ -150,14 +151,19 @@ internal object JavaPlanBuilder : PlanBuilder {
     }
 
     /**
-     * Literals and comments, whole, wherever they fall inside the analysed ranges.
+     * Literals and comments, whole, wherever they fall inside the analysed ranges — and, for a
+     * literal, the references it carries and where its own text starts and ends inside its
+     * delimiters.
      *
-     * Nothing acts on these yet — the rules for literal redaction and comment stripping are their
-     * own tickets. They are reported from the start because a plan is a description of the snippet
-     * rather than a work list, and a description that omitted them would be a lie about what is in
-     * the text the engine is handed.
+     * Comments are described and not yet acted on; comment stripping is its own ticket.
+     *
+     * **The delimiters are read here rather than in the engine**, which is what lets the engine
+     * preserve a literal's syntactic form without knowing how any of them are spelled: it rewrites
+     * the content and nothing else, so a text block stays a text block and an escaped literal stays
+     * escaped. Reading a delimiter is reading *form*; the prohibition is on deciding a literal's
+     * rewrite from its *content*.
      */
-    private fun literalsAndCommentsIn(file: PsiFile, fragments: List<Fragment>): List<Occurrence> =
+    private fun literalsAndCommentsIn(project: Project, file: PsiFile, fragments: List<Fragment>): List<Occurrence> =
         // Typed at PsiElement explicitly: left to inference, Kotlin picks the nearest common
         // supertype of the two, which today is an `@Experimental` interface — and the Plugin
         // Verifier then reports this plugin as depending on API that can change under it.
@@ -166,12 +172,124 @@ internal object JavaPlanBuilder : PlanBuilder {
                 val fragment = fragments.firstOrNull { it.range.contains(element.textRange) } ?: return@mapNotNull null
                 val start = fragment.translate(element.textRange.startOffset)
                 val end = fragment.translate(element.textRange.endOffset)
-                if (element is PsiComment) CommentOccurrence(start, end) else LiteralOccurrence(start, end)
+
+                if (element is PsiComment) {
+                    CommentOccurrence(start, end)
+                } else {
+                    val literal = element as PsiLiteralExpression
+                    val kind = kindOf(literal)
+                    val content = contentRangeOf(kind, literal.text)
+                    LiteralOccurrence(
+                        start = start,
+                        end = end,
+                        kind = kind,
+                        contentStart = start + content.startOffset,
+                        contentEnd = start + content.endOffset,
+                        references = referencesIn(project, literal, fragment),
+                    )
+                }
             }
 
     /**
-     * What is known about the symbol [identifier] names, or `null` when this ticket's rules have
-     * nothing to say about it.
+     * What a literal is, in Java's grammar.
+     *
+     * The three delimited kinds are told apart by the delimiter they open with, which is the only
+     * thing that distinguishes a text block from a string in the first place. The rest are read off
+     * the value, because `true`, `false` and `null` are the whole of what is left and none of them
+     * has a delimiter to read.
+     */
+    private fun kindOf(literal: PsiLiteralExpression): LiteralKind {
+        val text = literal.text
+        return when {
+            text.startsWith(TEXT_BLOCK_DELIMITER) -> LiteralKind.TEXT_BLOCK
+            text.startsWith('"') -> LiteralKind.STRING
+            text.startsWith('\'') -> LiteralKind.CHARACTER
+            literal.value is Boolean -> LiteralKind.BOOLEAN
+            text == NULL_LITERAL -> LiteralKind.NULL
+            else -> LiteralKind.NUMBER
+        }
+    }
+
+    /**
+     * Where a literal's own text starts and ends inside its delimiters, relative to the literal.
+     *
+     * A text block's content starts after the line terminator that Java requires the opening `"""`
+     * to be followed by, so that replacing it leaves a text block that is still one. A literal with
+     * no delimiters — a number, a boolean, `null` — is all content, which is the truth about it and
+     * reaches no rule that acts.
+     *
+     * **The closing delimiter is required to be there rather than assumed**, because a literal in
+     * red code frequently has no closing anything: `"merchantRef` runs to the end of the line and is
+     * a token like any other. Its content is then everything after the opening quote, and the whole
+     * of it is replaced — which is the fail-closed direction, and the direction a rule that assumed
+     * a closing quote would have got backwards by one character.
+     */
+    private fun contentRangeOf(kind: LiteralKind, text: String): TextRange {
+        val opening = when (kind) {
+            LiteralKind.TEXT_BLOCK ->
+                text.indexOf('\n').takeIf { it >= 0 }?.plus(1) ?: minOf(TEXT_BLOCK_DELIMITER.length, text.length)
+            LiteralKind.STRING, LiteralKind.CHARACTER -> minOf(1, text.length)
+            else -> 0
+        }
+
+        val closing = when (kind) {
+            LiteralKind.TEXT_BLOCK -> TEXT_BLOCK_DELIMITER.takeIf { text.length >= opening + it.length }
+            LiteralKind.STRING -> "\"".takeIf { text.length >= 2 }
+            LiteralKind.CHARACTER -> "'".takeIf { text.length >= 2 }
+            else -> null
+        }
+            ?.takeIf { text.endsWith(it) }
+            ?.length
+            ?: 0
+
+        return TextRange(opening, maxOf(opening, text.length - closing))
+    }
+
+    /**
+     * The references a literal carries, in document order, each over the part of the literal it
+     * names.
+     *
+     * These are contributed per-framework by `PsiReferenceContributor`, and **that is where the
+     * editions part company**: core Java contributes class-name references — `Class.forName` is one
+     * — while the JPA and Spring ones are Ultimate-only. So the same snippet anonymizes differently
+     * in Community and Ultimate. **Accepted because it runs in the safe direction**: Community
+     * anonymizes *more*, never less, so no install leaks more than another, and the degraded case
+     * is a `"str1"` a reader can see rather than a wrong answer they cannot.
+     *
+     * Rejected: normalizing up, by resolving the common JPA and Spring attributes ourselves keyed by
+     * annotation FQN plus attribute name. Legal, and unbounded: it puts this project in the business
+     * of tracking framework annotation schemas.
+     *
+     * A reference that resolves to nothing is reported like any other, carrying `UNRESOLVED`
+     * evidence. Dropping it here would be a judgment, and what the engine makes of it — nothing: it
+     * covers no range and creates no gap, and the text decides — belongs where it can be tested
+     * against a plan literal. There is usually one: the reflection contributor puts a reference over
+     * the whole of `"com.acme.billing.Payment"` alongside the four that resolve.
+     */
+    private fun referencesIn(project: Project, literal: PsiLiteralExpression, fragment: Fragment): List<LiteralReference> =
+        literal.references
+            .mapNotNull { reference ->
+                val range = rangeOf(reference) ?: return@mapNotNull null
+                LiteralReference(
+                    start = fragment.translate(range.startOffset),
+                    end = fragment.translate(range.endOffset),
+                    symbol = evidenceOf(project, reference.resolve(), range.substring(literal.containingFile.text)),
+                )
+            }
+            .sortedBy { it.start }
+
+    /**
+     * Where [reference] sits in the file, or `null` when it claims a range its own element does not
+     * contain — which nothing is expected to do, and which is not a shape to guess the meaning of.
+     */
+    private fun rangeOf(reference: PsiReference): TextRange? {
+        val element = reference.element.textRange
+        val range = reference.rangeInElement.shiftRight(element.startOffset)
+        return range.takeIf { element.contains(it) && !it.isEmpty }
+    }
+
+    /**
+     * What is known about the symbol [identifier] names.
      *
      * Four shapes: an identifier is part of a reference, which resolves — and a package segment is
      * such a reference like any other; or the name of a declaration, which *is* the symbol; or an
@@ -188,7 +306,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * is not part of any reference element and is not a declaration either, so it is copied through
      * verbatim — and annotation attribute names on project annotations are domain vocabulary.
      */
-    private fun evidenceFor(project: Project, identifier: PsiIdentifier): SymbolEvidence? {
+    private fun evidenceFor(project: Project, identifier: PsiIdentifier): SymbolEvidence {
         val parent = identifier.parent
         val declaration = when {
             parent is PsiJavaCodeReferenceElement -> validResolutionOf(parent)
@@ -199,11 +317,22 @@ internal object JavaPlanBuilder : PlanBuilder {
             else -> null
         }
 
-        val declaredName = (declaration as? PsiNameIdentifierOwner)?.name ?: identifier.text
+        return evidenceOf(project, declaration, identifier.text)
+    }
 
-        // An identifier that resolved to nothing is reported as unresolved rather than dropped, and
-        // the engine fails it closed into the `Unknown` namespace. Red or incomplete code is normal
-        // rather than exceptional, and the snippet a developer is debugging is the likely one.
+    /**
+     * What is known about the symbol [declaration] names, for something written as [writtenName].
+     *
+     * Asked of an identifier and of a reference inside a literal alike, because a reference into a
+     * literal names a symbol in exactly the way an identifier does — which is the whole of what
+     * *renames in lockstep with the symbols those references name* means.
+     */
+    private fun evidenceOf(project: Project, declaration: PsiElement?, writtenName: String): SymbolEvidence {
+        val declaredName = (declaration as? PsiNameIdentifierOwner)?.name ?: writtenName
+
+        // A name that resolved to nothing is reported as unresolved rather than dropped, and the
+        // engine fails it closed. Red or incomplete code is normal rather than exceptional, and the
+        // snippet a developer is debugging is the likely one.
         //
         // Keyed on the text, which is the only thing there is to key an unresolved name on. Two
         // distinct symbols spelled alike therefore share a placeholder — the reverse mapping stays
@@ -214,10 +343,10 @@ internal object JavaPlanBuilder : PlanBuilder {
         // engine takes the namespace off the origin precisely because the role would be an
         // invention. It is filled in rather than made nullable so that every other role stays a fact.
         val symbol = declaration?.let(::declaredSymbolOf) ?: return SymbolEvidence(
-            key = "unresolved:" + identifier.text,
+            key = "unresolved:" + writtenName,
             role = SymbolRole.TYPE,
             origin = SymbolOrigin.UNRESOLVED,
-            declaredName = identifier.text,
+            declaredName = writtenName,
         )
 
         return SymbolEvidence(
@@ -507,8 +636,10 @@ internal object JavaPlanBuilder : PlanBuilder {
      * a type, and `field1` is the least surprising way to read one.
      */
     private fun roleOf(symbol: PsiElement): SymbolRole = when (symbol) {
-        // Before PsiClass: a type parameter is one, and a type by any reading of what it names.
-        is PsiTypeParameter -> SymbolRole.TYPE
+        // Before PsiClass, which a type parameter is one of. Its own kind: `<T>` carries no domain
+        // and `<REQ extends MerchantRequest>` does, and preserving by name length is inspecting the
+        // text — so both are anonymized, and the prefix is what says which was which.
+        is PsiTypeParameter -> SymbolRole.TYPE_PARAMETER
         // An annotation type before a plain one: `@interface` is a class declaration and reads as
         // nothing of the kind.
         is PsiClass -> if (symbol.isAnnotationType) SymbolRole.ANNOTATION else SymbolRole.TYPE
@@ -534,7 +665,10 @@ internal object JavaPlanBuilder : PlanBuilder {
         is PsiRecordComponent -> SymbolRole.FIELD
 
         is PsiParameter -> SymbolRole.PARAMETER
-        is PsiLocalVariable, is PsiLabeledStatement -> SymbolRole.LOCAL
+        is PsiLocalVariable -> SymbolRole.LOCAL
+
+        // A label is not a variable, and `break local7;` reads as though it were.
+        is PsiLabeledStatement -> SymbolRole.LABEL
         else -> SymbolRole.FIELD
     }
 
@@ -554,6 +688,12 @@ internal object JavaPlanBuilder : PlanBuilder {
 
     /** A separator that cannot merge two fragments into one token, which is all it has to be. */
     private const val FRAGMENT_SEPARATOR = "\n"
+
+    /** What opens and closes a text block, and the one thing that tells one from a string literal. */
+    private const val TEXT_BLOCK_DELIMITER = "\"\"\""
+
+    /** The null literal, which is a `PsiLiteralExpression` with no delimiters and no value. */
+    private const val NULL_LITERAL = "null"
 }
 
 /** One analysed range, and where its text starts in the plan. */
