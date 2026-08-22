@@ -83,11 +83,13 @@ class LiteralOccurrence(
 ) : Occurrence()
 
 /**
- * What a literal is, in Java's grammar — never a judgment about what it is *for*.
+ * What a literal is, in Java's grammar. **Grammar, never purpose** — what a literal is *for* is not
+ * a thing a builder can know, and no rule here asks.
  *
- * Only [STRING] and [TEXT_BLOCK] carry text a project can put a domain word in, and they are the
- * only two anything acts on. The other four are enumerated rather than collapsed into "not a
- * string" because each is a fact, and a fact is what crosses this seam.
+ * The four kinds that are not string-shaped are enumerated rather than collapsed into "not a string"
+ * because each is a fact, and a fact is what crosses this seam. What [anonymize] then does with each
+ * is noted below for the reader's sake, in the same way [SymbolOrigin]'s constants say what becomes
+ * of them — the rule itself lives there and nowhere near here.
  */
 enum class LiteralKind {
     /** `"merchantId"` — the shape the whole of this module's literal rule is about. */

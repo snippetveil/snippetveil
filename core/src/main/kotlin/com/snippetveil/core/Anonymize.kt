@@ -75,7 +75,7 @@ fun anonymize(
     // coverage rule spliced names its symbol as surely as an identifier does; a literal replaced
     // whole contributes nothing, because none of its references survived as a name.
     val edits = mutableListOf<Edit>()
-    val named = mutableListOf<SymbolEvidence>()
+    val namedSymbols = mutableListOf<SymbolEvidence>()
 
     // One pass in document order, which is what makes the output read top to bottom: every
     // placeholder is allocated the first time the thing it stands for is written, whether that is
@@ -86,7 +86,7 @@ fun anonymize(
     for (occurrence in occurrences) {
         when (occurrence) {
             is SymbolOccurrence -> {
-                named += occurrence.symbol
+                namedSymbols += occurrence.symbol
                 if (isReplaced(occurrence.symbol)) {
                     edits += Edit(occurrence.start, occurrence.end, placeholderFor(occurrence.symbol))
                 }
@@ -99,7 +99,7 @@ fun anonymize(
                     edits += Edit(occurrence.contentStart, occurrence.contentEnd, allocator.next(LITERAL_PREFIX))
 
                 is LiteralRewrite.Spliced -> for (reference in rewrite.references) {
-                    named += reference.symbol
+                    namedSymbols += reference.symbol
                     if (isReplaced(reference.symbol)) {
                         edits += Edit(reference.start, reference.end, placeholderFor(reference.symbol))
                     }
@@ -117,7 +117,7 @@ fun anonymize(
     val text = StringBuilder(plan.text)
     for (edit in edits.asReversed()) text.replace(edit.start, edit.end, edit.text)
 
-    val mapping = named
+    val mapping = namedSymbols
         .filter(::isReplaced)
         .associate { placeholderByKey.getValue(sharedKeyOf(it)) to it.declaredName }
 
@@ -126,9 +126,10 @@ fun anonymize(
     // of the ledger, so a name preserved by this invocation reports no placeholder even when an
     // earlier invocation gave it one.
     //
-    // Read off the identifiers alone: an unresolved reference *inside* a literal covers nothing, so
-    // the literal it sits in was replaced whole and there is no placeholder for a user to preserve
-    // it against — offering one would be a row in the preview that cannot be acted on.
+    // Read off the identifiers alone. A reference inside a literal that resolved to nothing covers
+    // nothing either way — the literal is decided by the text around what *did* resolve — so a
+    // preserve override on it would change no character of the output, and a row in the preview
+    // offering one is a row that cannot be acted on.
     val unknowns = symbols
         .filter { it.symbol.origin == SymbolOrigin.UNRESOLVED }
         .distinctBy { it.symbol.key }
@@ -145,7 +146,7 @@ fun anonymize(
         text = text.toString(),
         mapping = mapping,
         unknowns = unknowns,
-        counts = countsOf(named, ::isReplaced, unknowns.size),
+        counts = countsOf(namedSymbols, ::isReplaced, unknowns.size),
         delta = LedgerDelta(allocated, allocator.nextNumber),
     )
 }

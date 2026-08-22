@@ -1,6 +1,7 @@
 package com.snippetveil.plugin
 
 import com.snippetveil.core.CommentOccurrence
+import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.SymbolOccurrence
@@ -44,6 +45,19 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
             SymbolOrigin.LIBRARY,
             plan.symbols().single { it.text == "Test" }.symbol.origin,
         )
+    }
+
+    /**
+     * The plan the production walk builds for [source] with **no editor open on it** — nothing is
+     * selected, so the plan covers the whole file.
+     *
+     * [planFor] configures an editor, and opening one over a file whose literal is delimited by
+     * unicode escapes trips an assertion inside the platform's own string lexer. That is a fact
+     * about the platform rather than about this plugin, and the plan builder never needed an editor.
+     */
+    private fun planWithoutAnEditor(source: String): SnippetPlan {
+        val file = myFixture.addFileToProject("probe/Probe.java", source)
+        return JavaPlanBuilder.build(SnippetRequest(project, file, emptyList()))
     }
 
     /**
@@ -142,6 +156,43 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
         val literal = plan.occurrences.filterIsInstance<LiteralOccurrence>().single()
         assertEquals(LiteralKind.STRING, literal.kind)
         assertEquals("merchantReference", plan.text.substring(literal.contentStart, literal.contentEnd))
+    }
+
+    /**
+     * **A literal whose delimiters are written as unicode escapes is still a string literal**, and
+     * classifying it by its opening character would call it a number — the one kind that is emitted
+     * verbatim. Java translates unicode escapes before it tokenizes anything, so this is a string as
+     * far as the language and the platform are concerned, and `merchantReference` would have gone to
+     * the clipboard in plain text.
+     *
+     * The whole literal is its own content here, because the delimiters are not written the way the
+     * language usually writes them: what comes out does not compile and leaks nothing, which is
+     * refusal-class and therefore accepted.
+     */
+    fun `test a literal whose delimiters are unicode escapes is still a string`() {
+        assertTheHarnessResolves()
+        val plan = planWithoutAnEditor("class Probe { String label = \\u0022merchantReference\\u0022; }")
+        val literal = plan.occurrences.filterIsInstance<LiteralOccurrence>().single()
+
+        assertEquals(LiteralKind.STRING, literal.kind)
+        assertEquals(
+            "\\u0022merchantReference\\u0022",
+            plan.text.substring(literal.contentStart, literal.contentEnd),
+        )
+    }
+
+    /**
+     * The same reading, for the shape that has no closing delimiter at all rather than an unusual
+     * one: red code is normal, and its literals carry domain words like any others.
+     */
+    fun `test an unterminated literal is classified by its type rather than its text`() {
+        assertTheHarnessResolves()
+        val plan = planWithoutAnEditor("class Probe { String label = \"merchantReference\n; }")
+
+        assertEquals(
+            LiteralKind.STRING,
+            plan.occurrences.filterIsInstance<LiteralOccurrence>().single().kind,
+        )
     }
 
     /**

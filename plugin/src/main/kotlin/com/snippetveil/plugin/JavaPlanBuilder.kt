@@ -191,56 +191,70 @@ internal object JavaPlanBuilder : PlanBuilder {
             }
 
     /**
-     * What a literal is, in Java's grammar.
+     * What a literal is, in Java's grammar — **read off its type, never off its text.**
      *
-     * The three delimited kinds are told apart by the delimiter they open with, which is the only
-     * thing that distinguishes a text block from a string in the first place. The rest are read off
-     * the value, because `true`, `false` and `null` are the whole of what is left and none of them
-     * has a delimiter to read.
+     * The text says less than it appears to. Java translates unicode escapes before it tokenizes
+     * anything, so `\u0022merchantRef\u0022` is a string literal whose text starts with a backslash;
+     * and a literal in red code has no closing delimiter and no value at all. A rule that classified
+     * by the opening character would call both of those a number, which is the one kind preserved
+     * verbatim. That is a leak, and the type is the fact that closes it: the platform reports
+     * `java.lang.String` for all three.
+     *
+     * The text is consulted for exactly one thing — telling a text block from a string — and that is
+     * a question about *form*, which is the same thing the delimiters answer in [contentRangeOf].
+     *
+     * A literal whose type the platform cannot state at all is treated as a string, which is the
+     * fail-closed direction: preserving a number is a nicety, and emitting an unrecognised literal
+     * verbatim is the failure this action exists to prevent.
      */
-    private fun kindOf(literal: PsiLiteralExpression): LiteralKind {
-        val text = literal.text
-        return when {
-            text.startsWith(TEXT_BLOCK_DELIMITER) -> LiteralKind.TEXT_BLOCK
-            text.startsWith('"') -> LiteralKind.STRING
-            text.startsWith('\'') -> LiteralKind.CHARACTER
-            literal.value is Boolean -> LiteralKind.BOOLEAN
-            text == NULL_LITERAL -> LiteralKind.NULL
-            else -> LiteralKind.NUMBER
+    private fun kindOf(literal: PsiLiteralExpression): LiteralKind =
+        when (literal.type?.canonicalText) {
+            CHAR_TYPE -> LiteralKind.CHARACTER
+            BOOLEAN_TYPE -> LiteralKind.BOOLEAN
+            NULL_TYPE -> LiteralKind.NULL
+            in NUMERIC_TYPES -> LiteralKind.NUMBER
+            else -> if (literal.text.startsWith(TEXT_BLOCK_DELIMITER)) LiteralKind.TEXT_BLOCK else LiteralKind.STRING
         }
-    }
 
     /**
      * Where a literal's own text starts and ends inside its delimiters, relative to the literal.
      *
-     * A text block's content starts after the line terminator that Java requires the opening `"""`
-     * to be followed by, so that replacing it leaves a text block that is still one. A literal with
-     * no delimiters — a number, a boolean, `null` — is all content, which is the truth about it and
-     * reaches no rule that acts.
+     * A literal with no delimiters — a number, a boolean, `null` — is all content, which is the
+     * truth about it and reaches no rule that acts. **So is one whose delimiters are not written the
+     * way the language usually writes them** — `\u0022` is the case that exists. The whole of it is
+     * replaced, which emits a snippet that does not compile and leaks nothing. That is refusal-class
+     * and therefore accepted, and the alternative — a second spelling of every delimiter, then a
+     * third — is a list with nowhere to stop.
      *
      * **The closing delimiter is required to be there rather than assumed**, because a literal in
      * red code frequently has no closing anything: `"merchantRef` runs to the end of the line and is
      * a token like any other. Its content is then everything after the opening quote, and the whole
-     * of it is replaced — which is the fail-closed direction, and the direction a rule that assumed
-     * a closing quote would have got backwards by one character.
+     * of it is replaced — the fail-closed direction, and the direction a rule that assumed a closing
+     * quote would have got backwards by one character.
      */
     private fun contentRangeOf(kind: LiteralKind, text: String): TextRange {
-        val opening = when (kind) {
-            LiteralKind.TEXT_BLOCK ->
-                text.indexOf('\n').takeIf { it >= 0 }?.plus(1) ?: minOf(TEXT_BLOCK_DELIMITER.length, text.length)
-            LiteralKind.STRING, LiteralKind.CHARACTER -> minOf(1, text.length)
-            else -> 0
+        val delimiter = when (kind) {
+            LiteralKind.TEXT_BLOCK -> TEXT_BLOCK_DELIMITER
+            LiteralKind.STRING -> STRING_DELIMITER
+            LiteralKind.CHARACTER -> CHARACTER_DELIMITER
+            LiteralKind.NUMBER, LiteralKind.BOOLEAN, LiteralKind.NULL -> null
         }
 
-        val closing = when (kind) {
-            LiteralKind.TEXT_BLOCK -> TEXT_BLOCK_DELIMITER.takeIf { text.length >= opening + it.length }
-            LiteralKind.STRING -> "\"".takeIf { text.length >= 2 }
-            LiteralKind.CHARACTER -> "'".takeIf { text.length >= 2 }
-            else -> null
+        if (delimiter == null || !text.startsWith(delimiter)) return TextRange(0, text.length)
+
+        // A text block's content starts after the line terminator that Java requires the opening
+        // delimiter to be followed by, so that replacing it leaves a text block that is still one.
+        val opening = if (kind == LiteralKind.TEXT_BLOCK) {
+            text.indexOf('\n').takeIf { it >= 0 }?.plus(1) ?: delimiter.length
+        } else {
+            delimiter.length
         }
-            ?.takeIf { text.endsWith(it) }
-            ?.length
-            ?: 0
+
+        val closing = if (text.length >= opening + delimiter.length && text.endsWith(delimiter)) {
+            delimiter.length
+        } else {
+            0
+        }
 
         return TextRange(opening, maxOf(opening, text.length - closing))
     }
@@ -692,8 +706,18 @@ internal object JavaPlanBuilder : PlanBuilder {
     /** What opens and closes a text block, and the one thing that tells one from a string literal. */
     private const val TEXT_BLOCK_DELIMITER = "\"\"\""
 
-    /** The null literal, which is a `PsiLiteralExpression` with no delimiters and no value. */
-    private const val NULL_LITERAL = "null"
+    private const val STRING_DELIMITER = "\""
+
+    private const val CHARACTER_DELIMITER = "'"
+
+    // The types a literal expression reports, which is what [kindOf] reads it as. Anything that is
+    // not one of these is a string of some spelling — including the two shapes that report no value
+    // at all: a literal in red code with no closing delimiter, and one whose delimiters are written
+    // as unicode escapes.
+    private const val CHAR_TYPE = "char"
+    private const val BOOLEAN_TYPE = "boolean"
+    private const val NULL_TYPE = "null"
+    private val NUMERIC_TYPES = setOf("byte", "short", "int", "long", "float", "double")
 }
 
 /** One analysed range, and where its text starts in the plan. */
