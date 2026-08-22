@@ -21,7 +21,7 @@ plugins {
 
 dependencies {
     // A plain project dependency, not a plugin module: core.jar stays a separate jar in the
-    // distribution's lib/, which is the directory `scanDistributionForNetworkReferences` walks.
+    // distribution's lib/, which is the directory `scanDistributionForBannedReferences` walks.
     implementation(project(":core"))
 
     intellijPlatform {
@@ -95,7 +95,7 @@ intellijPlatform {
 
 /**
  * Walks every class in the built distribution's `lib/` and fails on a constant-pool reference to a
- * networking class.
+ * networking class, to a process-execution class, or to `Runtime.exec`.
  *
  * **This is the only check that covers bundled or generated code** — the vector behind the June 2026
  * removal of 15 clipboard-stealing "AI" plugins from the Marketplace. The ArchUnit rules read
@@ -107,12 +107,12 @@ intellijPlatform {
  * `buildPlugin` without promising it runs before everything else that depends on `buildPlugin`,
  * which is not good enough when the other thing is an upload.
  */
-val scanDistributionForNetworkReferences by tasks.registering {
+val scanDistributionForBannedReferences by tasks.registering {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
-    description = "Fails if any class in the built distribution references a networking class."
+    description = "Fails if any class in the built distribution can reach the network or start a process."
 
     val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
-    val report = layout.buildDirectory.file("reports/trust/no-network-scan.txt")
+    val report = layout.buildDirectory.file("reports/trust/banned-reference-scan.txt")
 
     inputs.file(distribution).withPropertyName("distribution")
     outputs.file(report).withPropertyName("report")
@@ -128,13 +128,29 @@ val scanDistributionForNetworkReferences by tasks.registering {
         // suppress a check. ShippedCodeArchitectureTest states the same policy independently, over a
         // different set of inputs, and the `java.nio.channels` half is written there character for
         // character as it is here so that the two can be diffed by eye.
-        val networkingClass = Regex(
+        val networkingClass =
             """(java\.net|javax\.net|java\.rmi|sun\.net|jdk\.internal\.net)\.[\w.$]+""" +
                 """|java\.nio\.channels\.[\w.$]*(Socket|Datagram|Network)Channel[\w$]*"""
-        )
 
-        fun networkingClassesIn(constant: String): List<String> =
-            networkingClass.findAll(constant.replace('/', '.')).map { it.value }.distinct().toList()
+        // Process execution. A subprocess is a network call none of the patterns above can see:
+        // `Runtime.getRuntime().exec("curl …")` reaches the network with no `java.net` reference in
+        // the pool at all — the same shape of hole as a reflective lookup.
+        //
+        // `java.lang.Runtime` is deliberately absent. It is banned one method at a time further
+        // down, so that `Runtime.getRuntime().availableProcessors()` stays legal; a rule that banned
+        // the class outright would be the kind of noise that teaches people to suppress a check.
+        //
+        // Written character for character as it is in ShippedCodeArchitectureTest, which is why it
+        // ends in an exact nested-class tail rather than an open `[\w$]*`: that layer matches whole
+        // class names, so an open tail there would mean something different from what it means here.
+        // Longest alternative first, so that a hit on `java.lang.ProcessBuilder` is reported as the
+        // type it is rather than as the `java.lang.Process` prefix inside it.
+        val processExecutionClass = """java\.lang\.(ProcessBuilder|ProcessHandle|Process)(\$[\w$]+)?"""
+
+        val bannedClass = Regex("$networkingClass|$processExecutionClass")
+
+        fun bannedNamesIn(text: String): List<String> =
+            bannedClass.findAll(text.replace('/', '.')).map { it.value }.distinct().toList()
 
         /**
          * Every UTF-8 constant in the pool — tag 1, which is where a class file keeps all of its
@@ -149,36 +165,109 @@ val scanDistributionForNetworkReferences by tasks.registering {
          */
         val CONSTANT_UTF8 = 1
 
-        fun networkReferencesIn(classBytes: ByteArray): Set<String> {
-            val reader = ClassReader(classBytes)
-            val found = sortedSetOf<String>()
-            for (index in 1 until reader.itemCount) {
-                val offset = reader.getItem(index)
+        /**
+         * A method reference: tag 10, or tag 11 for one whose owner is an interface.
+         *
+         * This is the structured half of the scan, and it exists for exactly one rule: telling
+         * `Runtime.exec` from `Runtime.availableProcessors`, which needs the owner and the method
+         * name resolved as a *pair*. Matching either alone is useless — the owner is legitimate, and
+         * `exec` is far too generic a method name to ban by string.
+         *
+         * **It adds no coverage, and it is worth knowing why it is here anyway.** Every `exec`
+         * overload returns a `Process`, so `(Ljava/lang/String;)Ljava/lang/Process;` is in the pool
+         * as text and the flat walk already matches it — banning the process *types* closes the
+         * `Runtime.exec` gap by itself, even for a call whose result is discarded. What this buys is
+         * a report that names `java.lang.Runtime.exec` rather than only `java.lang.Process`, and
+         * independence from a type ban that a later narrowing could quietly take exec down with.
+         * CONTRIBUTING.md carries the argument.
+         */
+        val CONSTANT_METHODREF = 10
+        val CONSTANT_INTERFACE_METHODREF = 11
+
+        /**
+         * Every entry in the constant pool, as the tag it carries and the offset its content starts
+         * at — one byte past the tag. Both walks below need this loop and nothing else from ASM.
+         */
+        fun ClassReader.forEachConstant(action: (tag: Int, offset: Int) -> Unit) {
+            for (index in 1 until itemCount) {
+                val offset = getItem(index)
                 if (offset == 0) continue // The unused second slot of a long or double constant.
-                if (reader.readByte(offset - 1) != CONSTANT_UTF8) continue
-                val length = reader.readUnsignedShort(offset)
-                val constant = buildString(length) {
-                    for (position in 0 until length) append(Char(reader.readByte(offset + 2 + position)))
+                action(readByte(offset - 1), offset)
+            }
+        }
+
+        /** Every banned class name that appears as text anywhere in [reader]'s constant pool. */
+        fun bannedTypeReferencesIn(reader: ClassReader): Set<String> {
+            val found = sortedSetOf<String>()
+            reader.forEachConstant { tag, offset ->
+                if (tag == CONSTANT_UTF8) {
+                    val length = reader.readUnsignedShort(offset)
+                    val constant = buildString(length) {
+                        for (position in 0 until length) append(Char(reader.readByte(offset + 2 + position)))
+                    }
+                    found += bannedNamesIn(constant)
                 }
-                found += networkingClassesIn(constant)
             }
             return found
         }
 
+        /**
+         * Every `Runtime.exec` overload [reader] references. Overloads need no enumerating: the
+         * descriptor sits in the second half of the name-and-type, and this reads only the first —
+         * so all six spellings of `exec` collapse to one match.
+         */
+        fun runtimeExecCallsIn(reader: ClassReader): Set<String> {
+            val names = CharArray(reader.maxStringLength)
+            val found = sortedSetOf<String>()
+            reader.forEachConstant { tag, offset ->
+                if (tag == CONSTANT_METHODREF || tag == CONSTANT_INTERFACE_METHODREF) {
+                    // A method reference is (class_index, name_and_type_index), and a name-and-type
+                    // is (name_index, descriptor_index) — so the method's own name sits at the head
+                    // of the entry the second half points at.
+                    val owner = reader.readClass(offset, names)
+                    val nameAndType = reader.getItem(reader.readUnsignedShort(offset + 2))
+                    if (owner == "java/lang/Runtime" && reader.readUTF8(nameAndType, names) == "exec") {
+                        found += "java.lang.Runtime.exec"
+                    }
+                }
+            }
+            return found
+        }
+
+        fun bannedReferencesIn(reader: ClassReader): Set<String> =
+            bannedTypeReferencesIn(reader) + runtimeExecCallsIn(reader)
+
         // The scan proves it can fail before it reports that nothing failed. A check whose red path
         // is never exercised decays into a check that always passes — and the whole point of these
-        // tasks is that the no-network claim is demonstrated rather than trusted. `java.net.URL` and
-        // `java.lang.Object` are read from the running JDK's own image: class files are never
-        // encapsulated by the module system, so both are always available.
-        fun readJdkClass(name: String): ByteArray =
+        // tasks is that the no-network claim is demonstrated rather than trusted. Every fixture below
+        // is read from the running JDK's own image: class files are never encapsulated by the module
+        // system, so all of them are always available.
+        fun jdkClass(name: String): ClassReader =
             checkNotNull(Any::class.java.getResourceAsStream("/$name.class")) { "$name is missing from this JDK" }
-                .use { it.readBytes() }
+                .use { ClassReader(it.readBytes()) }
 
-        check(networkReferencesIn(readJdkClass("java/net/URL")).isNotEmpty()) {
+        // The flat walk: one networking hit, one process hit, and nothing on a class that is neither.
+        check(bannedTypeReferencesIn(jdkClass("java/net/URL")).isNotEmpty()) {
             "The scanner failed to flag java.net.URL. It cannot be trusted to flag anything."
         }
-        check(networkReferencesIn(readJdkClass("java/lang/Object")).isEmpty()) {
-            "The scanner flagged java.lang.Object. It is matching more than networking."
+        check(bannedTypeReferencesIn(jdkClass("java/lang/ProcessBuilder")).isNotEmpty()) {
+            "The scanner failed to flag java.lang.ProcessBuilder. It cannot be trusted to flag a process type."
+        }
+        check(bannedTypeReferencesIn(jdkClass("java/lang/Object")).isEmpty()) {
+            "The scanner flagged java.lang.Object. It is matching more than networking and process execution."
+        }
+
+        // The structured walk needs its own pair, because the flat walk would carry both of the
+        // process assertions above on its own. `java.lang.Runtime` calls `Runtime.exec` internally,
+        // and `ForkJoinPool` is the JDK's own `Runtime.getRuntime().availableProcessors()` — the
+        // exact call this scan must not fail on, in a class that also names `java.lang.Runtime` as a
+        // type, so it fails if either walk starts banning the class rather than the method.
+        check(runtimeExecCallsIn(jdkClass("java/lang/Runtime")).isNotEmpty()) {
+            "The scanner failed to flag Runtime.exec inside java.lang.Runtime. Nothing reads tag 10."
+        }
+        check(bannedReferencesIn(jdkClass("java/util/concurrent/ForkJoinPool")).isEmpty()) {
+            "The scanner flagged ForkJoinPool, which only calls Runtime.getRuntime().availableProcessors(). " +
+                "java.lang.Runtime has to stay legal."
         }
 
         fun isArchive(name: String) = name.endsWith(".jar") || name.endsWith(".zip")
@@ -207,7 +296,7 @@ val scanDistributionForNetworkReferences by tasks.registering {
                                 when {
                                     nested.name.endsWith(".class") -> {
                                         scanned += where
-                                        networkReferencesIn(jar.readBytes())
+                                        bannedReferencesIn(ClassReader(jar.readBytes()))
                                             .forEach { violations += "$where references $it" }
                                     }
                                     // The same rule one level down: a jar inside a jar is where code
@@ -227,7 +316,8 @@ val scanDistributionForNetworkReferences by tasks.registering {
             buildString {
                 appendLine("${distribution.get().asFile.name} — class files scanned: ${scanned.size}")
                 appendLine("Nothing scanned may reference a class matching:")
-                appendLine("  ${networkingClass.pattern}")
+                appendLine("  $bannedClass")
+                appendLine("or call java.lang.Runtime.exec.")
                 appendLine()
                 scanned.forEach { appendLine(it) }
             }
@@ -235,7 +325,8 @@ val scanDistributionForNetworkReferences by tasks.registering {
 
         if (violations.isNotEmpty()) {
             throw GradleException(
-                "SnippetVeil makes no network calls, but the built distribution says otherwise:\n" +
+                "SnippetVeil makes no network calls and starts no subprocesses, but the built " +
+                    "distribution says otherwise:\n" +
                     violations.joinToString("\n") { "  $it" }
             )
         }
@@ -243,14 +334,14 @@ val scanDistributionForNetworkReferences by tasks.registering {
 }
 
 tasks.named<Zip>("buildPlugin") {
-    finalizedBy(scanDistributionForNetworkReferences)
+    finalizedBy(scanDistributionForBannedReferences)
 }
 
 // `publishPlugin` → `signPlugin` → `buildPlugin`, so the finalizer above is *ordered* before an
 // upload but not *required* by it: Gradle promises only that a finalizer runs after the task it
 // finalizes, not that it runs before that task's other dependents. A real gate needs the edge.
 tasks.named("publishPlugin") {
-    dependsOn(scanDistributionForNetworkReferences)
+    dependsOn(scanDistributionForBannedReferences)
 }
 
 /**
@@ -291,5 +382,5 @@ tasks.named("check") {
     // `finalizedBy` above gates the release path; this puts the same scan on the path a contributor
     // and a pull request actually run. Without it, the one check that covers bundled code would be
     // the one check nobody runs before pushing.
-    dependsOn(scanDistributionForNetworkReferences)
+    dependsOn(scanDistributionForBannedReferences)
 }

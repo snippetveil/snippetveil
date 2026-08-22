@@ -5,13 +5,16 @@ import com.tngtech.archunit.core.domain.JavaAccess
 import com.tngtech.archunit.core.domain.JavaClass
 import com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage
 import com.tngtech.archunit.core.domain.JavaClasses
+import com.tngtech.archunit.core.domain.properties.HasName
 import com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameMatching
 import com.tngtech.archunit.core.importer.ClassFileImporter
 import com.tngtech.archunit.core.importer.ImportOption
 import com.tngtech.archunit.lang.ArchCondition
+import com.tngtech.archunit.lang.ArchRule
 import com.tngtech.archunit.lang.ConditionEvents
 import com.tngtech.archunit.lang.SimpleConditionEvent
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.regex.Pattern
@@ -88,7 +91,30 @@ class ShippedCodeArchitectureTest {
     }
 
     /**
-     * Reflection would make the rule above meaningless: `Class.forName("java.net.Socket")` leaves
+     * A subprocess is a network call the rule above cannot see:
+     * `Runtime.getRuntime().exec("curl …")` reaches the network without a single `java.net`
+     * reference appearing in our bytecode. The types are banned outright — the plugin reads PSI and
+     * rewrites text, so there is no shipped code with a reason to hold a [Process].
+     */
+    @Test
+    fun `nothing shipped can start a process`() {
+        NOTHING_STARTS_A_PROCESS.check(SHIPPED_CLASSES)
+    }
+
+    /**
+     * `Runtime.exec` is banned as a **call**, not as a type reference, because `java.lang.Runtime`
+     * itself has to stay legal: `Runtime.getRuntime().availableProcessors()` is an ordinary thing to
+     * want, and a rule that banned the class outright would be the kind of noise that teaches people
+     * to suppress a check. Every overload is covered, since the target's name is matched and its
+     * descriptor is not.
+     */
+    @Test
+    fun `nothing shipped calls Runtime exec`() {
+        NOTHING_CALLS_RUNTIME_EXEC.check(SHIPPED_CLASSES)
+    }
+
+    /**
+     * Reflection would make the rules above meaningless: `Class.forName("java.net.Socket")` leaves
      * no `java.net` reference in the constant pool at all. Neither hatch has a legitimate use in
      * this codebase — the plugin reads PSI and rewrites text — so both are banned outright rather
      * than reviewed case by case.
@@ -99,6 +125,45 @@ class ShippedCodeArchitectureTest {
             .because("a reflective lookup would route around the no-network rule without tripping it")
             .check(SHIPPED_CLASSES)
     }
+
+    /**
+     * The two process rules, pointed at code written to violate them — the same habit as the
+     * distribution scan proving it can fail before it reports that nothing failed.
+     *
+     * It earns its place here rather than in a one-off manual check because [CALL_RUNTIME_EXEC] has
+     * a way to be wrong that the other rules do not. Nothing in this repository's shipped sources
+     * touches `java.lang.Runtime` at all, so a version of it that banned the whole class — or one
+     * that matched nothing — would leave every rule above green and every real subprocess unseen.
+     *
+     * These are the only two rules in this file hoisted into named [ArchRule]s rather than built
+     * inline, and that is the point: this test and the two above check the *same* objects. Rebuilt
+     * copies would prove that a copy can fail, which is one edit away from proving nothing.
+     */
+    @Test
+    fun `the process rules tell a subprocess from an ordinary Runtime call`() {
+        val subprocess = classesOf(StartsASubprocess::class.java)
+        val ordinaryRuntimeUse = classesOf(UsesRuntimeLegitimately::class.java)
+
+        assertTrue("viaProcessBuilder" in NOTHING_STARTS_A_PROCESS.violationsIn(subprocess)) {
+            "The process-type rule did not flag a ProcessBuilder: " +
+                NOTHING_STARTS_A_PROCESS.violationsIn(subprocess)
+        }
+        assertTrue("viaRuntimeExec" in NOTHING_CALLS_RUNTIME_EXEC.violationsIn(subprocess)) {
+            "The Runtime.exec rule did not flag an exec call: " +
+                NOTHING_CALLS_RUNTIME_EXEC.violationsIn(subprocess)
+        }
+
+        // Neither rule may fire on Runtime.getRuntime().availableProcessors(); `check` throws if it
+        // does, and the assertion message it throws with is the report.
+        NOTHING_STARTS_A_PROCESS.check(ordinaryRuntimeUse)
+        NOTHING_CALLS_RUNTIME_EXEC.check(ordinaryRuntimeUse)
+    }
+
+    private fun classesOf(vararg types: Class<*>): JavaClasses = ClassFileImporter().importClasses(*types)
+
+    /** The violations [this] reports against [classes]. Fails the test if it reports none. */
+    private fun ArchRule.violationsIn(classes: JavaClasses): String =
+        assertThrows(AssertionError::class.java) { check(classes) }.message.orEmpty()
 }
 
 /**
@@ -119,6 +184,43 @@ private val NETWORKING_CLASSES: DescribedPredicate<JavaClass> =
         "jdk.internal.net..",
     ).or(nameMatching("java\\.nio\\.channels\\.[\\w.$]*(Socket|Datagram|Network)Channel[\\w$]*"))
         .`as`("are networking classes")
+
+/**
+ * Process execution, as the JVM spells it. `java.lang.Runtime` is deliberately absent: it is banned
+ * by [CALL_RUNTIME_EXEC], one method at a time, so that the rest of the class stays usable.
+ *
+ * The nested-class tail covers `ProcessBuilder$Redirect` and `ProcessHandle$Info`, which are how a
+ * caller spells the interesting arguments to the types above.
+ *
+ * `plugin/build.gradle.kts` states the same pattern for the distribution scan, character for
+ * character, so that the two can be diffed by eye; the two are deliberately separate implementations
+ * of one policy over different inputs. Typed by name rather than by class because that is what it
+ * matches — `dependOnClassesThat` takes either.
+ */
+private val PROCESS_EXECUTION_CLASSES: DescribedPredicate<HasName> =
+    nameMatching("java\\.lang\\.(ProcessBuilder|ProcessHandle|Process)(\\$[\\w$]+)?")
+        .`as`("are process-execution classes")
+
+/**
+ * Every `Runtime.exec` overload, matched by target name so that no descriptor has to be enumerated,
+ * and only that method, so `java.lang.Runtime` stays legal for everything else.
+ */
+private val CALL_RUNTIME_EXEC =
+    object : ArchCondition<JavaClass>("call Runtime.exec") {
+        override fun check(item: JavaClass, events: ConditionEvents) {
+            item.accessesFromSelf
+                .filter { it.targetOwner.name == "java.lang.Runtime" && it.target.name == "exec" }
+                .forEach { events.add(SimpleConditionEvent.satisfied(it, it.description)) }
+        }
+    }
+
+private val NOTHING_STARTS_A_PROCESS: ArchRule =
+    noClasses().should().dependOnClassesThat(PROCESS_EXECUTION_CLASSES)
+        .because("a subprocess routes around the no-network rule without tripping it")
+
+private val NOTHING_CALLS_RUNTIME_EXEC: ArchRule =
+    noClasses().should(CALL_RUNTIME_EXEC)
+        .because("Runtime.exec starts a subprocess while leaving java.lang.Runtime looking innocent")
 
 private val CALL_A_REFLECTIVE_ESCAPE_HATCH =
     object : ArchCondition<JavaClass>("call Class.forName or java.lang.invoke.MethodHandles") {
