@@ -103,6 +103,25 @@ one class, and that class is the per-invocation settings object — and it prove
 fixtures that persist a reduction and an *increase*, because a check that banned persistence outright
 would be the kind of noise that teaches people to suppress a check.
 
+The rule is not vacuous: **SnippetVeil persists exactly one setting**, the internal-library prefix
+list, and it is an increase. Before it existed every library symbol was preserved, and nothing that
+can be written into the list takes the output back past that baseline — the removals only give back
+what the additions and the root-package heuristic claimed.
+
+### And one absolute claim: **no `@State` in SnippetVeil is roamable**
+
+Settings sync copies a roamable `@State` to JetBrains' servers, and the one setting this product
+persists **literally is the employer's group id** — the single most identifying string the plugin
+handles. So every `@Storage` declares `RoamingType.DISABLED`, and that is a rule about all of them
+rather than a judgement made per file: an absolute rule is checkable in one pass and readable in one
+grep, where *this one is fine to sync* has to be got right again every time.
+
+`NoPersistentStateIsRoamableTest` checks it, over the same shipped classes, following the same two
+habits. It asserts its own coverage — the shipped state holders are named, so a rule matching nothing
+goes red rather than green — and it proves it can fail, against a fixture whose `@Storage` simply
+says nothing about roaming, which is the shape the mistake actually takes: nobody writes
+`RoamingType.DEFAULT` out in full. The rule fails closed on anything it cannot read as `DISABLED`.
+
 ### Known limits
 
 This is deliberate, and it is stated here rather than left for a reader to discover, because a trust

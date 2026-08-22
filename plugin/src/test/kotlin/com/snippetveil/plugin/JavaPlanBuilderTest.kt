@@ -23,10 +23,10 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
      *
      * Here the analysed file and the library class share a root package, which is exactly the
      * evidence a later rule uses to pull internal-org libraries into the anonymized set. The builder
-     * reports `LIBRARY` anyway, and reports the root package alongside it, so that the decision
-     * stays in the module a test can reach without booting an IDE. A builder that started matching
-     * prefixes here would move the product's one persistent knob into the layer that needs a fixture
-     * to test.
+     * reports `LIBRARY` anyway, and reports the root package and the symbol's own package alongside
+     * it, so that the decision stays in the module a test can reach without booting an IDE. A builder
+     * that started matching prefixes here would move the product's one persistent knob into the layer
+     * that needs a fixture to test.
      */
     fun `test a library symbol is reported as LIBRARY even when its package matches the file's own`() {
         assertTheHarnessResolves()
@@ -42,10 +42,41 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
         )
 
         assertEquals("org.junit", plan.rootPackage)
-        assertEquals(
-            SymbolOrigin.LIBRARY,
-            plan.symbols().single { it.text == "Test" }.symbol.origin,
+
+        val library = plan.symbols().single { it.text == "Test" }.symbol
+        assertEquals(SymbolOrigin.LIBRARY, library.origin)
+        assertEquals("org.junit", library.packageName)
+    }
+
+    /**
+     * **A member reports the package of the type that declares it**, which is the evidence the
+     * prefix rule has to read: `assertNotNull` is not a name Java qualifies, and a rule that could
+     * only reach types would rename an internal library's classes while leaving its method and field
+     * names — the domain vocabulary — on the clipboard.
+     *
+     * The package segment reports itself, for the same reason: every rule that reads this field is
+     * asking which package a name is part of, and a package is part of itself.
+     */
+    fun `test a member and a package segment report the package they belong to`() {
+        assertTheHarnessResolves()
+        addClassInPackage("com.acme.billing", "Payment")
+        val plan = planFor(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>void check(String value) {
+                    org.junit.Assert.assertNotNull(value);
+                    com.acme.billing.Payment payment = null;
+                }</selection>
+            }
+            """.trimIndent(),
         )
+
+        val packageOf = plan.symbols().associate { it.text to it.symbol.packageName }
+        assertEquals("org.junit", packageOf["assertNotNull"])
+        assertEquals("org.junit", packageOf["Assert"])
+        assertEquals("com.acme.billing", packageOf["billing"])
+        assertEquals("com.acme.billing", packageOf["Payment"])
     }
 
     /**

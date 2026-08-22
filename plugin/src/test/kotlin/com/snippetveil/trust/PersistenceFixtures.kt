@@ -1,21 +1,20 @@
 package com.snippetveil.trust
 
 import com.intellij.openapi.components.PersistentStateComponent
+import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 
 /**
- * The red path of [CommentRetentionIsNeverPersistedTest], baked in rather than observed once.
+ * The red paths of the two persistence rules, baked in rather than observed once.
  *
- * The rule it proves is *persistent settings may only ever increase anonymization; any reduction is
- * per-invocation and visible in the preview* — and today **this repository ships no persistent state
- * at all**, so the rule has nothing of its own to be right about. A rule that matches nothing passes,
- * and a rule that has never been seen to fail is one edit from proving nothing. These two give it
- * something on each side of the line.
+ * A rule that has never been seen to fail is one edit from proving nothing, so each rule here is
+ * pointed at a class written to be flagged **and** at one written to look like a violation and not
+ * be one. [PersistsCommentRetention] must be flagged and [PersistsAnIncrease] must not;
+ * [RoamsItsState] must be flagged and [KeepsItsStateLocal] must not.
  *
- * [PersistsCommentRetention] must be flagged and [PersistsAnIncrease] must not. Both are test scope,
- * so `SHIPPED_CLASSES` excludes them and neither is registered as a service anywhere: they are read
- * as bytecode by a rule and never instantiated by the platform.
+ * All four are test scope, so `SHIPPED_CLASSES` excludes them and none is registered as a service
+ * anywhere: they are read as bytecode by a rule and never instantiated by the platform.
  */
 @State(name = "SnippetVeilFixture", storages = [Storage("snippetveil-fixture.xml")])
 internal class PersistsCommentRetention : PersistentStateComponent<PersistsCommentRetention.Settings> {
@@ -50,6 +49,49 @@ internal class PersistsAnIncrease : PersistentStateComponent<PersistsAnIncrease.
 
     internal class Settings {
         var alwaysRedactNumbers: Boolean = false
+    }
+
+    private var settings = Settings()
+
+    override fun getState(): Settings = settings
+
+    override fun loadState(state: Settings) {
+        settings = state
+    }
+}
+
+/**
+ * A `@State` that says nothing about roaming, which is how the mistake is actually made: leaving
+ * [RoamingType] at its default puts the file on JetBrains' servers for anyone with settings sync on.
+ *
+ * The rule must flag it. A check that only caught someone writing `RoamingType.DEFAULT` out in full
+ * would catch nobody, because nobody writes it.
+ */
+@State(name = "SnippetVeilRoamingFixture", storages = [Storage("snippetveil-fixture.xml")])
+internal class RoamsItsState : PersistentStateComponent<RoamsItsState.Settings> {
+
+    internal class Settings {
+        var prefixes: MutableList<String> = mutableListOf()
+    }
+
+    private var settings = Settings()
+
+    override fun getState(): Settings = settings
+
+    override fun loadState(state: Settings) {
+        settings = state
+    }
+}
+
+/** Persistent state that stays on the machine, which the rule must leave alone. */
+@State(
+    name = "SnippetVeilLocalFixture",
+    storages = [Storage("snippetveil-fixture.xml", roamingType = RoamingType.DISABLED)],
+)
+internal class KeepsItsStateLocal : PersistentStateComponent<KeepsItsStateLocal.Settings> {
+
+    internal class Settings {
+        var prefixes: MutableList<String> = mutableListOf()
     }
 
     private var settings = Settings()

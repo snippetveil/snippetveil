@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
  * test states the code and the evidence and never an offset. Each symbol is keyed by its own name,
  * which is what a test wants by default: same name, same symbol.
  */
-internal fun planOf(text: String, vararg symbols: SymbolEvidence): SnippetPlan {
+internal fun planOf(text: String, vararg symbols: SymbolEvidence, rootPackage: String? = null): SnippetPlan {
     val occurrences = mutableListOf<Occurrence>()
     for (symbol in symbols) {
         var from = 0
@@ -18,7 +18,7 @@ internal fun planOf(text: String, vararg symbols: SymbolEvidence): SnippetPlan {
             from = at + symbol.declaredName.length
         }
     }
-    return SnippetPlan(text, occurrences.sortedBy { it.start })
+    return SnippetPlan(text, occurrences.sortedBy { it.start }, rootPackage)
 }
 
 /**
@@ -55,6 +55,7 @@ internal fun symbol(
     origin: SymbolOrigin,
     key: String = name,
     qualifiedName: String? = null,
+    packageName: String? = null,
     signature: String? = null,
     overrideRoots: List<OverrideRoot> = emptyList(),
     accessor: AccessorEvidence? = null,
@@ -64,6 +65,7 @@ internal fun symbol(
     origin = origin,
     declaredName = name,
     qualifiedName = qualifiedName,
+    packageName = packageName,
     signature = signature,
     overrideRoots = overrideRoots,
     accessor = accessor,
@@ -83,6 +85,7 @@ internal fun pkg(qualifiedName: String, origin: SymbolOrigin) = symbol(
     origin = origin,
     key = "package:" + qualifiedName,
     qualifiedName = qualifiedName,
+    packageName = qualifiedName,
 )
 
 internal fun symbolAt(

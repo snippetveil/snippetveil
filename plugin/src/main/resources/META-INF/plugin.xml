@@ -16,8 +16,11 @@
         into an AI chat.</p>
         <p>This build is a pre-release: <b>Copy Anonymized</b> replaces the names of project-owned
         types, methods, fields, parameters, locals and annotation attributes with role-preserving
-        placeholders, and leaves JDK and third-party names untouched. Package names are replaced one
-        segment at a time — <code>com.acme.billing</code> becomes <code>com.pkg1.pkg2</code> — so
+        placeholders, and leaves JDK and third-party names untouched. A library sitting under the
+        analysed file's own root package is treated as the company's own code and anonymized too, so
+        that a shared internal artifact does not leak its domain vocabulary just because it arrives
+        as a jar; the prefixes that decide this are stored per project and never synced. Package
+        names are replaced one segment at a time — <code>com.acme.billing</code> becomes <code>com.pkg1.pkg2</code> — so
         that two classes in the same package still read as being in the same package, and imports of
         renamed types are rewritten in place rather than dropped. A project method that overrides a
         JDK or library one keeps its real name — renaming it would stop it overriding, and the

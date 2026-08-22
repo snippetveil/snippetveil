@@ -39,16 +39,65 @@ package com.snippetveil.core
  *   plus a preview banner (a warning shown on every invocation stops being read within a week); and
  *   removing the control altogether, which hands the developer who genuinely always wants comments a
  *   forced loss with no escape hatch.
+ * @param internalLibraries which library packages are the company's own code arriving as a jar.
+ *   **The one setting the product persists**, and see [InternalLibraries] for why it survives the
+ *   rule above rather than being an exception to it.
  */
 class AnonymizationSettings(
     val preservedUnknowns: Set<String> = emptySet(),
     val keepComments: Boolean = false,
+    val internalLibraries: InternalLibraries = InternalLibraries(),
 ) {
     companion object {
         /** Everything anonymized that can be: no reduction of any kind. */
         val DEFAULTS: AnonymizationSettings = AnonymizationSettings()
     }
 }
+
+/**
+ * **Which library packages hold the company's own code.**
+ *
+ * A symbol from a shared internal artifact is the project's domain vocabulary, and it must not leak
+ * merely because it arrived as a jar. Nothing in the IDE can tell such an artifact from a
+ * third-party one — both are a `LibraryOrderEntry`, and only the library's name, its root URLs and
+ * its Maven coordinates exist to look at — so this is a **policy**, not a lookup, and the policy is
+ * a package prefix.
+ *
+ * **This is the only persistent setting v1 ships, and it survives the governing rule** — *persistent
+ * settings may only ever increase anonymization* — precisely because it only ever pulls **more**
+ * symbols into the anonymized set. Before this rule every library symbol was preserved; nothing
+ * written here can take the output back past that, and [thirdPartyPrefixes] can only give back what
+ * the two rules above it claimed. The baseline the rule is measured against is *no internal-library
+ * rule at all*, and against that baseline this one only ever adds.
+ *
+ * Fail closed is the direction to err in here, and cheaply so: over-anonymizing a genuinely public
+ * library only dulls a signal the product already disclaims — concealing the tech stack is a
+ * declared non-goal, not a promise — while under-anonymizing puts the employer's domain vocabulary
+ * on the clipboard, which is the whole failure.
+ *
+ * @param autoDetectRootPackage whether the root package of the file under analysis claims library
+ *   symbols beneath it — `com.acme` out of `com.acme.web.PaymentController`. **On by default**: the
+ *   reverse-domain convention makes it right far more often than not, and the cost of it being
+ *   wrong is the cheap direction above.
+ * @param internalPrefixes package prefixes the heuristic misses, added by a human. It exists for a
+ *   shape no file under analysis can see: an employer whose shared artifacts are published under a
+ *   different group id from the repository consuming them.
+ * @param thirdPartyPrefixes package prefixes wrongly claimed, removed by a human — the
+ *   open-source project an employer publishes under its own group id, whose name a reader needs.
+ *
+ *   **The longer prefix decides**, so `com.acme` and `com.acme.oss` can be stated together and mean
+ *   what they read as. On an exact tie the removal wins, because a human who typed a prefix out is
+ *   answering the heuristic that guessed it.
+ *
+ *   A blank entry matches nothing, on either side. It is what an empty row in the settings list
+ *   produces, and *"the list had an empty line in it"* must not be a way to switch the rule off — or,
+ *   through [internalPrefixes], a way to anonymize every library in the world.
+ */
+class InternalLibraries(
+    val autoDetectRootPackage: Boolean = true,
+    val internalPrefixes: Set<String> = emptySet(),
+    val thirdPartyPrefixes: Set<String> = emptySet(),
+)
 
 /**
  * The placeholders already handed out, as they stood when this invocation started.

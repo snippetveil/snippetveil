@@ -125,6 +125,14 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
 
     override fun setUp() {
         super.setUp()
+
+        // **The light fixture reuses one project across test methods and across classes**, and the
+        // prefix list is state on that project — so a test that sets one would otherwise be visible
+        // to every test that ran after it, in whatever order the runner chose. Reset here rather
+        // than in the one class that writes it: the hazard belongs to the shared project, not to the
+        // test that happens to exercise it.
+        InternalLibrarySettings.of(project).loadState(InternalLibrarySettings.State())
+
         project.messageBus.connect(testRootDisposable).subscribe(
             Notifications.TOPIC,
             object : Notifications {
