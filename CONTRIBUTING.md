@@ -88,6 +88,21 @@ Two habits keep them honest, and both are worth preserving if you change them:
 
 There is no suppression mechanism and no exception list, in any of the three. That is the feature.
 
+### One more claim, checked the same way
+
+**Persistent settings may only ever increase anonymization; any reduction is per-invocation and
+visible in the preview.** That rule exists because the primary threat is retention — a snippet
+outliving the conversation in a corpus, a log, a breach or a subpoena — and a reduction that can be
+ticked once and forgotten is the severe failure mode: one tick set a year ago silently leaks the
+domain on every paste since.
+
+`CommentRetentionIsNeverPersistedTest`, in the same package and reading the same shipped classes,
+holds the first instance of it: keeping comments is a reduction, so nothing that ships may persist
+it. It follows both habits above. It asserts its own coverage — the flag has to be found, on exactly
+one class, and that class is the per-invocation settings object — and it proves it can fail, over
+fixtures that persist a reduction and an *increase*, because a check that banned persistence outright
+would be the kind of noise that teaches people to suppress a check.
+
 ### Known limits
 
 This is deliberate, and it is stated here rather than left for a reader to discover, because a trust

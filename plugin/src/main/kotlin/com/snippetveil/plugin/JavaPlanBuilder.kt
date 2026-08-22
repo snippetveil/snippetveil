@@ -10,6 +10,8 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiContinueStatement
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiElementFactory
+import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiField
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiIdentifier
@@ -29,12 +31,16 @@ import com.intellij.psi.PsiReference
 import com.intellij.psi.PsiRecordComponent
 import com.intellij.psi.PsiTypeParameter
 import com.intellij.psi.PsiWhiteSpace
+import com.intellij.psi.javadoc.PsiDocComment
+import com.intellij.psi.javadoc.PsiDocTagValue
 import com.intellij.psi.util.JavaPsiRecordUtil
 import com.intellij.psi.util.PropertyUtilBase
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
+import com.intellij.util.IncorrectOperationException
 import com.snippetveil.core.AccessorEvidence
 import com.snippetveil.core.CommentOccurrence
+import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.LiteralReference
@@ -151,11 +157,12 @@ internal object JavaPlanBuilder : PlanBuilder {
     }
 
     /**
-     * Literals and comments, whole, wherever they fall inside the analysed ranges — and, for a
-     * literal, the references it carries and where its own text starts and ends inside its
-     * delimiters.
+     * Literals and comments, whole, wherever they fall inside the analysed ranges — and, for each,
+     * the references it carries: a literal's own, and the javadoc tag targets a comment holds.
      *
-     * Comments are described and not yet acted on; comment stripping is its own ticket.
+     * A comment is reported with the verdict a Java parser reached about its body, and with nothing
+     * else said about it: whether it is stripped is [com.snippetveil.core.anonymize]'s decision, and
+     * it is the same decision for a line comment and for javadoc.
      *
      * **The delimiters are read here rather than in the engine**, which is what lets the engine
      * preserve a literal's syntactic form without knowing how any of them are spelled: it rewrites
@@ -168,27 +175,132 @@ internal object JavaPlanBuilder : PlanBuilder {
         // supertype of the two, which today is an `@Experimental` interface — and the Plugin
         // Verifier then reports this plugin as depending on API that can change under it.
         PsiTreeUtil.findChildrenOfAnyType<PsiElement>(file, PsiComment::class.java, PsiLiteralExpression::class.java)
-            .mapNotNull { element ->
-                val fragment = fragments.firstOrNull { it.range.contains(element.textRange) } ?: return@mapNotNull null
+            .flatMap { element ->
+                val fragment = fragments.firstOrNull { it.range.contains(element.textRange) }
+                    ?: return@flatMap emptyList()
                 val start = fragment.translate(element.textRange.startOffset)
                 val end = fragment.translate(element.textRange.endOffset)
 
                 if (element is PsiComment) {
-                    CommentOccurrence(start, end)
+                    listOf(CommentOccurrence(start, end, verdictOf(project, element))) +
+                        docReferencesIn(project, file, element, fragment)
                 } else {
                     val literal = element as PsiLiteralExpression
                     val kind = kindOf(literal)
                     val content = contentRangeOf(kind, literal.text)
-                    LiteralOccurrence(
-                        start = start,
-                        end = end,
-                        kind = kind,
-                        contentStart = start + content.startOffset,
-                        contentEnd = start + content.endOffset,
-                        references = referencesIn(project, literal, fragment),
+                    listOf(
+                        LiteralOccurrence(
+                            start = start,
+                            end = end,
+                            kind = kind,
+                            contentStart = start + content.startOffset,
+                            contentEnd = start + content.endOffset,
+                            references = referencesIn(project, literal, fragment),
+                        ),
                     )
                 }
             }
+
+    /**
+     * **What a Java parser makes of one comment's body: a code block, or not.**
+     *
+     * Commented-out code is not prose and it separates exactly — `// this.customer.setOrder(order);`
+     * parses, `// TODO: fix this` does not — and the parser is what says so. This is evidence in the
+     * same sense a literal's type is: a fact obtained from the platform, reported without a judgment
+     * attached, and read by a rule that lives on the other side of the seam.
+     *
+     * **The rule is a code block and nothing wider**, which is a stated limit rather than an
+     * oversight: a commented-out *member* declaration — `// private String merchantRef;` is a local
+     * and parses, but `// void pay() {}` is not a statement and does not — reads as prose. Widening
+     * it means trying the body against every context Java has, and each context added is another way
+     * for a line of prose to parse by accident. A verdict that is exact about a narrow question beats
+     * one that guesses at a broad one, and the count both feed is a disclosure rather than a gate.
+     *
+     * An empty body is prose. `{}` parses, and calling an empty comment *commented-out code* would be
+     * the one verdict here that is plainly false.
+     *
+     * A parse that the platform refuses outright is prose for the same reason a failed parse is: the
+     * question was *does this parse*, and the answer was no. It is not an anonymization failure, so
+     * it does not fail the invocation closed.
+     */
+    private fun verdictOf(project: Project, comment: PsiComment): CommentVerdict {
+        val body = bodyOf(comment)
+        if (body.isBlank()) return CommentVerdict.PROSE
+
+        return try {
+            // The closing brace goes on a line of its own, because a body ending in a line comment
+            // would otherwise swallow it.
+            val block = PsiElementFactory.getInstance(project).createCodeBlockFromText("{" + body + "\n}", null)
+            if (PsiTreeUtil.findChildOfType(block, PsiErrorElement::class.java) == null) {
+                CommentVerdict.CODE
+            } else {
+                CommentVerdict.PROSE
+            }
+        } catch (refused: IncorrectOperationException) {
+            CommentVerdict.PROSE
+        }
+    }
+
+    /**
+     * The text inside a comment's delimiters, with javadoc's leading asterisks taken off the front of
+     * each line — which is what a reader of a javadoc block sees, and therefore what there is to
+     * parse.
+     *
+     * The closing delimiter is removed if it is there and not assumed to be: a block comment in red
+     * code runs to the end of the file, and the body is then everything after the opening.
+     */
+    private fun bodyOf(comment: PsiComment): String {
+        val text = comment.text
+        val body = when {
+            text.startsWith(BLOCK_COMMENT_OPENING) -> text.removePrefix(BLOCK_COMMENT_OPENING).removeSuffix(BLOCK_COMMENT_CLOSING)
+            else -> text.removePrefix(LINE_COMMENT_OPENING)
+        }
+        return body.lineSequence().joinToString("\n") { it.trimStart().removePrefix(JAVADOC_LINE_PREFIX) }
+    }
+
+    /**
+     * The symbols a javadoc block names through **resolvable references**: the `#member` half of
+     * `{@link …}` and `@see`, and an `@param` target.
+     *
+     * **Javadoc is not uniformly prose, and this is the part that is not.** A `PsiDocTagValue`
+     * resolves to a declared symbol exactly as an identifier does, so when a comment is kept these
+     * rename through the PSI graph like any other reference — and when it is stripped they go with
+     * it, because the engine drops everything a stripped comment covers.
+     *
+     * **The prose around them is never touched**, and that is the whole shape of the decision:
+     * rewriting identifiers inside prose is regex by another name, and it under-delivers anyway,
+     * since `merchant ledger` as two lowercase words never matches `merchantLedger`. What is reported
+     * here is what resolved; a word that merely looks like a name resolves to nothing and is not
+     * reported at all.
+     *
+     * A reference the identifier walk already covers is not reported a second time: the class half of
+     * `{@link Payment#pay}` is an ordinary `PsiJavaCodeReferenceElement` with a `PsiIdentifier` under
+     * it, and two occurrences over one range would be two edits over one range.
+     */
+    private fun docReferencesIn(
+        project: Project,
+        file: PsiFile,
+        comment: PsiComment,
+        fragment: Fragment,
+    ): List<Occurrence> {
+        if (comment !is PsiDocComment) return emptyList()
+
+        return PsiTreeUtil.findChildrenOfType(comment, PsiDocTagValue::class.java)
+            .flatMap { value -> value.references.asIterable() }
+            .mapNotNull { reference ->
+                val range = rangeOf(reference) ?: return@mapNotNull null
+                if (file.findElementAt(range.startOffset) is PsiIdentifier) return@mapNotNull null
+
+                val written = range.substring(file.text)
+                SymbolOccurrence(
+                    start = fragment.translate(range.startOffset),
+                    end = fragment.translate(range.endOffset),
+                    text = written,
+                    symbol = evidenceOf(project, reference.resolve(), written),
+                )
+            }
+            .sortedBy { it.start }
+    }
 
     /**
      * What a literal is, in Java's grammar — **read off its type, never off its text.**
@@ -702,6 +814,13 @@ internal object JavaPlanBuilder : PlanBuilder {
 
     /** A separator that cannot merge two fragments into one token, which is all it has to be. */
     private const val FRAGMENT_SEPARATOR = "\n"
+
+    // What opens and closes a comment, and the asterisk a javadoc line is written with. Read only to
+    // find the body a parser is handed — never to decide anything about what the body says.
+    private const val LINE_COMMENT_OPENING = "//"
+    private const val BLOCK_COMMENT_OPENING = "/*"
+    private const val BLOCK_COMMENT_CLOSING = "*/"
+    private const val JAVADOC_LINE_PREFIX = "*"
 
     /** What opens and closes a text block, and the one thing that tells one from a string literal. */
     private const val TEXT_BLOCK_DELIMITER = "\"\"\""

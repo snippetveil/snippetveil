@@ -120,15 +120,19 @@ class AnonymizeTest {
      * The collision rule reads the whole surviving text, not just the preserved symbols. A word in
      * a comment is not a symbol and no rule here owns it, but a reader holding `local1` from an
      * AI's reply cannot tell that — and the whole point of injectivity is that they never have to.
+     *
+     * Stated over a comment this invocation **kept**, because that is the only way prose survives:
+     * the default strips it, and a word that was deleted stands for nothing. See
+     * [CommentStrippingTest] for the other half of that.
      */
     @Test
     fun `a placeholder never collides with a word in surviving prose`() {
         val plan = planOf(
             "// see local1 for the tricky case\nint amount = 0;",
             symbol("amount", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT),
-        )
+        ).withComment("// see local1 for the tricky case", CommentVerdict.PROSE)
 
-        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+        val result = anonymize(plan, AnonymizationSettings(keepComments = true), LedgerSnapshot.EMPTY)
 
         assertEquals("// see local1 for the tricky case\nint local2 = 0;", result.text)
     }
@@ -350,16 +354,17 @@ class AnonymizeTest {
     }
 
     /**
-     * A comment is described by the plan and left alone by this module's rules: comment stripping
-     * is its own ticket. Literals are not — see [LiteralRedactionTest].
+     * A comment reported by the plan is **removed**, and the code around it is untouched — the rules
+     * that act on names do not see a comment at all. See [CommentStrippingTest] for the whole of
+     * that rule; this states the one line of it the spine cares about.
      */
     @Test
-    fun `comments are reported and left untouched`() {
+    fun `a comment is stripped and its line goes with it`() {
         val text = "// note about the merchant\nint days = 30;"
         val plan = SnippetPlan(
             text,
             listOf(
-                CommentOccurrence(0, 26),
+                CommentOccurrence(0, 26, CommentVerdict.PROSE),
                 symbolAt(31, "days", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT),
                 LiteralOccurrence(38, 40, LiteralKind.NUMBER, 38, 40),
             ),
@@ -367,7 +372,7 @@ class AnonymizeTest {
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals("// note about the merchant\nint local1 = 30;", result.text)
+        assertEquals("int local1 = 30;", result.text)
     }
 
     /**

@@ -7,6 +7,7 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.snippetveil.core.CommentCounts
 import com.snippetveil.core.NameCounts
 
 /**
@@ -25,12 +26,20 @@ internal object SnippetVeilNotifications {
     /**
      * States what happened, in mechanism, and makes no claim about what it means.
      *
-     * *"14 names replaced · 3 unknown · 22 preserved"* is a count of an operation. There is no "safe
-     * to paste", no "sanitized", no adjective at all — a category claim is the one thing a user would
-     * act on, and it is the one thing this tool is not in a position to make. Zero gets the same
-     * balloon with a zero in it, which is a truthful and useful reading: it is the moment someone
-     * discovers the snippet they were worried about contains nothing of theirs. Every number is shown
-     * every time for that reason, rather than the middle one appearing only when it fires.
+     * *"14 names replaced · 3 unknown · 22 preserved · 2 comments stripped"* is a count of an
+     * operation. There is no "safe to paste", no "sanitized", no adjective at all — a category claim
+     * is the one thing a user would act on, and it is the one thing this tool is not in a position to
+     * make. Zero gets the same balloon with a zero in it, which is a truthful and useful reading: it
+     * is the moment someone discovers the snippet they were worried about contains nothing of theirs.
+     * Every number is shown every time for that reason, rather than a number appearing only when it
+     * fires.
+     *
+     * **The strip count is here rather than only in the preview**, because `Copy Anonymized` is the
+     * fast path and has no preview: a disclosure that only the dialog carried would never fire for
+     * the users who never open the dialog, which is exactly the population it is written for. A
+     * stripped comment is invisible in the output — the text that comes back is clean, compiles and
+     * reads as ordinary code — so saying so at the point of use is the only place it can be said.
+     * The split by parse verdict rides on top of this as its own notice, and that is its ticket.
      *
      * **The unknown count is here at information level, and the level is the decision.** Under
      * fail-closed an `Unknown` *was* anonymized — it is a quality risk, never a privacy one — so
@@ -38,10 +47,11 @@ internal object SnippetVeilNotifications {
      * which is precisely the inversion this product cannot afford. It is a displayable measure of
      * how much of the snippet the IDE could not vouch for, and that is all it claims to be.
      */
-    fun copied(project: Project, counts: NameCounts) {
+    fun copied(project: Project, counts: NameCounts, comments: CommentCounts) {
         group().createNotification(
             "Anonymized snippet copied",
-            "${counts.replaced} names replaced · ${counts.unknown} unknown · ${counts.preserved} preserved",
+            "${counts.replaced} names replaced · ${counts.unknown} unknown · ${counts.preserved} preserved" +
+                " · ${comments.stripped} comments stripped",
             NotificationType.INFORMATION,
         ).notify(project)
     }

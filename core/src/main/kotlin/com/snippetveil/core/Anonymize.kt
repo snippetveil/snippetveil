@@ -13,8 +13,22 @@ fun anonymize(
     ledger: LedgerSnapshot,
 ): AnonymizationResult {
     val occurrences = plan.occurrences.sortedBy { it.start }
-    val symbols = occurrences.filterIsInstance<SymbolOccurrence>()
-    val literals = occurrences.filterIsInstance<LiteralOccurrence>()
+
+    // **Comments and javadoc go, unless this invocation says otherwise.** The strip is the default
+    // and the reduction is per-invocation, because prose is the largest single domain leak there is
+    // and a reduction that can be set once and forgotten leaks on every paste after it.
+    val stripped = if (settings.keepComments) emptyList() else occurrences.filterIsInstance<CommentOccurrence>()
+
+    // Everything a stripped comment takes with it leaves every rule below, because none of them is
+    // about the snippet — they are about **the clipboard**. A name written only inside a stripped
+    // comment is not replaced, not counted, not put in the mapping table and not offered as an
+    // unknown to preserve: there is nothing left in the output for any of that to be true of.
+    val surviving = occurrences.filter { occurrence ->
+        occurrence is CommentOccurrence || stripped.none { occurrence.start >= it.start && occurrence.end <= it.end }
+    }
+
+    val symbols = surviving.filterIsInstance<SymbolOccurrence>()
+    val literals = surviving.filterIsInstance<LiteralOccurrence>()
 
     // **Name constraint is a property of the symbol, never of the occurrence.** One occurrence
     // carrying a non-project override root keeps the name everywhere the symbol appears, which is
@@ -33,7 +47,7 @@ fun anonymize(
 
     val allocator = PlaceholderAllocator(
         ledger.nextNumber,
-        namesSurviving(plan, symbols.filter { isReplaced(it.symbol) }),
+        namesSurviving(plan, symbols.filter { isReplaced(it.symbol) } + stripped),
     )
     val placeholderByKey = LinkedHashMap<String, String>(ledger.placeholders)
     val allocated = LinkedHashMap<String, String>()
@@ -83,7 +97,7 @@ fun anonymize(
     // order falls out rather than being arranged — with one deliberate exception: an accessor seen
     // before its field allocates the field there and then, because the two names have to agree and
     // only one of them can be first.
-    for (occurrence in occurrences) {
+    for (occurrence in surviving) {
         when (occurrence) {
             is SymbolOccurrence -> {
                 namedSymbols += occurrence.symbol
@@ -106,14 +120,20 @@ fun anonymize(
                 }
             }
 
-            is CommentOccurrence -> Unit
+            // Clamped against the edit before it, because a strip reaches into the whitespace
+            // around the comment and two comments can share one run of it. Nothing else can collide
+            // — whitespace holds no identifier and no literal — so this is the whole of the rule.
+            is CommentOccurrence -> if (!settings.keepComments) {
+                val strip = strippedRangeOf(plan.text, occurrence)
+                edits += Edit(maxOf(strip.start, edits.lastOrNull()?.end ?: 0), strip.end, "")
+            }
         }
     }
 
     // Right to left, so that every replacement lands at an offset the ones before it have not
     // moved. Splicing into the original string is also why formatting comes out byte-perfect: no
-    // PSI is mutated, no formatter is invoked, and nothing but the identifiers and the insides of
-    // literals changes.
+    // PSI is mutated, no formatter is invoked, and nothing changes but the identifiers, the insides
+    // of literals, and the lines the comments were on.
     val text = StringBuilder(plan.text)
     for (edit in edits.asReversed()) text.replace(edit.start, edit.end, edit.text)
 
@@ -147,9 +167,57 @@ fun anonymize(
         mapping = mapping,
         unknowns = unknowns,
         counts = countsOf(namedSymbols, ::isReplaced, unknowns.size),
+        comments = CommentCounts(
+            prose = stripped.count { it.verdict == CommentVerdict.PROSE },
+            code = stripped.count { it.verdict == CommentVerdict.CODE },
+        ),
         delta = LedgerDelta(allocated, allocator.nextNumber),
     )
 }
+
+/**
+ * **What a stripped comment takes with it: itself, and the layout that would otherwise be left
+ * behind.**
+ *
+ * Removing the comment's own range and nothing else is the obvious rule and it produces litter — a
+ * blank indented line where a comment was, a trailing space after every `foo();`. That reads as a
+ * bug in this tool rather than as anonymization, which is the same standard the literal rule is held
+ * to: the output is *read*, and visible incoherence costs the reader's trust in everything else on
+ * the clipboard.
+ *
+ * Three cases, and each takes the whitespace the comment is responsible for and no more:
+ *
+ *  - **Alone on its line**: the line goes, terminator included. The alternative is a blank line
+ *    holding indentation, which is the litter above.
+ *  - **Something before it on the line** — `foo(); // why` — the comment and the run of spaces in
+ *    front of it go, so the code keeps its own line ending where it always was.
+ *  - **Something after it on the line** — a block comment in front of an argument — the comment and
+ *    the run of spaces behind it go, so the indentation of what follows is the indentation it had.
+ *
+ * This is layout, never content: which characters are whitespace is not a question about what a
+ * comment says, and no rule here reads a character of the comment itself.
+ */
+private fun strippedRangeOf(text: String, comment: CommentOccurrence): Edit {
+    val lineStart = text.lastIndexOf('\n', comment.start - 1) + 1
+    val lineEnd = text.indexOf('\n', comment.end).takeIf { it >= 0 } ?: text.length
+
+    val onlyIndentBefore = (lineStart until comment.start).all { text[it].isWhitespace() }
+    val onlySpaceAfter = (comment.end until lineEnd).all { text[it].isWhitespace() }
+
+    return when {
+        onlyIndentBefore && onlySpaceAfter -> Edit(lineStart, minOf(lineEnd + 1, text.length), "")
+        onlyIndentBefore -> Edit(comment.start, comment.end + spaceRun(text, comment.end, lineEnd), "")
+        else -> Edit(comment.start - spaceRunBefore(text, lineStart, comment.start), comment.end, "")
+    }
+}
+
+/** How many spaces follow [from], up to [limit]. */
+private fun spaceRun(text: String, from: Int, limit: Int): Int =
+    (from until limit).takeWhile { text[it].isWhitespace() }.count()
+
+/** How many spaces run backwards from [before], down to [limit]. */
+private fun spaceRunBefore(text: String, limit: Int, before: Int): Int =
+    (before - 1 downTo limit).takeWhile { text[it].isWhitespace() }.count()
 
 /** One replacement, as a half-open range `[start, end)` into the plan's text and what goes there. */
 private class Edit(val start: Int, val end: Int, val text: String)
@@ -422,9 +490,9 @@ private fun namespaceOf(symbol: SymbolEvidence): String =
  * that already knew would have to be built out of the answer it feeds. The cost is a burnt number,
  * which is the direction this may err in.
  */
-private fun namesSurviving(plan: SnippetPlan, replaced: List<SymbolOccurrence>): Set<String> {
+private fun namesSurviving(plan: SnippetPlan, removed: List<Occurrence>): Set<String> {
     val isReplaced = BooleanArray(plan.text.length)
-    for (occurrence in replaced) {
+    for (occurrence in removed) {
         for (offset in occurrence.start until occurrence.end) isReplaced[offset] = true
     }
     return IDENTIFIER.findAll(plan.text)

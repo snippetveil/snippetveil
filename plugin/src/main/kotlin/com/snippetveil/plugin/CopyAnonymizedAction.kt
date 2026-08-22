@@ -156,6 +156,12 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
      * The ledger is empty in and its delta is dropped on the floor: placeholders that stay stable
      * across invocations are their own ticket. The contract is already shaped for it, because the
      * shape is what makes a cancelled preview burn nothing.
+     *
+     * **[AnonymizationSettings.DEFAULTS], and on this path there is nothing else it could be.** Every
+     * reduction the design authorises — the per-item preserve on an unresolved name, keeping comments
+     * — is per-invocation and lives only in the preview dialog, which is its own ticket. That is what
+     * makes `Copy Anonymized` the maximally-anonymizing path **by construction** rather than by
+     * discipline: there is no setting for it to read, so there is nothing that can have been left on.
      */
     private fun analyse(request: SnippetRequest): AnonymizationResult =
         anonymize(plans.build(request), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
@@ -175,7 +181,7 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
             SnippetVeilNotifications.failed(project, failure)
             return
         }
-        SnippetVeilNotifications.copied(project, result.counts)
+        SnippetVeilNotifications.copied(project, result.counts, result.comments)
     }
 }
 
