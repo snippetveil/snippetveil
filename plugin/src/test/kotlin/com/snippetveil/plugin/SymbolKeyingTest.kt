@@ -36,6 +36,10 @@ class SymbolKeyingTest : JavaSnippetTestCase() {
      * `<anchor>` stands for *this file, at this offset* — the fallback for everything Java gives no
      * qualified name to. Reading the table down the `persistable` column is reading the cut a
      * persisted mapping has to make.
+     *
+     * **One kind is not in the table and cannot be**: a Lombok light member has no declaration in
+     * source, so no fixture file can name one. Its key is asserted in `LombokLightAccessorTest`
+     * against a synthesized one, which is the only place it can be.
      */
     fun `test every symbol kind is keyed the way its persistability requires`() {
         assertTheHarnessResolves()
@@ -71,10 +75,10 @@ class SymbolKeyingTest : JavaSnippetTestCase() {
         val after = JavaPlanBuilder.build(SnippetRequest(project, myFixture.file, emptyList()))
 
         for (kind in KINDS) {
-            val survived = before.keyOf(kind.token, kind.ordinal) == after.keyOf(kind.token, kind.ordinal + 0)
+            val survived = before.keyOf(kind.token, kind.ordinal) == after.keyOf(kind.token, kind.ordinal)
             assertEquals(
-                "${kind.description}: expected persistable=${kind.persistable}",
-                kind.persistable,
+                "${kind.description}: expected to survive an unrelated edit=${kind.survivesAnEdit}",
+                kind.survivesAnEdit,
                 survived,
             )
         }
@@ -87,9 +91,17 @@ class SymbolKeyingTest : JavaSnippetTestCase() {
      * of two unrelated anonymous classes collapsed onto one placeholder. Two distinct symbols
      * rendering as one name is exactly what the reverse mapping cannot survive.
      *
-     * **Demonstrated red** by making `ownerKeyOf` fall back to a constant when the owner has no
-     * qualified name (`owner?.qualifiedName?.let { "class:" + it } ?: "<none>"`), which collapses
-     * both classes' `state` onto one key.
+     * Its control is the table above rather than a test of its own, and that is the pairing a
+     * re-expressed regression needs: a rewrite has never failed in its life, so green here is
+     * otherwise ambiguous between *the bug is fixed* and *the fixture never had two anonymous
+     * classes in it*. The `an anonymous class's field` row asserts the key is anchored — which is
+     * only true of a class with no qualified name — and the two `assertEquals` below assert each
+     * class's own field reaches one key, so the fixture is pinned as reproducing the condition.
+     *
+     * It was also demonstrated red the blunt way before being accepted, by making `ownerKeyOf` fall
+     * back to a constant when the owner has no qualified name
+     * (`owner?.qualifiedName?.let { "class:" + it } ?: "<none>"`), which collapses both classes'
+     * `state` onto one key and fails all three tests here.
      */
     fun `test members of two different anonymous classes are keyed apart`() {
         assertTheHarnessResolves()
@@ -138,7 +150,12 @@ class SymbolKeyingTest : JavaSnippetTestCase() {
  * One symbol kind, the identifier that names it in the fixture, and the two answers.
  *
  * @param persistable whether the key is derived from a fully qualified name, and therefore whether
- *   it can be written to a file and read back next week meaning the same symbol.
+ *   it may be written to a file and read back next week meaning the same symbol.
+ * @param survivesAnEdit whether the key is the same string after an unrelated edit, which for almost
+ *   every kind is the same question — and for exactly one is not. **An `unresolved:` key survives any
+ *   edit and still must never be persisted**: it names a *spelling* rather than a symbol, so two
+ *   distinct symbols spelled alike share it, and a durable table keyed on it would hand back the
+ *   wrong name. Defaults to [persistable], so a row states this only where the two diverge.
  */
 private class Kind(
     val description: String,
@@ -146,10 +163,15 @@ private class Kind(
     val ordinal: Int = 0,
     val key: String,
     val persistable: Boolean,
-)
+    survivesAnEdit: Boolean? = null,
+) {
+    /** Whether the key is the same string after an unrelated edit. See [Kind]'s own KDoc. */
+    val survivesAnEdit: Boolean = survivesAnEdit ?: persistable
+}
 
 private val KINDS = listOf(
     Kind("a class", "Ledger", key = "class:com.acme.Ledger", persistable = true),
+    Kind("a constructor", "Ledger", ordinal = 1, key = "class:com.acme.Ledger", persistable = true),
     Kind("a type parameter", "T", key = "class:<anchor>", persistable = false),
     Kind("a field", "total", key = "field:class:com.acme.Ledger#total", persistable = true),
     Kind("a method", "audit", key = "method:class:com.acme.Ledger#audit", persistable = true),
@@ -162,6 +184,11 @@ private val KINDS = listOf(
     Kind("an anonymous class's method", "run", key = "method:class:<anchor>#run", persistable = false),
     Kind("a local class", "Helper", key = "class:<anchor>", persistable = false),
     Kind("a local class's field", "state", ordinal = 4, key = "field:class:<anchor>#state", persistable = false),
+    Kind("a record component", "merchantRef", key = "field:class:com.acme.Payment#merchantRef", persistable = true),
+    Kind("a record accessor", "merchantRef", ordinal = 1, key = "field:class:com.acme.Payment#merchantRef", persistable = true),
+
+    // The one row where the two columns part company, and the reason they are two columns.
+    Kind("an unresolved name", "Missing", key = "unresolved:Missing", persistable = false, survivesAnEdit = true),
 )
 
 private const val FIXTURE_PATH = "com/acme/Ledger.java"
@@ -176,6 +203,8 @@ private val FIXTURE = """
     class Ledger<T> {
         static int total;
 
+        Ledger() {}
+
         <R> R audit(int amount) {
             int running = amount;
             outer: for (;;) { break outer; }
@@ -183,9 +212,14 @@ private val FIXTURE = """
             Runnable first = new Runnable() { int state; public void run() { state++; } };
             Runnable second = new Runnable() { int state; public void run() { state++; } };
             class Helper { int state; }
+            Missing absent = null;
             return null;
         }
 
         enum Status { ACTIVE }
+    }
+
+    record Payment(String merchantRef) {
+        static String of(Payment p) { return p.merchantRef(); }
     }
 """.trimIndent()

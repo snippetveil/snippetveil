@@ -27,6 +27,10 @@ class ForcedSharingTest {
      * each one's signature as evidence and keys them identically; the engine collapses them by never
      * reading the signature. Emitting two placeholders here would produce output that reads as two
      * unrelated methods — a *plausible* artifact, which is the prohibited class.
+     *
+     * The engine's half of this rule is *ignoring the signature*, which is what the two differing
+     * signatures below are here to catch. That the builder keys two overloads identically in the
+     * first place is asserted where it happens, in `JavaPlanBuilderTest`.
      */
     @Test
     fun `overloads collapse onto one placeholder`() {
@@ -40,7 +44,11 @@ class ForcedSharingTest {
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
         result.assertShared(OVERLOADS, "send")
-        assertEquals("void method1(String body) {} void method1(String body, int retries) {}", result.text)
+        assertEquals(
+            "void method1(String body) {} void method1(String body, int retries) {}",
+            result.text,
+            OVERLOADS,
+        )
     }
 
     // ------------------------------------------------- Rule 2: override chains key by their root
@@ -51,9 +59,16 @@ class ForcedSharingTest {
      * so the `@Override` no longer implemented anything: the same call arrived at two different
      * method names depending on which type the reader was looking at.
      *
-     * This is one of the three regressions the throwaway spike found, re-expressed here.
-     * **Demonstrated red** by making [sharedKeyOf] return `symbol.key` unconditionally, which splits
-     * `name` into `method1` on the interface and `method2` on the implementation.
+     * This is one of the three regressions the throwaway spike found, re-expressed here — and
+     * re-expressed regressions are the ones that need most care, because a rewrite has never failed
+     * in its life. Green here is ambiguous between *the bug is fixed* and *the plan literal never
+     * reproduced the condition*, and from outside those look identical. So it is paired with
+     * [`the same chain with its root evidence removed splits the interface from its implementation`],
+     * which takes away the one piece of evidence and asserts the split — **the pairing is what makes
+     * the assertion count**, and it keeps saying so long after the afternoon this was written.
+     *
+     * It was also demonstrated red the blunt way before being accepted, by making [sharedKeyOf]
+     * return `symbol.key` unconditionally.
      */
     @Test
     fun `an override chain renders as one placeholder at every site`() {
@@ -78,6 +93,36 @@ class ForcedSharingTest {
 
         result.assertShared(OVERRIDE_ROOT, "name")
         assertEquals(3, Regex("""\bmethod\d+\b""").findAll(result.text).count())
+    }
+
+    /**
+     * **The control for the test above.** The same snippet and the same two symbols, with the
+     * override root taken away — and the output is the spike's bug verbatim: `method1` on the
+     * interface, `method2` on the implementation, and an `@Override` that no longer implements
+     * anything a reader of the output can see.
+     */
+    @Test
+    fun `the same chain with its root evidence removed splits the interface from its implementation`() {
+        val text = """
+            interface Named { String name(); }
+            class Payment implements Named { public String name() { return "x"; } }
+            String n = payment.name();
+        """.trimIndent()
+
+        val root = symbol("name", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, key = "method:class:com.acme.Named#name")
+        // The one difference from the test above: no root, so nothing ties the two symbols together.
+        val overriding = symbol(
+            "name",
+            SymbolRole.METHOD,
+            SymbolOrigin.IN_CONTENT,
+            key = "method:class:com.acme.Payment#name",
+        )
+
+        val plan = planPlacing(text, at(0, root), at(1, overriding), at(2, root))
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        result.assertDistinct(OVERRIDE_ROOT, "name", count = 2)
     }
 
     /**
@@ -220,7 +265,11 @@ class ForcedSharingTest {
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
         result.assertDistinct(ACCESSORS, "merchantId", count = 2)
-        assertEquals("private String field1; public String method2() { return field1; }", result.text)
+        assertEquals(
+            "private String field1; public String method2() { return field1; }",
+            result.text,
+            "$ACCESSORS: a fluent accessor takes an ordinary placeholder of its own",
+        )
     }
 
     /**
@@ -249,8 +298,15 @@ class ForcedSharingTest {
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertTrue("getField1" !in result.mapping, "a name that survives verbatim may not also be a placeholder")
-        assertEquals("String x = payment.method2(); String y = getField1();", result.text)
+        assertTrue(
+            "getField1" !in result.mapping,
+            "$ACCESSORS: a name that survives verbatim may not also be a placeholder",
+        )
+        assertEquals(
+            "String x = payment.method2(); String y = getField1();",
+            result.text,
+            "$ACCESSORS: a derived name that is taken falls back rather than colliding",
+        )
     }
 
     // ------------------------------------------------------- Rule 4: constructor ↔ declaring type
@@ -292,6 +348,10 @@ class ForcedSharingTest {
      * The sharp end of it: **the accessor IS that placeholder, not `getField1()`.** Records carry no
      * `get` prefix, so rule 3's derivation would be actively wrong here — it would emit an accessor
      * the record does not declare, next to a component the record does.
+     *
+     * The engine's half is that last clause: given one key and no accessor evidence, it must not
+     * reach for rule 3 anyway. That the builder reports one key and no accessor evidence for all
+     * three faces is asserted against a real record in `NameRuleEvidenceTest`.
      */
     @Test
     fun `a record component its field and its accessor are one placeholder`() {
@@ -340,7 +400,11 @@ class ForcedSharingTest {
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals("enum Type1 { field2, field3 } Type1 s = Type1.field2;", result.text)
+        assertEquals(
+            "enum Type1 { field2, field3 } Type1 s = Type1.field2;",
+            result.text,
+            "$NON_FORCING: enum constants rename freely",
+        )
     }
 }
 
@@ -348,4 +412,5 @@ private const val OVERLOADS = "Forced sharing rule 1 (overloads)"
 private const val OVERRIDE_ROOT = "Forced sharing rule 2 (override chains key by their root)"
 private const val ACCESSORS = "Forced sharing rule 3 (accessors derive from their backing field)"
 private const val CONSTRUCTORS = "Forced sharing rule 4 (constructor ↔ declaring type)"
+private const val NON_FORCING = "Checked and rejected as non-forcing"
 private const val RECORDS = "Forced sharing rule 5 (record component ↔ field ↔ accessor)"

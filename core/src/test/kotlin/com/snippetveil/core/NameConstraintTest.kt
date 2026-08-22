@@ -31,8 +31,16 @@ class NameConstraintTest {
      * framework types, interface implementations, `equals`/`hashCode`/`toString`, JUnit and Spring
      * lifecycle methods.
      *
-     * **Demonstrated red** by making [isNameConstrained] return `false`: the declaration renames to
-     * `method2` while the call site stays `run`, which is the original bug exactly.
+     * A rewrite of a regression has never failed in its life, so this one is paired with
+     * [`the same snippet without a non-project root reproduces the original bug`] — the same plan
+     * with the one piece of evidence removed, asserting the broken output. **That pairing is what
+     * makes the assertion count.** A green rewrite is otherwise ambiguous between *the bug is fixed*
+     * and *the plan literal never reproduced the condition*, and those are indistinguishable from
+     * outside; a control that goes red on the evidence alone tells them apart, and keeps telling
+     * them apart long after the afternoon this was written.
+     *
+     * It was also demonstrated red the blunt way before being accepted, by making
+     * [isNameConstrained] return `false`.
      */
     @Test
     fun `a project method overriding a JDK member keeps its name at both sites`() {
@@ -65,6 +73,46 @@ class NameConstraintTest {
         assertEquals(
             "Runnable local1 = new Runnable() { public void run() { method2(); } };\nlocal1.run();",
             result.text,
+        )
+    }
+
+    /**
+     * **The control for the test above**: the same snippet, the same plan, and the single piece of
+     * evidence that decides it taken away. The output is then the spike's bug verbatim — the
+     * declaration renamed to `method2`, the call site left as `run`, and an anonymous class that no
+     * longer implements anything.
+     *
+     * This is not a test of behaviour anyone wants. It is the assertion that the plan literal above
+     * reproduces the condition it claims to, which is the half of a re-expressed regression that a
+     * green run cannot establish on its own.
+     */
+    @Test
+    fun `the same snippet without a non-project root reproduces the original bug`() {
+        val text = """
+            Runnable task = new Runnable() { public void run() { audit(); } };
+            task.run();
+        """.trimIndent()
+
+        val jdkRun = symbol("run", SymbolRole.METHOD, SymbolOrigin.JDK, key = "method:class:java.lang.Runnable#run")
+        val plan = planPlacing(
+            text,
+            at(0, symbol("Runnable", SymbolRole.TYPE, SymbolOrigin.JDK, key = "class:java.lang.Runnable")),
+            at(0, symbol("task", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT, key = "local:task")),
+            at(1, symbol("Runnable", SymbolRole.TYPE, SymbolOrigin.JDK, key = "class:java.lang.Runnable")),
+            // The one difference: no override root, so nothing tells the engine this name is spoken
+            // for. Everything else is identical to the test above.
+            at(0, symbol("run", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, key = "method:class:file@31#run")),
+            at(0, symbol("audit", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, key = "method:class:com.acme.Job#audit")),
+            at(1, symbol("task", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT, key = "local:task")),
+            at(1, jdkRun),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals(
+            "Runnable local1 = new Runnable() { public void method2() { method3(); } };\nlocal1.run();",
+            result.text,
+            "the control must reproduce the bug, or the test above proves nothing",
         )
     }
 

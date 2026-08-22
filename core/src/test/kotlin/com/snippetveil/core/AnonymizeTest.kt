@@ -36,28 +36,6 @@ class AnonymizeTest {
     }
 
     /**
-     * Overloads share a name in source, so they share a placeholder. The plan reports each one's
-     * signature as evidence and keys them identically; the engine collapses them by never reading
-     * the signature. Emitting two placeholders here would produce a *plausible* artifact — output
-     * that reads as two unrelated methods — which is the prohibited class.
-     */
-    @Test
-    fun `overloads collapse to one placeholder`() {
-        val plan = SnippetPlan(
-            "void send(String body) {} void send(String body, int retries) {}",
-            listOf(
-                symbolAt(5, "send", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, signature = "(String)"),
-                symbolAt(31, "send", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, signature = "(String,int)"),
-            ),
-        )
-
-        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
-
-        assertEquals("void method1(String body) {} void method1(String body, int retries) {}", result.text)
-        assertEquals(mapOf("method1" to "send"), result.mapping)
-    }
-
-    /**
      * Two distinct symbols never share a placeholder, however identical they look in source. A
      * parameter shadowing a field is the case that proves it: one name, two symbols, two keys.
      */

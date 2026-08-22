@@ -67,7 +67,11 @@ class LombokLightAccessorTest : JavaSnippetTestCase() {
 
         // The field is nowhere in the snippet and is named anyway: the accessor's placeholder is
         // derived from it, so it has to exist before the accessor can be written down.
-        assertEquals("return param1.getField2();", result.text)
+        assertEquals(
+            "forced sharing rule 3: a light accessor derives from a field that is not in the snippet",
+            "return param1.getField2();",
+            result.text,
+        )
         assertEquals("field2", result.delta.placeholders["field:class:com.acme.Payment#merchantId"])
     }
 }

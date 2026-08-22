@@ -385,7 +385,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * which is exactly as long as one invocation lasts.
      *
      * **Anonymous and local class members inherit that fallback through their owner**, and that is
-     * the point of routing every member key through [ownerKeyOf]. `PsiClass.getQualifiedName()` is
+     * the point of routing every member key through [memberKeyOf]. `PsiClass.getQualifiedName()` is
      * `null` inside one, so an owner keyed by name alone collapsed the `state` fields of two
      * different anonymous classes onto one placeholder — two unrelated symbols rendered as one name,
      * which is precisely what the injectivity invariant forbids.
@@ -396,17 +396,26 @@ internal object JavaPlanBuilder : PlanBuilder {
      */
     private fun keyOf(symbol: PsiElement): String = when (symbol) {
         is PsiClass -> "class:" + (symbol.qualifiedName ?: anchorOf(symbol))
-        is PsiMethod -> "method:" + ownerKeyOf(symbol.containingClass) + "#" + symbol.name
-        is PsiField -> "field:" + ownerKeyOf(symbol.containingClass) + "#" + symbol.name
+        is PsiMethod -> memberKeyOf("method", symbol.containingClass, symbol.name)
+        is PsiField -> memberKeyOf("field", symbol.containingClass, symbol.name)
 
         // Keyed as the field it compiles to, which is rule 5 stated as identity: one declared symbol
         // wearing three PSI faces reaches one key from whichever face the walk arrives at.
-        is PsiRecordComponent -> "field:" + ownerKeyOf(symbol.containingClass) + "#" + symbol.name
+        is PsiRecordComponent -> memberKeyOf("field", symbol.containingClass, symbol.name)
 
         else -> "local:" + anchorOf(symbol)
     }
 
-    private fun ownerKeyOf(owner: PsiClass?): String = owner?.let(::keyOf) ?: "<none>"
+    /**
+     * A member's key: what kind of member it is, whose it is, and what it is called.
+     *
+     * The owner's key is [keyOf] again rather than a qualified name, which is the whole of what
+     * makes an anonymous class's members work: the owner has no qualified name, so it falls through
+     * to an anchor, and the member's key inherits that. A `null` owner is the light member with no
+     * class at all, and it gets a name rather than an exception.
+     */
+    private fun memberKeyOf(kind: String, owner: PsiClass?, name: String): String =
+        kind + ":" + (owner?.let(::keyOf) ?: "<none>") + "#" + name
 
     private fun anchorOf(symbol: PsiElement): String =
         (PsiUtilCore.getVirtualFile(symbol)?.url ?: "<light>") + "@" + symbol.textOffset

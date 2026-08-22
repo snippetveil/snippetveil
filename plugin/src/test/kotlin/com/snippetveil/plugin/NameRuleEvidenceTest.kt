@@ -51,7 +51,11 @@ class NameRuleEvidenceTest : JavaSnippetTestCase() {
         )
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
-        assertEquals(2, Regex("""\brun\(""").findAll(result.text).count())
+        assertEquals(
+            "name constraint 1: both sites must still read `run(`: " + result.text,
+            2,
+            Regex("""\brun\(""").findAll(result.text).count(),
+        )
         assertFalse("`run` was renamed somewhere: " + result.text, result.mapping.containsValue("run"))
     }
 
@@ -105,7 +109,11 @@ class NameRuleEvidenceTest : JavaSnippetTestCase() {
         assertEquals(emptyList<Any>(), call.overrideRoots)
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
-        assertEquals(1, result.mapping.filterValues { it == "name" }.size)
+        assertEquals(
+            "forced sharing rule 2: the chain must render as one placeholder: " + result.text,
+            1,
+            result.mapping.filterValues { it == "name" }.size,
+        )
     }
 
     /** Most methods override nothing, and report nothing. */
@@ -142,8 +150,16 @@ class NameRuleEvidenceTest : JavaSnippetTestCase() {
         assertEquals(field to "set", plan.accessorOf("setMerchantId"))
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
-        assertEquals(setOf("getField1"), result.mapping.filterValues { it == "getMerchantId" }.keys)
-        assertEquals(setOf("setField1"), result.mapping.filterValues { it == "setMerchantId" }.keys)
+        assertEquals(
+            "forced sharing rule 3: a getter derives from its field: " + result.text,
+            setOf("getField1"),
+            result.mapping.filterValues { it == "getMerchantId" }.keys,
+        )
+        assertEquals(
+            "forced sharing rule 3: a setter derives from its field: " + result.text,
+            setOf("setField1"),
+            result.mapping.filterValues { it == "setMerchantId" }.keys,
+        )
     }
 
     /**
