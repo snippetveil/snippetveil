@@ -21,6 +21,7 @@ import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiLabeledStatement
 import com.intellij.psi.PsiLiteralExpression
 import com.intellij.psi.PsiLocalVariable
+import com.intellij.psi.PsiMember
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNameIdentifierOwner
 import com.intellij.psi.PsiNameValuePair
@@ -487,6 +488,7 @@ internal object JavaPlanBuilder : PlanBuilder {
             origin = originOf(project, symbol),
             declaredName = (symbol as? PsiNameIdentifierOwner)?.name ?: declaredName,
             qualifiedName = (symbol as? PsiQualifiedNamedElement)?.qualifiedName,
+            packageName = packageNameOf(symbol),
             signature = (symbol as? PsiMethod)?.let { method ->
                 method.parameterList.parameters.joinToString(",", "(", ")") { it.type.canonicalText }
             },
@@ -508,7 +510,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * they are, and whether a JDK root means *keep this name* is the engine's call.
      */
     private fun overrideRootsOf(project: Project, method: PsiMethod): List<OverrideRoot> =
-        method.findDeepestSuperMethods().map { OverrideRoot(keyOf(it), originOf(project, it)) }
+        method.findDeepestSuperMethods().map { OverrideRoot(keyOf(it), originOf(project, it), packageNameOf(it)) }
 
     /**
      * The field [method] reads or writes, when it is a JavaBeans accessor of one — and `null`
@@ -700,6 +702,33 @@ internal object JavaPlanBuilder : PlanBuilder {
     }
 
     /**
+     * **The package a symbol belongs to** — `com.acme.billing` for the class
+     * `com.acme.billing.Payment`, for its `merchantRef` field, and for the package segment written
+     * `billing`, which belongs to itself.
+     *
+     * A fact about where the declaration sits, reported like every other fact: whether a package
+     * prefix makes a library symbol the company's own is a policy, and it is applied in the engine
+     * where a test can reach it without an IDE.
+     *
+     * Read off the **top-level** class's qualified name rather than off the symbol's own, because a
+     * nested class's qualified name carries its owners — `com.acme.billing.Payment.Status` would
+     * otherwise report a package of `com.acme.billing.Payment`, and a prefix rule reading it would
+     * be matching a class name against a package one. The containing file is the fallback, which is
+     * what answers for an anonymous or local class and for a member of one.
+     */
+    private fun packageNameOf(symbol: PsiElement): String? {
+        // A package is not declared in a package; it *is* one. Every rule that reads this field is
+        // asking which package a name is part of, and a package is part of itself.
+        if (symbol is PsiPackage) return symbol.qualifiedName.takeIf { it.isNotEmpty() }
+
+        val owner = symbol as? PsiClass ?: (symbol as? PsiMember)?.containingClass
+        val topLevel = owner?.let { generateSequence(it) { nested -> nested.containingClass }.last() }
+        topLevel?.qualifiedName?.substringBeforeLast('.', "")?.takeIf { it.isNotEmpty() }?.let { return it }
+
+        return (symbol.containingFile as? PsiJavaFile)?.packageName?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
      * The identity of a declared symbol, as a string the engine can compare and a later ticket can
      * persist.
      *
@@ -807,10 +836,10 @@ internal object JavaPlanBuilder : PlanBuilder {
     /**
      * The analysed file's root package — `com.acme` out of `com.acme.web.PaymentController`.
      *
-     * Nothing reads it yet. It is here because it is a *fact about the file* that the ticket
-     * treating internal-org libraries as project code needs, and facts belong on the plan: the
-     * builder must not pre-judge, so the prefix match itself stays in the engine where it is
-     * testable against a plan literal with no IDE involved.
+     * A *fact about the file*, and the one the internal-library rule is derived from: a library
+     * symbol under this prefix is the company's own code arriving as a jar. Facts belong on the
+     * plan — the builder must not pre-judge, so the prefix match itself stays in the engine where it
+     * is testable against a plan literal with no IDE involved.
      */
     private fun rootPackageOf(file: PsiFile): String? =
         (file as? PsiJavaFile)?.packageName

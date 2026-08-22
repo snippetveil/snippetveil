@@ -157,14 +157,22 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
      * across invocations are their own ticket. The contract is already shaped for it, because the
      * shape is what makes a cancelled preview burn nothing.
      *
-     * **[AnonymizationSettings.DEFAULTS], and on this path there is nothing else it could be.** Every
-     * reduction the design authorises — the per-item preserve on an unresolved name, keeping comments
-     * — is per-invocation and lives only in the preview dialog, which is its own ticket. That is what
-     * makes `Copy Anonymized` the maximally-anonymizing path **by construction** rather than by
-     * discipline: there is no setting for it to read, so there is nothing that can have been left on.
+     * **The defaults, plus the one setting that can only anonymize more.** Every reduction the design
+     * authorises — the per-item preserve on an unresolved name, keeping comments — is per-invocation
+     * and lives only in the preview dialog, which is its own ticket. That is what makes
+     * `Copy Anonymized` the maximally-anonymizing path **by construction** rather than by discipline:
+     * there is no reduction for it to read, so there is nothing that can have been left on.
+     *
+     * [InternalLibrarySettings] is the exception that proves it. It is read here because it is the
+     * one persistent setting in the product, and it may be read here because nothing in it can take
+     * the output back past what a library-preserving spine rule already produced.
      */
     private fun analyse(request: SnippetRequest): AnonymizationResult =
-        anonymize(plans.build(request), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+        anonymize(
+            plans.build(request),
+            AnonymizationSettings(internalLibraries = InternalLibrarySettings.of(request.project).policy),
+            LedgerSnapshot.EMPTY,
+        )
 
     /**
      * The clipboard first, the balloon second, and the two failure modes told apart.

@@ -30,20 +30,25 @@ fun anonymize(
     val symbols = surviving.filterIsInstance<SymbolOccurrence>()
     val literals = surviving.filterIsInstance<LiteralOccurrence>()
 
+    // Which library packages hold the company's own code, resolved once for this invocation from
+    // the setting and from the one fact about the file the plan reports. Every ownership question
+    // below asks this, because *the project owns it* is now a question two origins can answer.
+    val ownership = Ownership(settings.internalLibraries, plan.rootPackage)
+
     // **Name constraint is a property of the symbol, never of the occurrence.** One occurrence
     // carrying a non-project override root keeps the name everywhere the symbol appears, which is
     // the whole point: a declaration renamed and a call site preserved is exactly the failure this
     // rule exists to prevent, and it is a failure of two sites disagreeing. A reference inside a
     // literal is such an occurrence, so it is read here alongside the identifiers.
     val constrained = (symbols.map { it.symbol } + literals.flatMap { literal -> literal.references.map { it.symbol } })
-        .filter(::isNameConstrained)
+        .filter { isNameConstrained(it, ownership) }
         .mapTo(HashSet(), ::sharedKeyOf)
 
     // The spine rule: anonymize a symbol iff its declaring file is project-owned. The JDK and
     // third-party libraries alike are preserved. An unresolved reference joins the anonymized set
     // by failing closed rather than by being owned — see [namespaceOf].
     fun isReplaced(symbol: SymbolEvidence): Boolean =
-        isAnonymized(symbol, settings) && sharedKeyOf(symbol) !in constrained
+        isAnonymized(symbol, settings, ownership) && sharedKeyOf(symbol) !in constrained
 
     val allocator = PlaceholderAllocator(
         ledger.nextNumber,
@@ -154,7 +159,7 @@ fun anonymize(
                 key = occurrence.symbol.key,
                 name = occurrence.symbol.declaredName,
                 placeholder = placeholderByKey[occurrence.symbol.key]
-                    ?.takeIf { isAnonymized(occurrence.symbol, settings) },
+                    ?.takeIf { isAnonymized(occurrence.symbol, settings, ownership) },
             )
         }
 
@@ -363,13 +368,20 @@ private fun countsOf(
  * **There is deliberately no user-editable list of preserved names** — a knob that leaks by
  * construction, and a settings file that becomes a plaintext domain glossary committed to the repo.
  *
- * Scoped to [SymbolOrigin.IN_CONTENT], which is not a shortcut: the JDK and libraries are preserved
- * by the spine rule already, and an unresolved name must stay failed closed. A constraint is a
- * reason to keep a name the project owns, so it is the only origin it may speak about.
+ * Scoped to the symbols the project owns, which is not a shortcut: a third-party library and the JDK
+ * are preserved by the spine rule already, and an unresolved name must stay failed closed. A
+ * constraint is a reason to keep a name the project owns, so those are the only symbols it may speak
+ * about.
+ *
+ * **Owned reads [Ownership], not [SymbolOrigin.IN_CONTENT]**, and both halves of this rule do —
+ * which is what keeps the internal-library rule from producing incoherent output. A method in the
+ * company's own jar is anonymized now, so it is now a method whose override of a framework type has
+ * to be protected; and a chain that stays inside that jar has non-`IN_CONTENT` roots that are *not*
+ * a reason to keep a name, so it renames and shares a placeholder like any other project chain.
  */
-private fun isNameConstrained(symbol: SymbolEvidence): Boolean =
-    symbol.origin == SymbolOrigin.IN_CONTENT &&
-        (symbol.overrideRoots.any { it.origin != SymbolOrigin.IN_CONTENT } ||
+private fun isNameConstrained(symbol: SymbolEvidence, ownership: Ownership): Boolean =
+    ownership.owns(symbol) &&
+        (symbol.overrideRoots.any { !ownership.owns(it) } ||
             (symbol.role == SymbolRole.METHOD && symbol.declaredName in PLATFORM_CONSTRAINED_NAMES))
 
 /**
@@ -405,32 +417,110 @@ private val PLATFORM_CONSTRAINED_NAMES =
 /**
  * Whether a symbol is replaced rather than emitted under its own name.
  *
- * Two rules of ownership, and it is worth seeing them side by side because they answer different
+ * Three rules of ownership, and it is worth seeing them side by side because they answer different
  * questions. [SymbolOrigin.IN_CONTENT] is the spine rule — *we own it, so it goes* — while
  * [SymbolOrigin.UNRESOLVED] is a rule about **not knowing**: nothing here can tell whose name it
- * is, and a name nobody can vouch for is treated as the user's own.
+ * is, and a name nobody can vouch for is treated as the user's own. [SymbolOrigin.LIBRARY] is a
+ * rule about **which library**, and it is a policy rather than a fact: see [Ownership].
  *
- * [isTopLevelPackageSegment] sits in front of both, and it is the only rule here that is not about
- * ownership at all — `com` is the project's and is preserved anyway, because there is nothing in it
- * to conceal. It is checked first rather than folded into the spine rule so that the spine rule
- * stays the one sentence it has to stay.
+ * [isTopLevelPackageSegment] sits in front of all three, and it is the only rule here that is not
+ * about ownership at all — `com` is the project's and is preserved anyway, because there is nothing
+ * in it to conceal. It is checked first rather than folded into the spine rule so that the spine
+ * rule stays the one sentence it has to stay.
  *
  * [AnonymizationSettings.preservedUnknowns] is read here and nowhere else, which is what confines
  * the product's one deliberate fail-open to the branch it was granted for: the spine rule above it
  * reads no setting at all.
+ *
+ * The first three arms are what [Ownership.owns] answers, and this deliberately does not delegate to
+ * it. An exhaustive `when` over [SymbolOrigin] is a compile error the day a fifth origin is added,
+ * which is exactly the moment somebody has to decide what becomes of it — and folding three arms
+ * into one call would trade that for two lines.
  */
-private fun isAnonymized(symbol: SymbolEvidence, settings: AnonymizationSettings): Boolean = when {
+private fun isAnonymized(
+    symbol: SymbolEvidence,
+    settings: AnonymizationSettings,
+    ownership: Ownership,
+): Boolean = when {
     isTopLevelPackageSegment(symbol) -> false
 
     else -> when (symbol.origin) {
         SymbolOrigin.IN_CONTENT -> true
         SymbolOrigin.UNRESOLVED -> symbol.key !in settings.preservedUnknowns
 
-        // Preserved, and not by omission: concealing the tech stack is a declared non-goal, and
-        // library names are what make a snippet answerable at all.
-        SymbolOrigin.LIBRARY, SymbolOrigin.JDK -> false
+        // A third-party library is preserved, and not by omission: concealing the tech stack is a
+        // declared non-goal, and library names are what make a snippet answerable at all. A
+        // company's own jar is not a third-party library, and nothing in the IDE tells the two
+        // apart — so which is which is a policy, applied here and stated in [InternalLibraries].
+        SymbolOrigin.LIBRARY -> ownership.claims(symbol.packageName)
+
+        // The JDK is preserved unconditionally, and no prefix reaches it. A company does not ship
+        // `java.util` however its artifacts are named, and a knob that could rename `List` would
+        // make every snippet unreadable while concealing nothing.
+        SymbolOrigin.JDK -> false
     }
 }
+
+/**
+ * **Which library packages this invocation treats as the project's own code**, resolved once from
+ * [InternalLibraries] — where the policy and the reasoning behind it are stated — and the analysed
+ * file's root package.
+ *
+ * The two prefix lists are combined into one classification rather than applied in sequence, because
+ * a sequence has no answer for `com.acme` and `com.acme.oss` stated together.
+ */
+private class Ownership(libraries: InternalLibraries, rootPackage: String?) {
+
+    private val internal: List<String> = prefixesOf(
+        libraries.internalPrefixes + listOfNotNull(rootPackage.takeIf { libraries.autoDetectRootPackage }),
+    )
+
+    private val thirdParty: List<String> = prefixesOf(libraries.thirdPartyPrefixes)
+
+    /**
+     * Whether a symbol declared in [packageName] is the company's own code arriving as a jar.
+     *
+     * **`null` is the default package, and the default package lies under no prefix** — so it is a
+     * correct negative rather than a fail-open on missing evidence. A library class with no package
+     * cannot be imported and therefore cannot be named from the file under analysis by anything but
+     * its bare name; there is no prefix that could claim it and none that could disown it.
+     */
+    fun claims(packageName: String?): Boolean {
+        if (packageName == null) return false
+        val claimed = longestMatch(packageName, internal) ?: return false
+        val disowned = longestMatch(packageName, thirdParty) ?: return true
+        return claimed.length > disowned.length
+    }
+
+    /**
+     * Whether the project owns this symbol — the question every rule about *our code* asks, now that
+     * two origins can answer it.
+     */
+    fun owns(symbol: SymbolEvidence): Boolean = owns(symbol.origin, symbol.packageName)
+
+    /** The same question, of one root of an override chain. See [OverrideRoot.packageName]. */
+    fun owns(root: OverrideRoot): Boolean = owns(root.origin, root.packageName)
+
+    private fun owns(origin: SymbolOrigin, packageName: String?): Boolean = when (origin) {
+        SymbolOrigin.IN_CONTENT -> true
+        SymbolOrigin.LIBRARY -> claims(packageName)
+        SymbolOrigin.JDK, SymbolOrigin.UNRESOLVED -> false
+    }
+}
+
+/** The usable prefixes out of a settings list: blank rows are not prefixes of anything. */
+private fun prefixesOf(prefixes: Set<String>): List<String> =
+    prefixes.map { it.trim() }.filter { it.isNotEmpty() }
+
+/**
+ * The longest of [prefixes] that [packageName] lies under, or `null` if it lies under none.
+ *
+ * **Whole segments, never characters**: `com.acme` says nothing about `com.acmecorp`, which is a
+ * different company as surely as `org.junit` is.
+ */
+private fun longestMatch(packageName: String, prefixes: List<String>): String? = prefixes
+    .filter { packageName == it || packageName.startsWith("$it.") }
+    .maxByOrNull { it.length }
 
 /**
  * **Whether this is the top-level segment of a package name** — `com` out of `com.acme.billing`.

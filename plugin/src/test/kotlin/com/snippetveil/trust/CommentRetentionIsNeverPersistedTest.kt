@@ -16,11 +16,12 @@ import org.junit.jupiter.api.Test
  * corpus, a log, a breach or a subpoena — the forgotten-reduction failure mode is the severe one:
  * **one tick set a year ago silently leaks the domain on every paste since.**
  *
- * That rule is a claim about code that does not exist yet, which is exactly why it is a check rather
- * than a paragraph. Today this repository ships no persistent state at all, so the interesting half
- * of this file is [the rule proves it can fail][`the rule tells a persisted reduction from a
- * persisted increase`] — pointed at fixtures written to be flagged and not flagged, the same habit
- * every other check in this repository follows.
+ * The rule has something of its own to be right about: SnippetVeil ships exactly one persistent
+ * setting — the internal-library prefix list — and it is an *increase*, which is the case that makes
+ * the distinction load-bearing rather than theoretical. The other half of this file is
+ * [the rule proves it can fail][`the rule tells a persisted reduction from a persisted increase`],
+ * pointed at fixtures written to be flagged and not flagged, the same habit every other check in
+ * this repository follows.
  *
  * It reads bytecode off the same [SHIPPED_CLASSES] the architecture rules do, so *what ships* has
  * one definition here rather than two that can drift.
@@ -32,9 +33,9 @@ class CommentRetentionIsNeverPersistedTest {
      * something to find today: the flag exists, on exactly one class, and that class is the
      * per-invocation settings object.
      *
-     * **This is the load-bearing assertion while there is no persistence to check.** It fails the
-     * moment `keepComments` is declared anywhere else — on a service, on a state bean, on a
-     * component — whether or not that class has yet been wired up to be persisted.
+     * It fails the moment `keepComments` is declared anywhere else — on a service, on a state bean,
+     * on a component — whether or not that class has yet been wired up to be persisted, which is
+     * what makes it a check on the *shape* of the flag rather than on today's wiring.
      */
     @Test
     fun `keeping comments is declared on the per-invocation settings and nowhere else`() {
@@ -61,9 +62,15 @@ class CommentRetentionIsNeverPersistedTest {
         }
     }
 
-    /** The rule itself, over everything that ships. Vacuous today, and the assertion above says so. */
+    /**
+     * The rule itself, over everything that ships — and over something, which is asserted first
+     * because a rule that matches nothing passes.
+     */
     @Test
     fun `nothing shipped persists a reduction`() {
+        assertTrue(SHIPPED_STATE_HOLDERS.isNotEmpty()) {
+            "Nothing shipped can be written to disk, so this rule holds vacuously."
+        }
         assertEquals(
             emptyList<String>(),
             persistedReductionsIn(SHIPPED_CLASSES),
@@ -124,16 +131,6 @@ class CommentRetentionIsNeverPersistedTest {
         .distinct()
 
     /**
-     * Whether the platform can write this class to disk: a `PersistentStateComponent`, or anything
-     * carrying `@State`. Either is enough on its own — the annotation names the file, the interface
-     * produces the content, and a class with one and not the other is a class mid-way through being
-     * given both.
-     */
-    private fun JavaClass.isStateHolder(): Boolean =
-        allRawInterfaces.any { it.name == PERSISTENT_STATE_COMPONENT } ||
-            annotations.any { it.rawType.name == STATE_ANNOTATION }
-
-    /**
      * Whether this class declares comment retention, under any spelling a Kotlin `val`, a Java field
      * or an accessor pair produces for that one name.
      *
@@ -152,7 +149,3 @@ class CommentRetentionIsNeverPersistedTest {
 }
 
 private const val KEEP_COMMENTS = "keepComments"
-
-private const val PERSISTENT_STATE_COMPONENT = "com.intellij.openapi.components.PersistentStateComponent"
-
-private const val STATE_ANNOTATION = "com.intellij.openapi.components.State"

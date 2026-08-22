@@ -18,8 +18,9 @@ package com.snippetveil.core
  * @param text the snapped selection, verbatim — every offset below indexes into this string
  * @param occurrences everything the engine may act on, in document order
  * @param rootPackage the analysed file's root package (`com.acme` from `com.acme.web.Controller`),
- *   or `null` for the default package. Nothing here reads it yet; it is the evidence the
- *   internal-library prefix rule needs, and it is a fact about the file rather than a judgment.
+ *   or `null` for the default package. It is a fact about the file rather than a judgment, and it is
+ *   the evidence the internal-library prefix rule reads: a library symbol under this prefix is the
+ *   company's own code arriving as a jar. See [InternalLibraries].
  */
 class SnippetPlan(
     val text: String,
@@ -187,6 +188,16 @@ enum class CommentVerdict {
  *   that passes a package's top-level segment through reads it and nothing else reads it at all: a
  *   qualified name with no dot in it is a top-level package. `null` wherever there is no such name,
  *   which is every local, parameter, method, field, type parameter and anonymous class.
+ * @param packageName the package this symbol belongs to — `com.acme.billing` for the class
+ *   `com.acme.billing.Payment` and for its `merchantRef` field alike, and for the package segment
+ *   written `billing`, which belongs to itself.
+ *
+ *   Reported separately from [qualifiedName] rather than derived from it, because **a member has no
+ *   qualified name and a member is where the domain vocabulary is.** `getMerchantId` is not a name
+ *   Java qualifies, and a prefix rule that could only reach types would rename `Payment` to `Type1`
+ *   while leaving `type1.merchantRef()` intact — output that leaks the domain and looks like it did
+ *   not. `null` when the plan builder could not place the symbol in a package, which the prefix rule
+ *   reads as *no match* rather than guessing.
  * @param signature a method's parameter types, or `null`. Evidence, deliberately **not** part of
  *   [key]: overloads share a name in source, so they share a placeholder, and the engine collapses
  *   them by ignoring this. Reporting it anyway is what lets a later rule change its mind without
@@ -205,6 +216,7 @@ class SymbolEvidence(
     val origin: SymbolOrigin,
     val declaredName: String,
     val qualifiedName: String? = null,
+    val packageName: String? = null,
     val signature: String? = null,
     val overrideRoots: List<OverrideRoot> = emptyList(),
     val accessor: AccessorEvidence? = null,
@@ -220,10 +232,17 @@ class SymbolEvidence(
  *
  * @param key the root method's own [SymbolEvidence.key]. All roots of one chain share the method's
  *   name, so ordering these orders their owners.
- * @param origin where the root's declaring file lives. Anything but [SymbolOrigin.IN_CONTENT] means
- *   the name is not ours to change.
+ * @param origin where the root's declaring file lives.
+ * @param packageName the package the root belongs to, read exactly like [SymbolEvidence.packageName]
+ *   and for the same rule. A [SymbolOrigin.LIBRARY] root is not on its own a reason to keep a name —
+ *   *whose* library it is, is the question, and a chain that stays inside the company's own artifact
+ *   renames like any other project-owned chain.
  */
-class OverrideRoot(val key: String, val origin: SymbolOrigin)
+class OverrideRoot(
+    val key: String,
+    val origin: SymbolOrigin,
+    val packageName: String? = null,
+)
 
 /**
  * A method's backing field, and the prefix its own name puts in front of that field's.
@@ -250,7 +269,14 @@ enum class SymbolOrigin {
     /** The declaring file is project content: the symbol is the user's own code. */
     IN_CONTENT,
 
-    /** A third-party library. Preserved: library names are what make a snippet answerable at all. */
+    /**
+     * A library. Preserved by default: library names are what make a snippet answerable at all.
+     *
+     * **Preserved by default, not always** — a company's own shared artifact arrives here too, and
+     * no IntelliJ API tells the two apart. Which library packages are the company's own is a policy
+     * the engine applies over [SymbolEvidence.packageName]; see [InternalLibraries]. The builder
+     * reports `LIBRARY` either way, and that is a rule rather than an omission.
+     */
     LIBRARY,
 
     /** The JDK. Preserved for the same reason, and told apart from [LIBRARY] because it is a fact. */
