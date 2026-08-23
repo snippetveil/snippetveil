@@ -624,10 +624,16 @@ internal object JavaPlanBuilder : PlanBuilder {
      *
      * **Two of the five forced-sharing rules live here rather than in the engine, and that is not an
      * exception to the rule that judgments do not cross this seam** — neither is a judgment. A
-     * constructor's identifier *is* its class's name and a record accessor's identifier *is* its
-     * component's, in Java's grammar, so reporting anything else would be reporting the wrong
-     * symbol. What the engine then does with two occurrences of one symbol is the engine's business,
-     * and it does the same thing it does for any other two.
+     * constructor's identifier *is* its class's name, a record accessor's identifier *is* its
+     * component's, and so is a compact constructor's implicit parameter, in Java's grammar — so
+     * reporting anything else would be reporting the wrong symbol. What the engine then does with
+     * two occurrences of one symbol is the engine's business, and it does the same thing it does for
+     * any other two.
+     *
+     * Three branches for two rules, because rule 5 arrives on more than one face. They read 5, 4, 5
+     * rather than in order, and **the order is forced rather than chosen**: a parameter is not a
+     * `PsiMethod`, so the `declaration !is PsiMethod` line would return it untouched if it came
+     * first.
      */
     private fun declaredSymbolOf(declaration: PsiElement): PsiElement = when {
         // Rule 5 again, on a fourth face of the same symbol. See [compactConstructorComponentOf].
@@ -675,8 +681,22 @@ internal object JavaPlanBuilder : PlanBuilder {
      * canonicality, and would match an explicit constructor's parameter — or any method parameter in
      * a record — that happened to be spelled like a component.
      *
-     * A name that matches no component is red code, and falls back to the parameter itself: a
-     * placeholder of its own is the safe answer, and the caller's `?:` is where that is spelled.
+     * **The exact identity link exists and is deliberately not used.** The platform synthesizes these
+     * parameters from the components, and `LightCompactConstructorParameter` keeps the very
+     * component it was made from — reachable as `LightRecordMember.getRecordComponent()`. It lives in
+     * `com.intellij.psi.impl.light`, which nothing else in this plugin reaches into, and the name
+     * lookup answers identically on every shape Java can spell. The one input that could part them
+     * is red code declaring two components of one name, and there the two are already one symbol to
+     * this walk: [keyOf] keys a component by its class and its name, so they shared a placeholder
+     * before this function existed and still do.
+     *
+     * **The lookup is total by construction, and the caller's `?:` is not a described behaviour.** A
+     * compact constructor with a parameter matching no component is not a shape source can produce,
+     * valid or red. The fallback is there because this walk may neither throw nor drop an occurrence
+     * — a name that reached neither would be copied through verbatim, which is the one failure this
+     * action exists to prevent — and a placeholder of its own is the safe direction. It is
+     * deliberately not asserted anywhere: a test would have to fake a PSI shape Java has no spelling
+     * for.
      *
      * Identity rather than policy, like the two faces above it. Nothing in `:core` decides anything
      * new, because the engine already renders two occurrences of one symbol identically.
