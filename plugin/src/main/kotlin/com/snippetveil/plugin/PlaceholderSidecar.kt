@@ -111,7 +111,7 @@ internal class PlaceholderSidecar : PersistentStateComponent<PlaceholderSidecar.
      * pasted from once and left open for a year would otherwise keep that paste's literal text in
      * `cache-state.xml` for the whole year, with the cap passing every test and holding nothing.
      */
-    override fun getState(): State = stateOf(trimmed())
+    override fun getState(): State = stateOf(window())
 
     override fun loadState(state: State) {
         this.state = state
@@ -132,27 +132,39 @@ internal class PlaceholderSidecar : PersistentStateComponent<PlaceholderSidecar.
      */
     @Synchronized
     fun record(table: Map<String, String>) {
-        state = stateOf(window().recording(RecordedInvocation(Instant.now(), table)))
+        state = stateOf(stored().recording(RecordedInvocation(Instant.now(), table)))
     }
 
     /**
-     * What [placeholder] stood for, or `null` when nothing inside the horizon knows — which a
-     * reversal renders by leaving the word alone.
-     */
-    fun originalOf(placeholder: String): String? = trimmed().originalOf(placeholder)
-
-    /**
-     * The window with the bound applied, **and the trimmed window put back** — so that reading it,
-     * like writing it and saving it, is a moment the cap is enforced rather than merely respected.
-     * Trimming without storing would answer correctly and leave the entries the cap has expired on
-     * the disk with their literal text in them, which is the half of the cap that is about retention
-     * rather than about answers.
+     * **The window as `:core` reasons about it — the one way to read this store**, and what a
+     * reversal takes once rather than asking a question per word of an AI's reply.
+     *
+     * Handing out the value type rather than answering lookups is what lets the horizon be enforced
+     * on every read while a reversal stays a pure function: the cap is applied here, on the way out,
+     * and what the caller then holds is an immutable window it can ask a thousand times for nothing.
+     *
+     * **The bound is applied and the trimmed window is put back** — so that reading it, like writing
+     * it and saving it, is a moment the cap is enforced rather than merely respected. Trimming
+     * without storing would answer correctly and leave the entries the cap has expired on the disk
+     * with their literal text in them, which is the half of the cap that is about retention rather
+     * than about answers.
      */
     @Synchronized
-    private fun trimmed(): Sidecar = window().bounded(Instant.now()).also { state = stateOf(it) }
+    fun window(): Sidecar = stored().bounded(Instant.now()).also { state = stateOf(it) }
+
+    /**
+     * What [placeholder] stood for, or `null` when nothing inside the horizon knows.
+     *
+     * **One lookup, and it trims the whole window to answer it** — which is why a reversal does not
+     * use this: it takes [window] once and asks that. This is the store's own contract read at the
+     * granularity a question about *one* placeholder wants, and it is what the tests covering the
+     * horizon are written against, because *decodes to nothing* is the behaviour the design promises
+     * and a row count is an implementation detail that happens to correlate with it.
+     */
+    fun originalOf(placeholder: String): String? = window().originalOf(placeholder)
 
     /** The stored bean as the value type `:core` reasons about. Reads; changes nothing. */
-    private fun window(): Sidecar = Sidecar(
+    private fun stored(): Sidecar = Sidecar(
         state.invocations.map { entry ->
             RecordedInvocation(
                 Instant.ofEpochMilli(entry.at),

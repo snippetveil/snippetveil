@@ -138,7 +138,7 @@ class SidecarTest {
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
         assertEquals(
-            mapOf(payment.key to "Type4"),
+            mapOf(payment.key to MintedName("Type4", "Payment")),
             result.delta.placeholders,
             "the durable mapping kept something it has no stable key for",
         )

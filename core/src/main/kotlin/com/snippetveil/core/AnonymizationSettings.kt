@@ -116,19 +116,72 @@ class InternalLibraries(
  * work is that no two symbols ever render to the same placeholder. A snapshot in and a delta out
  * makes "cancelled" mean *nothing happened*, with no compensating logic to get wrong.
  *
- * @param placeholders symbol key -> placeholder, for symbols already named. **Qualified keys only**
- *   — see [LedgerDelta] for why, and for what happens to everything else.
+ * @param placeholders symbol key -> what that symbol was named. **Qualified keys only** — see
+ *   [LedgerDelta] for why, and for what happens to everything else.
  * @param nextNumber the next number the counter will hand out
  */
 class LedgerSnapshot(
-    val placeholders: Map<String, String>,
+    val placeholders: Map<String, MintedName>,
     val nextNumber: Int,
 ) {
+
+    /**
+     * **The same rows read from the other end**, which is the end a reply is read from: a person
+     * pastes back `Type1` and wants `Payment`, having no idea what key it was filed under.
+     *
+     * Built here rather than at each call site because [deanonymize] asks it once per word of an
+     * AI's reply, and a scan over the values per word would be quadratic in a file that grows for
+     * the life of a project. **[Sidecar.originalOf] deliberately does not do the same, and the
+     * asymmetry is the difference between the two stores rather than an oversight**: the window is
+     * bounded at ~50 invocations and the mapping is unbounded by design, so a scan is a constant
+     * there and a growing cost here. Adding an index to the sidecar would buy nothing and put a
+     * second copy of the most sensitive table in the product in memory.
+     *
+     * It is well-defined because placeholders are injective across the
+     * project's whole history — see [LedgerDelta] — so a value collapsing two rows into one is a
+     * thing the counter makes impossible rather than a case to handle.
+     *
+     * **A row with no name is not a row that decodes to nothing; it is a row that knows nothing**, and
+     * the two are only the same thing if the blank is dropped here. A store that has one — a file
+     * written before the mapping kept names — would otherwise answer `""`, and a reversal taking an
+     * answer at face value would **delete the placeholder from the reply**. That is the one shape of
+     * wrong this whole design refuses: silent, invisible in the output, and worse than the gap it
+     * replaced. No real symbol has an empty name, so nothing legitimate is dropped with it.
+     */
+    private val originals: Map<String, String> by lazy {
+        placeholders.values.filter { it.original.isNotEmpty() }.associate { it.placeholder to it.original }
+    }
+
+    /**
+     * The name [placeholder] was minted for, or `null` when this project never minted it — which a
+     * reversal renders by leaving the word alone.
+     */
+    fun originalOf(placeholder: String): String? = originals[placeholder]
+
     companion object {
         /** No symbol has been named yet, and numbering starts at 1. */
         val EMPTY: LedgerSnapshot = LedgerSnapshot(emptyMap(), nextNumber = 1)
     }
 }
+
+/**
+ * **One row of the mapping: a placeholder, and the name it was minted for.**
+ *
+ * The pair rather than the placeholder alone, because the mapping is *read in both directions* and
+ * only one of them was ever written down. Forward — key to placeholder — is what makes `Payment`
+ * come out as `Type1` again next week. Backward — placeholder to name — is what [deanonymize]
+ * needs, and a row holding only the placeholder cannot answer it: the reversal would have to read
+ * the name back out of the key, which is a string the plan builder owns the spelling of and `:core`
+ * is not allowed to know the shape of.
+ *
+ * **It puts nothing new at rest.** A qualified key already contains the name it is a key for —
+ * `field:class:com.acme.Payment#merchantRef` — so this row states plainly what the file next to it
+ * already said obliquely. What it buys is that the statement is *made* rather than reverse-engineered.
+ *
+ * A value, and compared as one: two rows are the same row when they say the same thing, which is
+ * what lets a test assert a committed mapping by writing down what it should be.
+ */
+data class MintedName(val placeholder: String, val original: String)
 
 /**
  * What one invocation would add to the ledger — returned, never applied. The caller commits it at
@@ -166,14 +219,15 @@ class LedgerSnapshot(
  * has to be committed, because [nextNumber] may have moved; a caller skipping the commit on an empty
  * map would hand the burnt numbers back out to different symbols later.
  *
- * @param placeholders the qualified keys named during this invocation, and what they were named
+ * @param placeholders the qualified keys named during this invocation, and what they were named —
+ *   see [MintedName] for why a row is a pair rather than a placeholder.
  * @param nextNumber where the counter stands afterwards. Higher than
  *   `snapshot.nextNumber + placeholders.size` whenever a number was burnt — by an unpersisted
  *   symbol, by a redacted literal, or by a candidate that collided with a name surviving into the
  *   output.
  */
 class LedgerDelta(
-    val placeholders: Map<String, String>,
+    val placeholders: Map<String, MintedName>,
     val nextNumber: Int,
 )
 

@@ -10,6 +10,7 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.snippetveil.core.LedgerDelta
+import com.snippetveil.core.MintedName
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 
@@ -1365,7 +1366,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         assertEquals("settled", PlaceholderSidecar.getInstance(project).originalOf("field2"))
         assertNull(
             "an anonymous class's member was written into the persistent mapping",
-            PlaceholderLedger.getInstance().snapshotOf(project).placeholders.values.firstOrNull { it == "field2" },
+            PlaceholderLedger.getInstance().snapshotOf(project).placeholders.values.firstOrNull { it.placeholder == "field2" },
         )
     }
 
@@ -1406,7 +1407,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
             CopyAnonymizedAction { request ->
                 PlaceholderLedger.getInstance().commit(
                     request.project,
-                    LedgerDelta(mapOf(INTERLOPER to "method1"), nextNumber = 2),
+                    LedgerDelta(mapOf(INTERLOPER to MintedName("method1", "audit")), nextNumber = 2),
                 )
                 JavaPlanBuilder.build(request)
             },
@@ -1416,7 +1417,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         // re-run hands `settle` the next one — rather than both of them `method1`.
         assertEquals("void method2() {}", clipboard())
         assertEquals(
-            mapOf(INTERLOPER to "method1", "method:class:Ledger#settle" to "method2"),
+            mapOf(INTERLOPER to MintedName("method1", "audit"), "method:class:Ledger#settle" to MintedName("method2", "settle")),
             PlaceholderLedger.getInstance().snapshotOf(project).placeholders,
         )
     }

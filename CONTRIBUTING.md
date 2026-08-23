@@ -158,6 +158,18 @@ the same disk, and a compromised local machine is out of the threat model; the g
 accidental commit and cloud sync, and both are *location* problems closed above. Encryption would
 cost auditability, and greppable state is worth more to a product whose pitch is *audit me*.
 
+**A row is a placeholder *and the name it stands for*, and that is a property of the file rather
+than a detail of a bean.** The mapping is read in both directions: forward — key to placeholder — is
+what makes `CustomerService` come out as `Type1` again next week, and backward — placeholder to name
+— is what `De-anonymize Clipboard` needs, holding a word out of an AI's reply and no idea what key it
+was filed under. Storing the name **puts nothing new at rest**: a qualified key already contains it,
+`field:class:com.acme.Payment#merchantRef`, so the row states plainly what the key beside it already
+said obliquely. What it buys is that the reversal reads a stated fact instead of parsing a key format
+that `:plugin` owns the spelling of and `:core` is not allowed to know — the same rule that keeps
+`com.intellij.*` out of `:core`, applied to a string. A row written before the field existed loads
+with an empty name and still holds its placeholder and its number: under-recovery, never a wrong
+name, and pinned by a test.
+
 `PlaceholderLedgerTest` asserts each of these rather than describing them: the roaming type, the
 component level, and the resolved path being neither under the project nor under the system
 directory.
@@ -209,6 +221,19 @@ value type in `:core`, held over generated sequences of invocations by `SidecarH
 This is deliberate, and it is stated here rather than left for a reader to discover, because a trust
 artifact that overstates its own reach is worse than one that does less and says so.
 
+- **Round-trip is not evidence of concealment.** `deanonymize(anonymize(x)) == x` is asserted in
+  `RoundTripTest`, and it is a test of the *reversal contract* and of nothing else. It is a
+  self-consistency check between two of our own functions, so **it passes when both are wrong in
+  mirror-image ways**: a symbol the anonymiser misses sits in the output verbatim, and the reversal
+  leaves it there too, because it is not a minted token. Green tick, leaked snippet. The test file
+  says so at the top and demonstrates it in a case of its own, so that nobody reading it comes away
+  with the stronger claim. What holds concealment is the fail-closed rules and their tests.
+
+  The identity also **does not hold in the default configuration**, and that is asserted rather than
+  footnoted: comments are stripped by default, information is destroyed, and no reversal restores
+  destroyed information. So it holds with comment retention on, within one invocation — and a
+  separate test pins the default path as lossy, so that nobody later "fixes" the round trip by making
+  comment-stripping reversible.
 - **Test code is not read.** The architecture rules cover the main output of `:core` and `:plugin` —
   what actually ships — so a `java.net` import in a test fails nothing. The alternative was worse: a
   test may legitimately call `Class.forName`, and `CoreIsIdeFreeTest` proves the module boundary

@@ -10,6 +10,7 @@ import com.intellij.psi.impl.light.LightMethodBuilder
 import com.intellij.psi.util.PropertyUtilBase
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerSnapshot
+import com.snippetveil.core.MintedName
 import com.snippetveil.core.SymbolOrigin
 import com.snippetveil.core.anonymize
 
@@ -72,7 +73,13 @@ class LombokLightAccessorTest : JavaSnippetTestCase() {
             "return param1.getField2();",
             result.text,
         )
-        assertEquals("field2", result.delta.placeholders["field:class:com.acme.Payment#merchantId"])
+        // And the field is written down **by name** as well as by placeholder, which is the row a
+        // reversal reads: with Lombok this is often the only record there will ever be of it, since
+        // neither the accessor nor the field has to appear in any snippet the field is named from.
+        assertEquals(
+            MintedName("field2", "merchantId"),
+            result.delta.placeholders["field:class:com.acme.Payment#merchantId"],
+        )
     }
 }
 

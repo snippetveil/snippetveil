@@ -289,7 +289,15 @@ class OverrideRoot(
  * @param fieldKey the backing field's [SymbolEvidence.key]. The field need not appear in the
  *   snippet at all: with Lombok the accessor has no declaration in source either, and a key is
  *   still enough to name the same symbol.
- * @param prefix the accessor prefix as it is written — `get`, `is` or `set`.
+ * @param fieldName the backing field's own name — `merchantId`, not `getMerchantId`.
+ *
+ *   **Reported rather than derived, and that is the same rule [fieldKey] follows.** The accessor's
+ *   own name and the prefix are both here, so `getMerchantId`.removePrefix(`get`).decapitalize()
+ *   looks like it would do — and it is a guess at a spelling convention where the builder holds the
+ *   fact: it found the field by name on the declaring class, so it *knows* what the field is called.
+ *   The engine needs the name because a persisted accessor writes its field's row into the mapping,
+ *   and a row is a placeholder **and what it stands for** — see [LedgerDelta].
+ * @param prefix the accessor prefix as it is written — `get`, `is` or `set`, which is [PREFIXES].
  * @param fieldKeyIsQualified whether [fieldKey] is qualified, read exactly like
  *   [SymbolEvidence.keyIsQualified]. Reported here rather than inferred from the accessor's own
  *   flag: the two agree in every shape a builder produces today, because the field is looked up on
@@ -298,9 +306,26 @@ class OverrideRoot(
  */
 class AccessorEvidence(
     val fieldKey: String,
+    val fieldName: String,
     val prefix: String,
     val fieldKeyIsQualified: Boolean = false,
-)
+) {
+
+    companion object {
+
+        /**
+         * **The three prefixes a JavaBeans accessor can be written with**, in `:core` because
+         * [deanonymize] reads them: `getField1` is a placeholder this engine mints, and a reversal
+         * that could not recognise the shape would report an unrestored one as nothing at all.
+         *
+         * Stated here rather than in the recogniser so that the list a builder reports from and the
+         * list a reversal recognises are one list. The plugin's own source for it is the platform's
+         * `PropertyKind`, and a test there asserts the two agree — a list this file spelled out and
+         * nothing checked is one that goes stale the day the platform grows a fourth.
+         */
+        val PREFIXES: List<String> = listOf("get", "is", "set")
+    }
+}
 
 /**
  * Where the file declaring a symbol lives.

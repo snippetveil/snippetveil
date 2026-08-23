@@ -9,6 +9,7 @@ import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
 import com.snippetveil.core.LedgerDelta
+import com.snippetveil.core.MintedName
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
@@ -117,7 +118,7 @@ class PlaceholderSidecarTest : JavaSnippetTestCase() {
      * touch is the mapping, where a lost entry would take a *stable* placeholder with it.
      */
     fun `test wiping the cache leaves the persistent mapping intact`() {
-        PlaceholderLedger.getInstance().commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to "Type1"), nextNumber = 2))
+        PlaceholderLedger.getInstance().commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment")), nextNumber = 2))
         PlaceholderSidecar.getInstance(project).record(mapOf("Type1" to "Payment", "local2" to "draft"))
 
         // What Invalidate Caches does to this file: it is gone, and the component starts from empty.
@@ -125,7 +126,7 @@ class PlaceholderSidecarTest : JavaSnippetTestCase() {
 
         assertNull("the wipe left the sidecar answering", PlaceholderSidecar.getInstance(project).originalOf("local2"))
         val mapping = PlaceholderLedger.getInstance().snapshotOf(project)
-        assertEquals(mapOf("class:com.acme.Payment" to "Type1"), mapping.placeholders)
+        assertEquals(mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment")), mapping.placeholders)
         assertEquals("the wipe moved the counter", 2, mapping.nextNumber)
     }
 
@@ -135,7 +136,7 @@ class PlaceholderSidecarTest : JavaSnippetTestCase() {
      * to reach; this is the observable half of that.
      */
     fun `test recording an invocation hands out no numbers`() {
-        PlaceholderLedger.getInstance().commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to "Type1"), nextNumber = 2))
+        PlaceholderLedger.getInstance().commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment")), nextNumber = 2))
 
         PlaceholderSidecar.getInstance(project).record(mapOf("Type1" to "Payment", "local2" to "draft", "str3" to "acme-live"))
 

@@ -7,6 +7,7 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
 import com.snippetveil.core.LedgerDelta
+import com.snippetveil.core.MintedName
 import java.nio.file.Path
 
 /**
@@ -29,12 +30,12 @@ class PlaceholderLedgerTest : JavaSnippetTestCase() {
      */
     fun `test the mapping survives being written out and read back`() {
         val ledger = PlaceholderLedger.getInstance()
-        ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to "Type1"), nextNumber = 9))
+        ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment")), nextNumber = 9))
 
         val restarted = restart(ledger)
 
         val snapshot = restarted.snapshotOf(project)
-        assertEquals(mapOf("class:com.acme.Payment" to "Type1"), snapshot.placeholders)
+        assertEquals(mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment")), snapshot.placeholders)
         assertEquals("a burnt number must survive the restart, or it gets handed out twice", 9, snapshot.nextNumber)
     }
 
@@ -57,11 +58,11 @@ class PlaceholderLedgerTest : JavaSnippetTestCase() {
     fun `test a later commit adds entries and never rewrites one`() {
         val ledger = PlaceholderLedger.getInstance()
 
-        ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to "Type1"), nextNumber = 2))
-        ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Charge" to "Type2"), nextNumber = 3))
+        ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment")), nextNumber = 2))
+        ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Charge" to MintedName("Type2", "Charge")), nextNumber = 3))
 
         assertEquals(
-            mapOf("class:com.acme.Payment" to "Type1", "class:com.acme.Charge" to "Type2"),
+            mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment"), "class:com.acme.Charge" to MintedName("Type2", "Charge")),
             ledger.snapshotOf(project).placeholders,
         )
     }
@@ -86,7 +87,7 @@ class PlaceholderLedgerTest : JavaSnippetTestCase() {
 
         val snapshot = ledger.snapshotOf(project)
 
-        assertEquals(emptyMap<String, String>(), snapshot.placeholders)
+        assertEquals(emptyMap<String, MintedName>(), snapshot.placeholders)
         assertEquals("another project's counter must not move this one's", 1, snapshot.nextNumber)
     }
 
@@ -142,12 +143,45 @@ class PlaceholderLedgerTest : JavaSnippetTestCase() {
      */
     fun `test what the platform writes is plaintext`() {
         val ledger = PlaceholderLedger.getInstance()
-        ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to "Type1"), nextNumber = 2))
+        ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment")), nextNumber = 2))
 
         val written = JDOMUtil.write(XmlSerializer.serialize(ledger.state))
 
         assertTrue("the key is not readable in the file: $written", "class:com.acme.Payment" in written)
         assertTrue("the placeholder is not readable in the file: $written", "Type1" in written)
+        assertTrue("the name is not readable in the file: $written", """value="Payment"""" in written)
+    }
+
+    /**
+     * **A row written before the mapping held names still names its placeholder.**
+     *
+     * This is the whole of the migration, and it is worth a test rather than a sentence because the
+     * shape it fails in is silent: the platform deserialises a missing field to the bean's default,
+     * so an old file loads clean and every forward lookup keeps working. What such a row costs is one
+     * name that decodes to nothing — under-recovery, never a wrong name — and the number stays out of
+     * circulation, which is the half that could not be allowed to break.
+     */
+    fun `test a row written before names were kept still holds its placeholder and its number`() {
+        val ledger = PlaceholderLedger.getInstance()
+        val old = PlaceholderLedger.State()
+        old.projects += PlaceholderLedger.ProjectEntry().also { entry ->
+            entry.project = project.locationHash
+            entry.nextNumber = 5
+            entry.placeholders += PlaceholderLedger.Naming().also {
+                it.key = "class:com.acme.Payment"
+                it.placeholder = "Type4"
+            }
+        }
+        ledger.loadState(old)
+
+        val snapshot = ledger.snapshotOf(project)
+
+        assertEquals(MintedName("Type4", ""), snapshot.placeholders["class:com.acme.Payment"])
+        assertEquals("a number already handed out must stay out of circulation", 5, snapshot.nextNumber)
+        // And it decodes to **nothing** rather than to the empty string. A reversal takes what it is
+        // given, so a blank answered as an answer would delete the placeholder out of the reply —
+        // silent, invisible in the output, and worse than the gap it replaced.
+        assertNull("a row with no name decoded to something", snapshot.originalOf("Type4"))
     }
 
     /**

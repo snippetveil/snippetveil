@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerDelta
+import com.snippetveil.core.MintedName
 
 /**
  * The preview end to end — the action, the real dialog object, and the clipboard.
@@ -174,7 +175,7 @@ class AnonymizeWithPreviewActionTest : JavaSnippetTestCase() {
         myFixture.configureByText(LEDGER_PATH, "class Ledger { <selection>void settle() {}</selection> }")
 
         invokeWithPreview { _, analysis ->
-            PlaceholderLedger.getInstance().commit(project, LedgerDelta(mapOf(INTERLOPER to "method1"), nextNumber = 2))
+            PlaceholderLedger.getInstance().commit(project, LedgerDelta(mapOf(INTERLOPER to MintedName("method1", "audit")), nextNumber = 2))
             analysis
         }
         awaitBackgroundWork()

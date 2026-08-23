@@ -550,7 +550,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         if (method.parameterList.parametersCount != parameters) return null
 
         val field = owner.findFieldByName(property.first, false) ?: return null
-        return AccessorEvidence(keyOf(field), property.second.prefix, keyIsQualified(field))
+        return AccessorEvidence(keyOf(field), field.name, property.second.prefix, keyIsQualified(field))
     }
 
     /**

@@ -101,6 +101,24 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
     }
 
     /**
+     * **De-anonymize Clipboard**, over a stand-in for the clipboard, and **without waiting for
+     * anything**: the reversal is two map lookups per word with no PSI and no index behind it, so it
+     * runs to completion on the EDT before `testAction` returns. There is no background thread here
+     * to race.
+     *
+     * The balloons from any earlier invocation are dropped first, for the reason
+     * [invokeCopyAnonymized] drops them: a test that copies and then reverses would otherwise assert
+     * against the copy's balloon.
+     *
+     * @return the presentation `update` produced, which is what *available on every file type* is
+     *   asserted on
+     */
+    internal fun invokeDeanonymize(clipboard: Clipboard): Presentation {
+        raised.clear()
+        return myFixture.testAction(DeanonymizeClipboardAction(clipboard))
+    }
+
+    /**
      * The preview action, over a stand-in for the dialog — and **without waiting for anything**,
      * because what there is to wait for differs by case: a confirmed preview raises a balloon and a
      * cancelled one raises nothing at all. The caller says which.
