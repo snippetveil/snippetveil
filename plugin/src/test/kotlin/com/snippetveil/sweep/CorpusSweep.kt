@@ -145,17 +145,15 @@ class CorpusSweep : BareTestFixtureTestCase() {
         say("${files.size} Java source file(s) in project content.")
 
         val declarations = smartly(project) { declarationsIn(project, files) }
-        val sharedWithLibraries = smartly(project) { namesTheLibrariesAlsoDeclare(project, declarations.names) }
+        val sharedWithLibraries = smartly(project) { namesTheLibrariesAlsoDeclare(project, declarations) }
         val oracle = LeakOracle.over(
-            declaredInProjectSources = declarations.names,
+            declaredInProjectSources = declarations,
             declaredByLibraries = sharedWithLibraries,
-            topLevelPackageSegments = declarations.topLevelPackageSegments,
         )
         val universe = UniverseSize(
             owned = oracle.size,
-            declared = declarations.names.size,
+            declared = declarations.size,
             sharedWithLibraries = sharedWithLibraries.size,
-            topLevelSegments = declarations.topLevelPackageSegments.size,
         )
         say("Name universe: ${universe.owned} project-owned of ${universe.declared} declared.")
 
@@ -263,20 +261,18 @@ class CorpusSweep : BareTestFixtureTestCase() {
      * name collected here that the anonymiser was never going to touch costs a human a minute; a name
      * missed costs the product its core promise.
      */
-    private fun declarationsIn(project: Project, files: List<VirtualFile>): Declarations {
+    private fun declarationsIn(project: Project, files: List<VirtualFile>): Set<String> {
         val names = sortedSetOf<String>()
-        val topLevelSegments = sortedSetOf<String>()
         val manager = PsiManager.getInstance(project)
 
         files.forEach { file ->
             val psi = manager.findFile(file) as? PsiJavaFile ?: return@forEach
 
-            // A package statement declares every segment of its own name, and the first segment is
-            // the one the engine passes through by a positional rule of its own.
-            psi.packageName.takeIf { it.isNotEmpty() }?.split('.')?.let { segments ->
-                names += segments
-                topLevelSegments += segments.first()
-            }
+            // A package statement declares every segment of its own name — **the first one
+            // included**. The engine passes that segment through by a positional rule, so it will be
+            // reported in every file the sweep touches; it is a known false positive a human
+            // adjudicates, and not a name this walk gets to drop. See [LeakOracle.over].
+            names += psi.packageName.takeIf { it.isNotEmpty() }?.split('.').orEmpty()
 
             psi.accept(object : JavaRecursiveElementWalkingVisitor() {
                 override fun visitElement(element: PsiElement) {
@@ -286,7 +282,7 @@ class CorpusSweep : BareTestFixtureTestCase() {
                 }
             })
         }
-        return Declarations(names, topLevelSegments)
+        return names
     }
 
     /**
@@ -344,8 +340,6 @@ class CorpusSweep : BareTestFixtureTestCase() {
 
     /** Progress, and never a name. See the hazard note on this class. */
     private fun say(line: String) = println("[sweep] $line")
-
-    private class Declarations(val names: Set<String>, val topLevelPackageSegments: Set<String>)
 
     private companion object {
 

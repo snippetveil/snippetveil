@@ -347,10 +347,11 @@ artifact that overstates its own reach is worse than one that does less and says
   rules change shape, and read the answers. It is recorded here rather than papered over, because
   the failure mode is a green build over a product that has quietly stopped being useful, and a
   reader of this file is entitled to know which of the two claims it checks.
-- **The corpus sweep is blind to an exact collision.** The one instrument that can see a *missing*
-  plan item subtracts every name the JDK or a library also declares, so a project class called
-  `Builder` leaking verbatim looks exactly like the `Builder` the anonymiser preserves on purpose.
-  See below for why that trade is the right way round.
+- **The corpus sweep is blind to an exact collision, and to nothing else.** The one instrument that
+  can see a *missing* plan item subtracts every name the JDK or a library also declares, so a project
+  class called `Builder` leaking verbatim looks exactly like the `Builder` the anonymiser preserves
+  on purpose. That is the **only** thing it cannot see, and it is deliberately the only thing: see
+  below for why nothing else is subtracted, and for the one false positive every sweep will contain.
 
 ## The corpus sweep
 
@@ -391,11 +392,34 @@ never in the mapping*. That is what the bug **was**. A mapping-derived check is 
 because it can only ask about entries that exist: it can prove that what the anonymiser did was
 done, and it can never prove that it did everything.
 
-So `LeakOracle` is built from three sets the anonymiser's own walk had no part in — every identifier
-declared anywhere in the target's own sources, less the names the JDK and the libraries declare, less
-the top-level package segments the engine passes through by a rule of its own — and its constructor
-is private so that it cannot be built from anything else. A future maintainer reaching for
-`AnonymizationResult.mapping` has to change a signature that says what the universe is derived from.
+So `LeakOracle` is built from two sets the anonymiser's own walk had no part in — every identifier
+declared anywhere in the target's own sources, less the names the JDK and the libraries declare — and
+its constructor is private so that it cannot be built from anything else. A future maintainer
+reaching for `AnonymizationResult.mapping` has to change a signature that says what the universe is
+derived from.
+
+### One subtraction, and why there is not a second
+
+The library subtraction is the only one, and adding another is a **product decision** rather than a
+maintainer's call about report length. **The instrument biases toward false positives rather than
+silently suppressing possible leaks**, and every subtraction is a class of leak the sweep can never
+see again, bought with a class of noise a human reads past once.
+
+There was briefly a second — the top-level package segment of each declared package. It is written up
+here because the argument for it is the argument that will be made for the next one, and it did not
+survive:
+
+- **The known false positive it would have removed.** `com` out of `com.acme.billing` is passed
+  through by a positional rule in the engine, so it reaches the output of every file and this oracle
+  flags it in every file. That is a real cost, and it is the whole cost.
+- **What it would have bought in exchange.** A project class, method or field named exactly `com`,
+  `org` or `io` — or any project name equal to a top-level segment declared anywhere in the codebase
+  — leaking verbatim, invisibly, forever.
+
+So it is reported. `LeakOracleTest` pins the behaviour so that a second subtraction cannot be added
+quietly, the report names the row and tells the reader to adjudicate it once and read past it, and
+the number this instrument is blind to stays exactly the size the ticket said it should be. If the
+noise ever justifies the trade, that needs its own ticket and its own argument.
 
 ### An instrument, not a test
 

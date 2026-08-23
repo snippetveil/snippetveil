@@ -88,26 +88,33 @@ class LeakOracleTest {
         val oracle = LeakOracle.over(
             declaredInProjectSources = setOf("MerchantLedger", "Builder"),
             declaredByLibraries = setOf("Builder"),
-            topLevelPackageSegments = emptySet(),
         )
 
         assertEquals(listOf("MerchantLedger"), oracle.survivorsIn("Builder b; MerchantLedger m;").map { it.name })
     }
 
     /**
-     * `com` out of `com.acme.billing` is passed through by a stated rule in the engine, so it
-     * survives into every single file's output. Reporting it would bury the report under one hit per
-     * file, forever.
+     * **`com` is reported, and that is the rule rather than an oversight.**
+     *
+     * The engine passes a top-level package segment through by a positional rule of its own, so `com`
+     * survives into every file's output and this oracle flags it in every file — a known recurring
+     * false positive, adjudicated by a human and documented in CONTRIBUTING.md.
+     *
+     * Subtracting it would make the report shorter and the instrument blinder: **the point here is to
+     * bias toward false positives rather than silently suppress possible leaks**, and every
+     * subtraction is a class of leak this sweep can never see again. The library subtraction is the
+     * only one, because it is the only one that was decided; a second is a product decision and needs
+     * a ticket, not a maintainer's view on report length. This test is what stops one being added
+     * quietly.
      */
     @Test
-    fun `a top-level package segment the engine passes through is not part of the universe`() {
+    fun `a top-level package segment is reported like any other declared name`() {
         val oracle = LeakOracle.over(
             declaredInProjectSources = setOf("com", "acme", "billing"),
             declaredByLibraries = emptySet(),
-            topLevelPackageSegments = setOf("com"),
         )
 
-        assertEquals(listOf("acme"), oracle.survivorsIn("package com.acme;").map { it.name })
+        assertEquals(listOf("com", "acme"), oracle.survivorsIn("package com.acme;").map { it.name })
     }
 
     /** A check that has nothing to check is not a check. */
@@ -117,7 +124,6 @@ class LeakOracleTest {
             LeakOracle.over(
                 declaredInProjectSources = setOf("Builder"),
                 declaredByLibraries = setOf("Builder"),
-                topLevelPackageSegments = emptySet(),
             )
         }
     }
@@ -138,16 +144,15 @@ class LeakOracleTest {
     }
 
     /**
-     * The three input sets overlap in practice, so the size a report quotes cannot be arrived at by
-     * subtracting their sizes: `Builder` is here both as a library-declared name and as a top-level
-     * package segment, and a subtraction would report one name too few.
+     * The library set is not a subset of the declared set — the index answers for names the project
+     * never declares — so the size a report quotes cannot be arrived at by subtracting the two
+     * sizes. It is the oracle's own count or it is wrong.
      */
     @Test
-    fun `the universe size counts a name subtracted twice once`() {
+    fun `the universe size counts what is left, not what was subtracted`() {
         val oracle = LeakOracle.over(
             declaredInProjectSources = setOf("MerchantLedger", "Builder"),
-            declaredByLibraries = setOf("Builder"),
-            topLevelPackageSegments = setOf("Builder"),
+            declaredByLibraries = setOf("Builder", "ArrayList", "Runnable"),
         )
 
         assertEquals(1, oracle.size)
@@ -156,6 +161,5 @@ class LeakOracleTest {
     private fun oracleOver(vararg names: String) = LeakOracle.over(
         declaredInProjectSources = names.toSet(),
         declaredByLibraries = emptySet(),
-        topLevelPackageSegments = emptySet(),
     )
 }

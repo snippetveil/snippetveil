@@ -80,6 +80,20 @@ class SweepReportTest {
         assertTrue("suspect" in rendered) { rendered }
     }
 
+    /**
+     * The one row a reader will meet in every file of every sweep, forever: the engine passes a
+     * top-level package segment through by a positional rule, so `com` reaches the output of
+     * everything. It is **reported rather than subtracted** — the instrument biases toward false
+     * positives over silent suppression — and naming it here is what keeps that from costing the
+     * reader a fresh investigation each time.
+     */
+    @Test
+    fun `the report names the false positive every sweep will contain`() {
+        val rendered = report(findings = listOf(fileWith("Ledger.java", "MerchantLedger"))).render()
+
+        assertTrue("top-level package segment" in rendered) { rendered }
+    }
+
     @Test
     fun `a path outside every named tree is allowed`(@TempDir root: Path) {
         val outside = root.resolve("elsewhere")
@@ -168,7 +182,7 @@ class SweepReportTest {
         startedAt = "2026-08-23T19:26:00",
         targetProject = "/home/me/acme",
         filesSwept = 812,
-        universe = UniverseSize(owned = 14203, declared = 17315, sharedWithLibraries = 3110, topLevelSegments = 2),
+        universe = UniverseSize(owned = 14203, declared = 17315, sharedWithLibraries = 3110),
         findings = findings,
         failures = failures,
     )

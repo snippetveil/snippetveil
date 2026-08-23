@@ -27,8 +27,8 @@ internal class LeakOracle private constructor(private val projectOwned: Set<Stri
 
     /**
      * How many names the oracle actually tests against — reported rather than recomputed by the
-     * caller, because the three input sets overlap: a name can be both library-declared and a
-     * top-level package segment, and subtracting sizes would count it twice.
+     * caller, because the two input sets overlap only in one direction and a caller that subtracted
+     * sizes would be re-deriving a number this class already holds.
      */
     val size: Int get() = projectOwned.size
 
@@ -55,12 +55,32 @@ internal class LeakOracle private constructor(private val projectOwned: Set<Stri
 
         /**
          * **The universe, and the only way to build one**: every identifier declared anywhere in the
-         * target project's own sources, minus the names the JDK and the libraries declare, minus the
-         * top-level package segments the engine passes through by a rule of its own.
+         * target project's own sources, minus the names the JDK and the libraries declare. **That is
+         * the whole subtraction, and nothing else may be added to it here.**
          *
          * The private constructor is the point. A future maintainer reaching for
          * `AnonymizationResult.mapping` to build a "better" universe has to change this signature to
          * do it, and the signature says what the universe is derived from.
+         *
+         * ### One subtraction, and why there is not a second
+         *
+         * There was briefly a third argument: the top-level package segment of each declared package
+         * — `com` out of `com.acme.billing` — which the engine passes through by a positional rule of
+         * its own, and which therefore appears in the output of every file ever swept. Subtracting it
+         * made the report shorter. **It was reverted, and the reasoning is worth keeping**, because
+         * the argument for it is the argument that will be made for the next one.
+         *
+         * The point of this instrument is to **bias toward false positives rather than silently
+         * suppress possible leaks.** Every subtraction here is a class of leak the sweep can never
+         * see again, bought with a class of noise a human would otherwise read past once. The
+         * library subtraction is here because the ticket authorised it and because without it the
+         * oracle cannot function at all; a second one is a **product decision**, and it belongs in a
+         * ticket of its own rather than in a maintainer's judgement about report length.
+         *
+         * So `com` is reported, in every file, like anything else the project declares. It is a known
+         * recurring false positive, it is documented as one in CONTRIBUTING.md and named in the
+         * report itself, and a human adjudicates it — which costs a minute and leaves the blind spot
+         * exactly the size the ticket said it should be.
          *
          * @param declaredInProjectSources every name declared in the project's own source files —
          *   classes, methods, fields, parameters, locals, type parameters, labels and package
@@ -68,29 +88,19 @@ internal class LeakOracle private constructor(private val projectOwned: Set<Stri
          * @param declaredByLibraries the subset of those names that the JDK or a library also
          *   declares. Subtracted rather than reported, because the anonymiser preserves library names
          *   deliberately and the oracle cannot tell a preserved `Builder` from a leaked one. **This
-         *   is the oracle's one blind spot, and it is stated rather than hidden**: a project class
+         *   is the oracle's only blind spot, and it is stated rather than hidden**: a project class
          *   whose name collides exactly with a library class's is one this check cannot see.
-         * @param topLevelPackageSegments the first segment of every package the project declares —
-         *   `com` out of `com.acme.billing`. The engine passes these through by a stated positional
-         *   rule, so each would otherwise be a finding in every file the sweep touches, forever, and
-         *   an instrument that reports one certain non-finding per file is one nobody finishes
-         *   reading.
          */
-        fun over(
-            declaredInProjectSources: Set<String>,
-            declaredByLibraries: Set<String>,
-            topLevelPackageSegments: Set<String>,
-        ): LeakOracle {
-            val universe = declaredInProjectSources - declaredByLibraries - topLevelPackageSegments
+        fun over(declaredInProjectSources: Set<String>, declaredByLibraries: Set<String>): LeakOracle {
+            val universe = declaredInProjectSources - declaredByLibraries
 
             // A check that found nothing to check is not a pass — the same rule the trust checks in
             // build.gradle.kts follow. An empty universe here means the declaration walk read
             // nothing, and every file would then come back clean.
             check(universe.isNotEmpty()) {
                 "The project-owned name universe came out empty, so every file would report clean. " +
-                    "${declaredInProjectSources.size} name(s) were declared, " +
-                    "${declaredByLibraries.size} were also declared by a library, and " +
-                    "${topLevelPackageSegments.size} were top-level package segment(s)."
+                    "${declaredInProjectSources.size} name(s) were declared, and " +
+                    "${declaredByLibraries.size} of them are also declared by the JDK or a library."
             }
             return LeakOracle(universe)
         }
@@ -107,7 +117,7 @@ internal class LeakOracle private constructor(private val projectOwned: Set<Stri
          *   anything is itself visible
          */
         fun proveTheRulesCanFail(): Int {
-            val oracle = over(setOf("MerchantLedger", "merchantId", "Builder"), setOf("Builder"), emptySet())
+            val oracle = over(setOf("MerchantLedger", "merchantId", "Builder"), setOf("Builder"))
             var asserted = 0
 
             fun proves(complaint: String, held: Boolean) {

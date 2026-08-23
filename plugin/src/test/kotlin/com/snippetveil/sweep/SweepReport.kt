@@ -65,8 +65,8 @@ internal class SweepReport(
         appendLine("Files swept     : $filesSwept")
         appendLine("Name universe   : ${universe.owned} project-owned name(s)")
         appendLine("                  ${universe.declared} declared in the project's own sources,")
-        appendLine("                  less ${universe.sharedWithLibraries} the JDK or a library also declares,")
-        appendLine("                  less ${universe.topLevelSegments} top-level package segment(s) the engine passes through.")
+        appendLine("                  less ${universe.sharedWithLibraries} the JDK or a library also declares.")
+        appendLine("                  That is the only subtraction. Nothing else is filtered out.")
         appendLine()
 
         val triage = findings.filter { it.survivors.isNotEmpty() }
@@ -91,6 +91,13 @@ internal class SweepReport(
         appendLine("collision with a preserved library member looks exactly the same to it. A human")
         appendLine("adjudicates each row — a false positive costs a minute, and a false negative is the")
         appendLine("product's core promise failing silently.")
+        appendLine()
+        appendLine("One row will be in every sweep of every project. A top-level package segment —")
+        appendLine("`com`, or `org`, or `io` — is passed through by a positional rule in the engine, so")
+        appendLine("it reaches the output of every file. It is reported rather than subtracted, and")
+        appendLine("that is deliberate:")
+        appendLine("suppressing it would buy a shorter report with a class of leak this instrument")
+        appendLine("could never see again. Adjudicate it once and read past it.")
 
         triage.forEach { file ->
             appendLine()
@@ -137,14 +144,8 @@ internal class FileFindings(val path: String, val survivors: List<Survivor>)
  * @param sharedWithLibraries how many of those the JDK or a library also declares, and which were
  *   therefore subtracted. A large number here is the instrument telling a reader how much of the
  *   project it is structurally blind to.
- * @param topLevelSegments how many top-level package segments were subtracted
  */
-internal class UniverseSize(
-    val owned: Int,
-    val declared: Int,
-    val sharedWithLibraries: Int,
-    val topLevelSegments: Int,
-)
+internal class UniverseSize(val owned: Int, val declared: Int, val sharedWithLibraries: Int)
 
 /**
  * Where the report is allowed to go — **outside the repository tree entirely, and outside the swept
