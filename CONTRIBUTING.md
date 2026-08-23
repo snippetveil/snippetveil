@@ -331,6 +331,138 @@ artifact that overstates its own reach is worse than one that does less and says
   test may legitimately call `Class.forName`, and `CoreIsIdeFreeTest` proves the module boundary
   precisely that way, so covering test code would mean carving out an exception for it on day one.
   An exception list is where a violation eventually hides.
+- **Nothing here can tell whether a snippet is still *answerable*.** Every check in this repository
+  is about concealment. Not one of them catches a change that preserves every invariant and still
+  makes snippets worse to reason about — a placeholder scheme that reads badly, a literal rule that
+  destroys the one string that located the bug, a comment strip that took the ground truth with it.
+
+  **There is no CI-able assertion for it, and that is a property of the question rather than a gap
+  in the effort.** Quality here is non-binary, non-deterministic, and measured by asking a model —
+  which is a network call, in the repository of a plugin whose central claim is that it makes none.
+  Every way of closing it is worse than leaving it open: a mocked model measures the mock, a
+  golden-answer corpus pins one model's phrasing, and a live call puts a network dependency in the
+  one build that must not have one.
+
+  So it is an **occasional human-run exercise, not a suite** — re-run the naming experiment when the
+  rules change shape, and read the answers. It is recorded here rather than papered over, because
+  the failure mode is a green build over a product that has quietly stopped being useful, and a
+  reader of this file is entitled to know which of the two claims it checks.
+- **The corpus sweep is blind to an exact collision, and to nothing else.** The one instrument that
+  can see a *missing* plan item subtracts every name the JDK or a library also declares, so a project
+  class called `Builder` leaking verbatim looks exactly like the `Builder` the anonymiser preserves
+  on purpose. That is the **only** thing it cannot see, and it is deliberately the only thing: see
+  below for why nothing else is subtracted, and for the one false positive every sweep will contain.
+
+## The corpus sweep
+
+**Real code in, findings out, and the code never moves.**
+
+```
+./gradlew corpusSweep -PsweepProject=/path/to/a/real/checkout
+```
+
+It opens that project, anonymises every Java file in its source content **whole-file**, and writes a
+triage list of names the project owns that survived into the output. With no `-PsweepProject` it is
+**skipped, not failed**, so a contributor with no codebase to point it at is never blocked.
+
+**The committed fixture corpus is 100% synthetic, and stays that way.** The obvious clever move —
+run the anonymiser over a real codebase and commit the anonymised output as the public corpus — is
+the worst idea available, and it is rejected in writing so that it need not be re-litigated. It is
+exactly circular: **if the anonymiser leaks, the leak is in a public repository, permanently, in git
+history.** The product's own failure mode, aimed at the repo.
+
+So the rule is: **a bug this instrument finds earns a *synthetic* fixture reproducing its shape,
+never the real code that revealed it.** Real code goes in; a conclusion comes out — a new rule, or a
+new fixture — and the code itself never enters this repository in any form, anonymised or otherwise.
+
+### Why real code, when the fixtures are synthetic
+
+Synthetic fixtures contain only the PSI shapes somebody already thought of, so they can confirm the
+rules that exist and nothing else. **The entire value of real code is the shapes we did not think
+of.** This is the only layer in the project where a *missing* plan item is visible at all.
+
+### The oracle is derived from the input, never from the mapping
+
+There are two ways to assert that nothing project-owned got out. Walk the **mapping** and check that
+each entry's source name is absent from the output; or build the project-owned name set **from the
+input** and check that none of it survives. They look equivalent. **They are not.**
+
+The worst bug the spike produced was a reference that passed through verbatim — and *that name was
+never in the mapping*. That is what the bug **was**. A mapping-derived check is green on it forever,
+because it can only ask about entries that exist: it can prove that what the anonymiser did was
+done, and it can never prove that it did everything.
+
+So `LeakOracle` is built from two sets the anonymiser's own walk had no part in — every identifier
+declared anywhere in the target's own sources, less the names the JDK and the libraries declare — and
+its constructor is private so that it cannot be built from anything else. A future maintainer
+reaching for `AnonymizationResult.mapping` has to change a signature that says what the universe is
+derived from.
+
+### One subtraction, and why there is not a second
+
+The library subtraction is the only one, and adding another is a **product decision** rather than a
+maintainer's call about report length. **The instrument biases toward false positives rather than
+silently suppressing possible leaks**, and every subtraction is a class of leak the sweep can never
+see again, bought with a class of noise a human reads past once.
+
+There was briefly a second — the top-level package segment of each declared package. It is written up
+here because the argument for it is the argument that will be made for the next one, and it did not
+survive:
+
+- **The known false positive it would have removed.** `com` out of `com.acme.billing` is passed
+  through by a positional rule in the engine, so it reaches the output of every file and this oracle
+  flags it in every file. That is a real cost, and it is the whole cost.
+- **What it would have bought in exchange.** A project class, method or field named exactly `com`,
+  `org` or `io` — or any project name equal to a top-level segment declared anywhere in the codebase
+  — leaking verbatim, invisibly, forever.
+
+So it is reported. `LeakOracleTest` pins the behaviour so that a second subtraction cannot be added
+quietly, the report names the row and tells the reader to adjudicate it once and read past it, and
+the number this instrument is blind to stays exactly the size the ticket said it should be. If the
+noise ever justifies the trade, that needs its own ticket and its own argument.
+
+### An instrument, not a test
+
+It **cannot** be green/red, and pretending otherwise is how it would die. The oracle is deliberately
+blunt and false-positive-prone — it throws on genuine collisions with preserved library members — so
+as a test it would be permanently red or permanently suppressed. That bluntness is affordable only
+because a human adjudicates every row: **a false positive costs a minute, and a false negative is the
+product's core promise failing silently.**
+
+Its rules prove they can fail before it reports anything, like every other check here, and the pure
+half of them is unit-tested in `check` by `LeakOracleTest` and `SweepReportTest` — a rule nobody
+could test without a proprietary checkout would be a rule nobody tests.
+
+### The report contains the leak by construction
+
+It is a list of real identifiers from a real proprietary codebase — **the single most sensitive file
+this project can produce** — and the natural instinct on reading one is to paste it into an issue to
+ask about it.
+
+**It is written outside the repository tree entirely**, defaulting to `~/snippetveil-sweep` and
+refused outright if `-PsweepReportDir` points inside this repository or inside the swept project.
+`.gitignore` stops `git add`; it does not stop a paste or a screenshot, and **a file being *inside*
+the repository is exactly what makes those feel safe.** The console prints counts and a path, never
+a name, for the same reason.
+
+### It is never run in CI, and that is asserted rather than assumed
+
+Two layers, because they cover different routes:
+
+- **`assertTheSweepIsNeverRunInCi`**, in the root `build.gradle.kts` and wired into `check`, reads
+  every `./gradlew` line in `.github/workflows/` and fails if one names the sweep task or either of
+  its properties. This is readable only because of the thin-CI-over-thick-Gradle rule: *what CI runs*
+  is a list, so it is a list that can be tested. Like the other workflow check it proves it can fail
+  over fixtures first, and fails outright if it read no `./gradlew` line at all.
+- **The task refuses.** `corpusSweep` fails if `CI`, `GITHUB_ACTIONS` or `BUILD_NUMBER` is set —
+  which covers the routes the first layer cannot see: a `dependsOn` somebody adds to `check`, or a
+  shell script on a runner that is not GitHub's.
+
+The task name is spelled once, as an `extra` in the root build that `plugin/build.gradle.kts` reads,
+so that a rename cannot leave the first layer guarding a task nobody registers. A deliberate absence:
+there is no assertion over the Gradle task graph, because the configuration cache means a
+`whenReady` listener does not run on a cache hit — a graph check written here would be one that
+quietly stops checking on the second run.
 
 ## Continuous integration
 

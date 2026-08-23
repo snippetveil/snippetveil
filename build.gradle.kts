@@ -5,6 +5,16 @@ plugins {
 }
 
 /**
+ * **The corpus sweep's task name, spelled once.**
+ *
+ * `assertTheSweepIsNeverRunInCi` below guards this string, and `plugin/build.gradle.kts` registers a
+ * task under it. They read the same `val` rather than two string literals, because a rename that
+ * touched only one of them would leave a check guarding a task that does not exist — and a check
+ * that cannot fail is worse than no check, since it reads as a guarantee.
+ */
+val corpusSweepTask by extra("corpusSweep")
+
+/**
  * Fails if a GitHub Actions workflow uses an action it has not pinned to a commit SHA, pins one
  * without naming the version the SHA is, or does not say what token it runs with.
  *
@@ -165,6 +175,140 @@ val assertWorkflowsAreHardened by tasks.registering {
     }
 }
 
+/**
+ * Fails if any workflow asks Gradle to run the corpus sweep.
+ *
+ * **The sweep is never run in CI, and this is what says so rather than a convention.** It opens a
+ * real proprietary codebase by path and writes a list of the real identifiers it found surviving —
+ * so a CI run of it is either a no-op on a runner that has no such checkout, or a leak onto a
+ * machine nobody chose. Neither is a thing to leave to habit.
+ *
+ * The rule is readable because of a rule the workflows already follow: **thin CI over thick
+ * Gradle** — every check CI runs is a Gradle task, invoked from a `./gradlew` line. So *what CI
+ * runs* is a list this task can extract and test, and a step that named the sweep would be caught
+ * here on any machine, with no CI account and no permission from anyone.
+ *
+ * It is one of two layers. This one says *CI never asks*; the sweep task's own guard says *and it
+ * would refuse if asked*, which is what covers a wiring nobody wrote into a workflow at all — a
+ * `dependsOn` from `check`, or a shell script on some other runner.
+ *
+ * What it does **not** check is the ordinary Gradle task graph, and that is deliberate rather than
+ * an omission: the configuration cache means a `whenReady` listener does not run on a cache hit, so
+ * a graph assertion written here would be a check that quietly stops checking on the second run.
+ */
+val assertTheSweepIsNeverRunInCi by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if a workflow asks Gradle to run the corpus sweep."
+
+    val workflows = layout.projectDirectory.dir(".github/workflows")
+    val report = layout.buildDirectory.file("reports/trust/corpus-sweep-is-not-in-ci.txt")
+
+    // Named here rather than spelled twice: see the `corpusSweepTask` extra above. The two property
+    // names are belt and braces — the sweep cannot run without its task being named, so the task
+    // name is the load-bearing half.
+    val forbidden = listOf(corpusSweepTask, "sweepProject", "sweepReportDir")
+
+    inputs.dir(workflows).withPropertyName("workflows")
+    inputs.property("forbidden", forbidden)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        // Every line that hands work to the Gradle wrapper — a `run:` step, or a line inside a
+        // block one. Two narrowings, and both are load-bearing rather than tidiness:
+        //
+        // The wrapper rather than the word "gradle", which appears in prose throughout both files.
+        // And **not a comment line**, because both files discuss `./gradlew` invocations in their
+        // own prose and CONTRIBUTING.md prints the sweep's command line for a human to copy. A rule
+        // that read comments would fail this build over a sentence somebody quoted, and noise is
+        // what teaches people to suppress a check — and it would let the coverage assertion below
+        // be satisfied by prose alone, which is the worse half.
+        val gradleInvocation = Regex("""^(?!\s*#).*\./gradlew\b.*$""", RegexOption.MULTILINE)
+
+        /**
+         * Every Gradle invocation in one file's text that names something [forbidden], and the
+         * number of invocations the rule read — which is this check's own coverage, asserted below
+         * rather than assumed.
+         */
+        fun inspect(name: String, text: String): Pair<List<String>, Int> {
+            val invocations = gradleInvocation.findAll(text).map { it.value }.toList()
+            val violations = invocations.flatMap { line ->
+                forbidden.filter { it in line }.map {
+                    "$name runs Gradle with `$it` in it, which is the corpus sweep: ${line.trim()}"
+                }
+            }
+            return violations to invocations.size
+        }
+
+        fun violationsIn(name: String, text: String) = inspect(name, text).first
+
+        // The rule proves it can fail before it reports that nothing failed, and proves it is
+        // reading anything at all. A red path that is never exercised decays into a check that
+        // always passes — the same rule every other check in this build follows.
+        val clean = "      - name: check\n        run: ./gradlew check -PplatformProfile=floor\n"
+
+        check(violationsIn("fixture", clean).isEmpty()) {
+            "The rule flagged a workflow that runs nothing forbidden: ${violationsIn("fixture", clean)}"
+        }
+        check(inspect("fixture", clean).second == 1) {
+            "The rule read no Gradle invocation out of a fixture that has one. It is checking nothing."
+        }
+        forbidden.forEach { name ->
+            check(violationsIn("fixture", clean.replace("check -P", "$name -P")).isNotEmpty()) {
+                "The rule failed to flag a workflow that runs `$name`. The sweep is not being guarded."
+            }
+        }
+
+        // A comment is prose, not an invocation — in both directions. It must not be flagged, and it
+        // must not be counted towards the coverage assertion below, or a file whose only mention of
+        // Gradle is a sentence would read as a file that was checked.
+        val commented = "      # run: ./gradlew ${forbidden.first()} -PsweepProject=/somewhere\n"
+
+        check(violationsIn("fixture", commented).isEmpty()) {
+            "The rule flagged a comment. Quoting the sweep's command line would fail this build."
+        }
+        check(inspect("fixture", commented).second == 0) {
+            "The rule counted a comment as a Gradle invocation, so its own coverage check can pass on prose."
+        }
+
+        val files = workflows.asFile.listFiles().orEmpty()
+            .filter { it.isFile && (it.name.endsWith(".yml") || it.name.endsWith(".yaml")) }
+            .sortedBy { it.name }
+
+        check(files.isNotEmpty()) { "No workflows were found in ${workflows.asFile}. Nothing was checked." }
+
+        val inspected = files.map { it to inspect(it.name, it.readText()) }
+        val violations = inspected.flatMap { (_, result) -> result.first }
+        val invocations = inspected.sumOf { (_, result) -> result.second }
+
+        // A check that read no Gradle invocation is not a pass, however many files it opened. Every
+        // workflow here runs Gradle at least once, so a zero means the rule stopped matching the
+        // shape these files are written in.
+        check(invocations > 0) {
+            "No `./gradlew` line was read out of ${files.size} workflow(s). The sweep is not being guarded."
+        }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Workflows checked: ${files.size}; Gradle invocations read: $invocations")
+                appendLine("None of them may name any of: ${forbidden.joinToString(", ")}")
+                appendLine()
+                inspected.forEach { (file, result) ->
+                    appendLine(".github/workflows/${file.name} — ${result.second} Gradle invocation(s)")
+                }
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "The corpus sweep reads a real proprietary codebase and writes the real identifiers " +
+                    "it found surviving. It is run by a human, deliberately, and never by CI:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
 tasks.named("check") {
     dependsOn(assertWorkflowsAreHardened)
+    dependsOn(assertTheSweepIsNeverRunInCi)
 }
