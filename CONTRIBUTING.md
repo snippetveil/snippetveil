@@ -556,14 +556,21 @@ The strictest surface wins automatically, by construction rather than by discipl
 | Check | Where | Covers |
 |---|---|---|
 | `assertTheListingCopyIsTheReadme` | `plugin/build.gradle.kts` | The description in the built distribution, word for word against README.md — plus the heading order, the 40-character floor, HTTPS-only links, the phrase ban and third-party brand names |
-| `assertNoBannedPhraseAppearsOnAnySurface` | root `build.gradle.kts` | Every Markdown file in the repository, and every string literal in `:core` and `:plugin` main sources |
-| `assertNoRoadmapIsPublished` | root `build.gradle.kts` | README.md, and the change notes the day there are any |
+| `assertNoBannedPhraseAppearsOnAnySurface` | root `build.gradle.kts` | Every Markdown file in the repository, every string literal in `:core` and `:plugin` main sources, and the descriptor's own menu strings |
+| `assertNoRoadmapIsPublished` | `plugin/build.gradle.kts` | README.md, CHANGELOG.md the day there is one, and the change notes in the built distribution |
 | `assertTheDemoIsNotShipped` | `plugin/build.gradle.kts` | `settings.gradle.kts`, and every path in the zip at both levels |
 | `assertBothPluginIconsShip` | `plugin/build.gradle.kts` | Both icons in the distribution: 40 × 40, no text, and a dark variant that is not a copy of the light one |
 
 All five run in `check`, and the listing one also gates `publishPlugin` directly — `publishPlugin`
 reaches `buildPlugin` without passing through `check`, so an upload could otherwise start on
 unverified copy.
+
+**Three of them read the built distribution rather than the checked-in files**, and the reason is
+the descriptor: it is patched at build time, so the description is set in Gradle and appears nowhere
+in `plugin.xml`. A rule that read the source descriptor would be blind to anything else written the
+same way — change notes first among them. The phrase list itself is an `extra` on the root project,
+read by both builds, for the reason the corpus sweep's task name is one: two lists would drift, and
+they would drift towards the strictest surface being checked against the laxest rule.
 
 ### The banned phrases
 

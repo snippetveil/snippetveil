@@ -333,8 +333,12 @@ val assertTheSweepIsNeverRunInCi by tasks.registering {
  * that says *"the real guarantee is 100%-open-source-from-the-first-commit"* is describing what
  * holds the claim up, and banning that sentence would be the kind of noise that teaches people to
  * suppress a check.
+ *
+ * **An `extra`, for the reason [corpusSweepTask] is one.** `:plugin` checks the shipped description
+ * against this same list, and two lists that drifted would leave the strictest surface checked
+ * against the laxest rule — with both checks green.
  */
-val bannedPhrases = listOf(
+val bannedPhrases by extra(listOf(
     "safe to paste",
     "paste with confidence",
     "untraceable",
@@ -344,7 +348,7 @@ val bannedPhrases = listOf(
     "sanitize", "sanitizes", "sanitized", "sanitizing", "sanitization",
     "sanitise", "sanitises", "sanitised", "sanitising", "sanitisation",
     "obfuscate", "obfuscates", "obfuscated", "obfuscating", "obfuscation",
-)
+))
 
 /**
  * Fails if a banned phrase appears in a document in this repository or in a string the plugin shows.
@@ -373,12 +377,20 @@ val assertNoBannedPhraseAppearsOnAnySurface by tasks.registering {
     val sources = fileTree(layout.projectDirectory) {
         include("*/src/main/kotlin/**/*.kt")
     }
+
+    // The third kind of surface: **the descriptor's own strings are UI**. `text=` is a menu item,
+    // `description=` is the tooltip under it, `displayName=` is a settings page — all of them shown
+    // to a user, none of them reachable from a Kotlin source or a Markdown file. The `<description>`
+    // element is not here, and cannot be: it is generated from README.md, and `:plugin` checks the
+    // rendered result against this same list.
+    val descriptor = layout.projectDirectory.file("plugin/src/main/resources/META-INF/plugin.xml")
     val report = layout.buildDirectory.file("reports/trust/banned-phrases.txt")
     val banned = bannedPhrases
     val root = layout.projectDirectory.asFile
 
     inputs.files(documents).withPropertyName("documents")
     inputs.files(sources).withPropertyName("sources")
+    inputs.file(descriptor).withPropertyName("descriptor")
     inputs.property("banned", banned)
     outputs.file(report).withPropertyName("report")
 
@@ -482,8 +494,30 @@ val assertNoBannedPhraseAppearsOnAnySurface by tasks.registering {
             "The rule flagged `guarantee`. Only `guaranteed` is banned; see the list."
         }
 
+        /**
+         * A descriptor with its comments taken out.
+         *
+         * Everything that is left is either markup or a string a user is shown, and a phrase in the
+         * markup is a phrase in an id or a class name — which is not a sentence anybody reads. The
+         * comments go for the reason Kotlin's do: this descriptor explains the copy rules it is
+         * subject to, and a rule that read its own rationale would fail the build over it.
+         */
+        fun descriptorStrings(xml: String): String = xml.replace(Regex("""<!--.*?-->""", RegexOption.DOT_MATCHES_ALL), " ")
+
+        check(bannedPhrasesIn(descriptorStrings("""<!-- no "safe to paste" here --><a text="fine"/>""")).isEmpty()) {
+            "The rule read an XML comment. The descriptor's own rationale would fail this build."
+        }
+        check(bannedPhrasesIn(descriptorStrings("""<a text="Paste  with confidence"/>""")).isNotEmpty()) {
+            "The rule missed an attribute value, which is where every menu item in the descriptor lives."
+        }
+
         val violations = mutableListOf<String>()
         var surfaces = 0
+
+        surfaces++
+        bannedPhrasesIn(descriptorStrings(descriptor.asFile.readText())).forEach {
+            violations += "${descriptor.asFile.relativeTo(root)} shows a string saying \"$it\""
+        }
 
         documents.files.sortedBy { it.path }.forEach { file ->
             surfaces++
@@ -506,10 +540,14 @@ val assertNoBannedPhraseAppearsOnAnySurface by tasks.registering {
 
         report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
             buildString {
-                appendLine("Surfaces read: $surfaces (${documents.files.size} documents, ${sources.files.size} sources)")
+                appendLine(
+                    "Surfaces read: $surfaces (${documents.files.size} documents, ${sources.files.size} sources, " +
+                        "and the plugin descriptor)"
+                )
                 appendLine("None of them may say any of: ${banned.joinToString(", ")}")
                 appendLine()
-                appendLine("Documents are read whole; Kotlin sources are read for their string literals only.")
+                appendLine("Documents are read whole; Kotlin sources are read for their string literals only,")
+                appendLine("and the descriptor for everything its comments do not cover.")
                 appendLine("The Marketplace description is checked separately, in :plugin:assertTheListingCopyIsTheReadme.")
             }
         )
@@ -524,101 +562,8 @@ val assertNoBannedPhraseAppearsOnAnySurface by tasks.registering {
     }
 }
 
-/**
- * Fails if a roadmap appears in the README, the listing copy, or the change notes.
- *
- * **A live commit history is evidence of maintenance; a roadmap is a promise about it.** The
- * discipline is never to make a claim a counterexample can kill, and a solo hobby v1 that misses a
- * published roadmap item inflicts precisely that wound on a product whose entire position is trust.
- *
- * Status is not a roadmap and is not touched here: *"the plugin is not yet published"* is a fact
- * about today, and *"work in progress is tracked in this repository's issues"* points at a list
- * that is already public and already qualified. What is banned is the sentence that commits.
- *
- * **There are no change notes yet, and this reads them the day there are.** CHANGELOG.md and a
- * `<change-notes>` element are both surfaces it looks for and neither exists; the check is not
- * vacuous meanwhile, because the README always does.
- */
-val assertNoRoadmapIsPublished by tasks.registering {
-    group = LifecycleBasePlugin.VERIFICATION_GROUP
-    description = "Fails if the README, the listing copy or the change notes promise future work."
-
-    val readme = layout.projectDirectory.file("README.md")
-    val changelog = layout.projectDirectory.file("CHANGELOG.md")
-    val descriptor = layout.projectDirectory.file("plugin/src/main/resources/META-INF/plugin.xml")
-    val report = layout.buildDirectory.file("reports/trust/no-roadmap.txt")
-
-    val promises = listOf(
-        "roadmap",
-        "coming soon",
-        "in a future release",
-        "in a future version",
-        "in an upcoming release",
-        "we plan to",
-        "we intend to",
-        "will be added",
-        "will be supported",
-        "is planned",
-        "are planned",
-    )
-
-    inputs.file(readme).withPropertyName("readme")
-    inputs.file(descriptor).withPropertyName("descriptor")
-    inputs.property("promises", promises)
-    outputs.file(report).withPropertyName("report")
-
-    doLast {
-        // Word by word and rejoined on `\s+`, for the reason the phrase ban is: a phrase escaped
-        // whole quotes its own separator and then matches only where the prose happens not to wrap.
-        fun promisesIn(text: String): List<String> = promises.filter { promise ->
-            val pattern = promise.split(" ").joinToString("""\s+""") { Regex.escape(it) }
-            Regex("""\b$pattern\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
-        }
-
-        check(promisesIn("Java support is planned for the next release.").isNotEmpty()) {
-            "The rule failed to flag a promise about future work. Nothing is being guarded."
-        }
-        check(promisesIn("The plugin is not yet published to the JetBrains Marketplace.").isEmpty()) {
-            "The rule flagged a statement of status. Saying what today is must stay legal."
-        }
-
-        val changeNotes = Regex("""<change-notes>(.*?)</change-notes>""", RegexOption.DOT_MATCHES_ALL)
-            .find(descriptor.asFile.readText())?.groupValues?.get(1)
-
-        // The README is the surface the listing copy lives in, so checking it covers both.
-        val surfaces = buildMap {
-            put("README.md", readme.asFile.readText())
-            if (changelog.asFile.exists()) put("CHANGELOG.md", changelog.asFile.readText())
-            if (changeNotes != null) put("plugin.xml <change-notes>", changeNotes)
-        }
-
-        val violations = surfaces.flatMap { (name, text) ->
-            promisesIn(text).map { "$name promises \"$it\"" }
-        }
-
-        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
-            buildString {
-                appendLine("Surfaces read: ${surfaces.keys.joinToString(", ")}")
-                appendLine("None of them may promise: ${promises.joinToString(", ")}")
-                appendLine()
-                appendLine("The listing copy is the block inside README.md, so reading the README covers both.")
-                if (changeNotes == null) appendLine("There are no change notes yet; this reads them the day there are.")
-            }
-        )
-
-        if (violations.isNotEmpty()) {
-            throw GradleException(
-                "A live commit history is evidence of maintenance; a roadmap is a promise about it, " +
-                    "and a missed one wounds the only thing this product sells:\n" +
-                    violations.joinToString("\n") { "  $it" }
-            )
-        }
-    }
-}
-
 tasks.named("check") {
     dependsOn(assertWorkflowsAreHardened)
     dependsOn(assertTheSweepIsNeverRunInCi)
     dependsOn(assertNoBannedPhraseAppearsOnAnySurface)
-    dependsOn(assertNoRoadmapIsPublished)
 }

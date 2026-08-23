@@ -110,10 +110,26 @@ kotlin {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The markers README.md fences the shared block with. Spelled once and read by both the renderer
- * below and the assertion at the bottom of this file, because a rename that touched only one of
- * them would leave a check reading an empty block — and a check that cannot fail is worse than no
- * check, since it reads as a guarantee.
+ * Every jar in the built distribution's `lib/`.
+ *
+ * Spelled once because three rules below walk the same zip looking for different files inside it,
+ * and a narrowing applied to one copy of this pattern would quietly stop the other two reading a
+ * directory without any of them going red. `scanDistributionForBannedReferences` keeps a pattern of
+ * its own on purpose: it matches everything in `lib/` rather than only the jars, because a file in
+ * there that is *not* an archive is a hole in that scan rather than a file to skip.
+ */
+val libraryJarEntry = Regex("""[^/]+/lib/.+\.jar""")
+
+/**
+ * The markers README.md fences the shared block with.
+ *
+ * Spelled once and read by both the renderer below and the assertion at the bottom of this file,
+ * because a rename that touched only one of them would leave a check reading an empty block — and a
+ * check that cannot fail is worse than no check, since it reads as a guarantee.
+ *
+ * The *extraction* around them is written twice, once here at configuration time and once inside
+ * that task, because a task action may not call back into the script without dragging the script
+ * into the configuration cache. Both spellings refuse an empty block for that reason.
  */
 val listingCopyStart = "<!-- listing copy -->"
 val listingCopyEnd = "<!-- listing copy end -->"
@@ -568,6 +584,7 @@ val assertTheListingCopyIsTheReadme by tasks.registering {
     // for a top-level property drags the script into the configuration cache with it.
     val startMarker = listingCopyStart
     val endMarker = listingCopyEnd
+    val libraryJar = libraryJarEntry
 
     /**
      * The headings the block carries, in the order it carries them.
@@ -604,10 +621,12 @@ val assertTheListingCopyIsTheReadme by tasks.registering {
     // The listing is the one surface the phrase ban exists for, so it is checked here as well as in
     // the root build's sweep over the repository — on the shipped bytes rather than on a file that
     // is asserted, elsewhere, to be the same as them.
-    val bannedPhrases = listOf(
-        "safe to paste", "paste with confidence", "untraceable", "cannot be traced back to your company",
-        "provably", "guaranteed", "sanitized", "obfuscate",
-    )
+    //
+    // **The list itself comes from the root build**, the way the corpus sweep's task name does. Two
+    // lists would drift, and the direction they would drift in is the bad one: the strictest surface
+    // checked against the laxest rule, with both checks green.
+    @Suppress("UNCHECKED_CAST")
+    val bannedPhrases = rootProject.extra["bannedPhrases"] as List<String>
 
     inputs.file(distribution).withPropertyName("distribution")
     inputs.file(readme).withPropertyName("readme")
@@ -682,7 +701,7 @@ val assertTheListingCopyIsTheReadme by tasks.registering {
         val descriptors = mutableMapOf<String, String>()
         ZipFile(distribution.get().asFile).use { zip ->
             zip.entries().asSequence()
-                .filter { !it.isDirectory && Regex("""[^/]+/lib/.+\.jar""").matches(it.name) }
+                .filter { !it.isDirectory && libraryJar.matches(it.name) }
                 .forEach { entry ->
                     ZipInputStream(zip.getInputStream(entry)).use { jar ->
                         generateSequence { jar.nextEntry }
@@ -733,14 +752,19 @@ val assertTheListingCopyIsTheReadme by tasks.registering {
 
         // The Marketplace rejects a description shorter than this, and a listing that reached the
         // floor by accident would mean the copy had collapsed to a sentence.
-        val text = wordsOfHtml(shipped).joinToString(" ")
+        val text = shippedWords.joinToString(" ")
         if (text.length < 40) violations += "the description is ${text.length} characters; 40 is the floor"
 
         Regex("""\bhttp://\S+""").findAll(shipped).forEach {
             violations += "${it.value} is not HTTPS"
         }
 
-        bannedPhrases.filter { it in text.lowercase() }.forEach {
+        // Word by word and rejoined on `\s+`, character for character as the root build matches it:
+        // the two rules read one list, so they had better read it the same way.
+        bannedPhrases.filter { phrase ->
+            val pattern = phrase.split(" ").joinToString("""\s+""") { Regex.escape(it) }
+            Regex("""\b$pattern\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        }.forEach {
             violations += "\"$it\" is banned from every surface: it is a claim about an adversary's " +
                 "capability, and the copy states the mechanism rather than the category"
         }
@@ -837,7 +861,16 @@ val assertTheDemoIsNotShipped by tasks.registering {
         check(includes.isNotEmpty()) {
             "No `include(` line was read out of ${settings.asFile}. The subproject rule is checking nothing."
         }
-        includes.filter { demoName in it }.forEach {
+        fun includesNaming(lines: List<String>) = lines.filter { demoName in it }
+
+        check(includesNaming(listOf("""include(":core", ":plugin", ":$demoName")""")).isNotEmpty()) {
+            "The rule failed to flag an include line naming the sample. Nothing is being guarded."
+        }
+        check(includesNaming(listOf("""include(":core", ":plugin")""")).isEmpty()) {
+            "The rule flagged the include line this build actually has. It is matching everything."
+        }
+
+        includesNaming(includes).forEach {
             violations += "settings.gradle.kts includes the sample as a subproject: ${it.trim()}"
         }
 
@@ -876,8 +909,24 @@ val assertTheDemoIsNotShipped by tasks.registering {
         check(paths.isNotEmpty()) { "The distribution is empty. Nothing was checked." }
 
         val packagePath = rootPackage.replace('.', '/')
-        paths.filter { "/$demoName/" in it || it.startsWith("$demoName/") || packagePath in it }
-            .forEach { violations += "$it is in the distribution, and it is the sample" }
+
+        fun sampleIn(entries: List<String>) =
+            entries.filter { "/$demoName/" in it || it.startsWith("$demoName/") || packagePath in it }
+
+        // The rule is shown to flag the sample at both levels of the zip, and to leave the plugin's
+        // own classes alone — a path rule that matched everything would report a violation nobody
+        // could act on, and one that matched nothing would be a permanent green.
+        check(sampleIn(listOf("SnippetVeil/lib/plugin.jar!/$packagePath/billing/Invoice.class")).size == 1) {
+            "The rule did not flag the sample's own package inside a jar, which is where it would land."
+        }
+        check(sampleIn(listOf("SnippetVeil/$demoName/Invoice.java", "$demoName/Invoice.java")).size == 2) {
+            "The rule did not flag a $demoName/ path in the distribution."
+        }
+        check(sampleIn(listOf("SnippetVeil/lib/plugin.jar!/com/snippetveil/plugin/CopyAnonymizedAction.class")).isEmpty()) {
+            "The rule flagged the plugin's own class. It is matching more than the sample."
+        }
+
+        sampleIn(paths).forEach { violations += "$it is in the distribution, and it is the sample" }
 
         report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
             buildString {
@@ -919,6 +968,7 @@ val assertBothPluginIconsShip by tasks.registering {
     val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
     val report = layout.buildDirectory.file("reports/trust/plugin-icons.txt")
     val required = listOf("META-INF/pluginIcon.svg", "META-INF/pluginIcon_dark.svg")
+    val libraryJar = libraryJarEntry
 
     inputs.file(distribution).withPropertyName("distribution")
     inputs.property("required", required)
@@ -928,7 +978,7 @@ val assertBothPluginIconsShip by tasks.registering {
         val icons = mutableMapOf<String, String>()
         ZipFile(distribution.get().asFile).use { zip ->
             zip.entries().asSequence()
-                .filter { !it.isDirectory && Regex("""[^/]+/lib/.+\.jar""").matches(it.name) }
+                .filter { !it.isDirectory && libraryJar.matches(it.name) }
                 .forEach { entry ->
                     ZipInputStream(zip.getInputStream(entry)).use { jar ->
                         generateSequence { jar.nextEntry }
@@ -938,23 +988,50 @@ val assertBothPluginIconsShip by tasks.registering {
                 }
         }
 
+        /** Everything wrong with one icon. */
+        fun problemsWith(name: String, svg: String): List<String> = buildList {
+            if (!Regex("""viewBox\s*=\s*"0 0 40 40"""").containsMatchIn(svg)) {
+                add("$name is not drawn on a 40x40 viewBox")
+            }
+            if (Regex("""<text\b""").containsMatchIn(svg)) {
+                add("$name carries text, and a logo may not merely repeat the plugin name")
+            }
+            if (Regex("""<image\b""").containsMatchIn(svg)) {
+                add("$name embeds a raster, which does not scale to the sizes the IDE asks for")
+            }
+        }
+
+        fun coloursIn(svg: String) = Regex("""#[0-9A-Fa-f]{6}""").findAll(svg).map { it.value.uppercase() }.toSet()
+
+        // Every rule is run against something it must flag, and against something it must not,
+        // before any of them is pointed at the real mark. Four rules that have never gone red are
+        // four rules a typo turns into a permanent pass.
+        val fixture = """<svg viewBox="0 0 40 40"><rect fill="#6C707E" x="2" y="2" width="8" height="4"/></svg>"""
+
+        check(problemsWith("fixture", fixture).isEmpty()) {
+            "The rules flagged a well-formed icon: ${problemsWith("fixture", fixture)}"
+        }
+        check(problemsWith("fixture", fixture.replace("0 0 40 40", "0 0 32 32")).size == 1) {
+            "The viewBox rule did not flag a 32x32 icon, so the size is not being checked."
+        }
+        check(problemsWith("fixture", fixture.replace("<rect", "<text")).size == 1) {
+            "The wordmark rule did not flag a <text> element. Nothing stops the mark becoming a wordmark."
+        }
+        check(problemsWith("fixture", fixture.replace("<rect", "<image")).size == 1) {
+            "The raster rule did not flag an <image> element."
+        }
+        check(coloursIn("""a #6c707E b #7B61FF""") == setOf("#6C707E", "#7B61FF")) {
+            "The colour reader is case-sensitive or is not reading hex colours at all, so two icons " +
+                "spelling one colour differently would read as contrasting."
+        }
+
         val violations = mutableListOf<String>()
 
         required.filterNot { it in icons }.forEach {
             violations += "$it is not in the distribution"
         }
 
-        icons.forEach { (name, svg) ->
-            if (!Regex("""viewBox\s*=\s*"0 0 40 40"""").containsMatchIn(svg)) {
-                violations += "$name is not drawn on a 40x40 viewBox"
-            }
-            if (Regex("""<text\b""").containsMatchIn(svg)) {
-                violations += "$name carries text, and a logo may not merely repeat the plugin name"
-            }
-            if (Regex("""<image\b""").containsMatchIn(svg)) {
-                violations += "$name embeds a raster, which does not scale to the sizes the IDE asks for"
-            }
-        }
+        icons.forEach { (name, svg) -> violations += problemsWith(name, svg) }
 
         if (icons.size == required.size) {
             val (light, dark) = required.map { icons.getValue(it) }
@@ -965,7 +1042,6 @@ val assertBothPluginIconsShip by tasks.registering {
                 violations += "pluginIcon_dark.svg is byte-identical to pluginIcon.svg, so the dark IDE gets the light mark"
             }
 
-            fun coloursIn(svg: String) = Regex("""#[0-9A-Fa-f]{6}""").findAll(svg).map { it.value.uppercase() }.toSet()
             val shared = coloursIn(light) intersect coloursIn(dark)
             if (shared.isNotEmpty()) {
                 violations += "the two icons share the colours $shared; at 40 px the distinction is the contrast"
@@ -994,6 +1070,138 @@ val assertBothPluginIconsShip by tasks.registering {
 tasks.named("check") {
     dependsOn(assertTheDemoIsNotShipped)
     dependsOn(assertBothPluginIconsShip)
+}
+
+/**
+ * Fails if a roadmap appears in the README, the listing copy, or the change notes.
+ *
+ * **A live commit history is evidence of maintenance; a roadmap is a promise about it.** The
+ * discipline is never to make a claim a counterexample can kill, and a solo hobby v1 that misses a
+ * published roadmap item inflicts precisely that wound on a product whose entire position is trust.
+ *
+ * Status is not a roadmap and is not touched here: *"the plugin is not yet published"* is a fact
+ * about today, and *"work in progress is tracked in this repository's issues"* points at a list that
+ * is already public and already qualified. What is banned is the sentence that commits.
+ *
+ * **The change notes are read out of the built distribution, not out of `plugin.xml`**, and that is
+ * the whole reason this task lives in `:plugin` rather than beside the other repository-wide rules.
+ * The descriptor is patched at build time — the description above is set from README.md in Gradle
+ * and appears nowhere in the checked-in file — so a rule that read the source descriptor would be
+ * blind to change notes written the same way, which is the way this build has just established.
+ *
+ * There are no change notes yet, in either place. The rule is not vacuous meanwhile, because the
+ * README always exists; CHANGELOG.md is declared as an input so that adding one invalidates this
+ * task rather than leaving it `UP-TO-DATE` over a file it has never read.
+ */
+val assertNoRoadmapIsPublished by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the README, the listing copy or the change notes promise future work."
+
+    val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    val readme = layout.settingsDirectory.file("README.md")
+    val changelog = layout.settingsDirectory.file("CHANGELOG.md")
+    val report = layout.buildDirectory.file("reports/trust/no-roadmap.txt")
+    val libraryJar = libraryJarEntry
+
+    val promises = listOf(
+        "roadmap",
+        "coming soon",
+        "in a future release",
+        "in a future version",
+        "in an upcoming release",
+        "we plan to",
+        "we intend to",
+        "will be added",
+        "will be supported",
+        "is planned",
+        "are planned",
+    )
+
+    inputs.file(distribution).withPropertyName("distribution")
+    inputs.file(readme).withPropertyName("readme")
+
+    // `files` rather than `file`: CHANGELOG.md does not exist, and an input that refused to be
+    // declared until it did would be an input nobody remembers to declare on the day it arrives.
+    inputs.files(changelog).withPropertyName("changelog")
+    inputs.property("promises", promises)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        // Word by word and rejoined on `\s+`, for the reason the phrase ban is: a phrase escaped
+        // whole quotes its own separator and then matches only where the prose happens not to wrap.
+        fun promisesIn(text: String): List<String> = promises.filter { promise ->
+            val pattern = promise.split(" ").joinToString("""\s+""") { Regex.escape(it) }
+            Regex("""\b$pattern\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        }
+
+        check(promisesIn("Java support is planned for the next release.").isNotEmpty()) {
+            "The rule failed to flag a promise about future work. Nothing is being guarded."
+        }
+        check(promisesIn("A roadmap\nis a promise").isNotEmpty()) {
+            "The rule missed a phrase across a line wrap, which is how prose is written."
+        }
+        check(promisesIn("The plugin is not yet published to the JetBrains Marketplace.").isEmpty()) {
+            "The rule flagged a statement of status. Saying what today is must stay legal."
+        }
+
+        // The descriptor as it ships, for the change notes. Same walk as the two rules above; the
+        // entry pattern is the one `libraryJarEntry` spells, so the three cannot drift apart on the
+        // one thing that would silently narrow all of them.
+        val descriptors = mutableMapOf<String, String>()
+        ZipFile(distribution.get().asFile).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory && libraryJar.matches(it.name) }
+                .forEach { entry ->
+                    ZipInputStream(zip.getInputStream(entry)).use { jar ->
+                        generateSequence { jar.nextEntry }
+                            .filter { it.name == "META-INF/plugin.xml" }
+                            .forEach { descriptors["${entry.name}!/${it.name}"] = jar.readBytes().decodeToString() }
+                    }
+                }
+        }
+        check(descriptors.size == 1) {
+            "The distribution has ${descriptors.size} plugin descriptors: ${descriptors.keys}."
+        }
+        val (where, descriptor) = descriptors.entries.single()
+
+        val changeNotes = Regex("""<change-notes>(.*?)</change-notes>""", RegexOption.DOT_MATCHES_ALL)
+            .find(descriptor)?.groupValues?.get(1)
+
+        // The listing copy is the block inside README.md, so reading the README covers both.
+        val surfaces = buildMap {
+            put("README.md", readme.asFile.readText())
+            if (changelog.asFile.exists()) put("CHANGELOG.md", changelog.asFile.readText())
+            if (changeNotes != null) put("$where <change-notes>", changeNotes)
+        }
+
+        val violations = surfaces.flatMap { (name, text) ->
+            promisesIn(text).map { "$name promises \"$it\"" }
+        }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Surfaces read: ${surfaces.keys.joinToString(", ")}")
+                appendLine("None of them may promise: ${promises.joinToString(", ")}")
+                appendLine()
+                appendLine("The listing copy is the block inside README.md, so reading the README covers both.")
+                if (changeNotes == null) {
+                    appendLine("The shipped descriptor carries no change notes yet; this reads them the day it does.")
+                }
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "A live commit history is evidence of maintenance; a roadmap is a promise about it, " +
+                    "and a missed one wounds the only thing this product sells:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(assertNoRoadmapIsPublished)
 }
 
 // ---------------------------------------------------------------------------------------------
