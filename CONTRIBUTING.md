@@ -536,6 +536,159 @@ eye, and these files are read by people deciding whether to trust the build. Wha
 does, and a rule that guessed at it would be the kind of noise that teaches people to suppress a
 check.
 
+## The publication checks
+
+Everything the Marketplace listing needs, other than the plugin itself, is in this repository — and
+five more Gradle tasks decide whether it still says what it is supposed to.
+
+**The Marketplace `<description>` and the README opening are the same strings**, not two texts
+saying the same thing. Two differently-worded statements of one claim invite *which one is true*,
+and on a plugin whose entire moat is trust that question costs more than the tailoring it buys.
+
+So README.md is the one copy. The block between its two `<!-- listing copy -->` markers is rendered
+to HTML by a small fail-closed renderer in `plugin/build.gradle.kts` and patched into the descriptor
+— which carries **no `<description>` element of its own**, so the second copy cannot be written.
+
+The consequence is the point: **the Approval Guidelines now govern the README too.** No third-party
+brand references, no marketing adjectives, no unverifiable claims, English first, HTTPS links only.
+The strictest surface wins automatically, by construction rather than by discipline.
+
+| Check | Where | Covers |
+|---|---|---|
+| `assertTheListingCopyIsTheReadme` | `plugin/build.gradle.kts` | The description in the built distribution, word for word against README.md — plus the heading order, the 40-character floor, HTTPS-only links, the phrase ban and third-party brand names |
+| `assertNoBannedPhraseAppearsOnAnySurface` | root `build.gradle.kts` | Every Markdown file in the repository, every string literal in `:core` and `:plugin` main sources, and the descriptor's own menu strings |
+| `assertNoRoadmapIsPublished` | `plugin/build.gradle.kts` | README.md, CHANGELOG.md the day there is one, and the change notes in the built distribution |
+| `assertTheDemoIsNotShipped` | `plugin/build.gradle.kts` | `settings.gradle.kts`, and every path in the zip at both levels |
+| `assertBothPluginIconsShip` | `plugin/build.gradle.kts` | Both icons in the distribution: 40 × 40, no text, and a dark variant that is not a copy of the light one |
+
+All five run in `check`, and the listing one also gates `publishPlugin` directly — `publishPlugin`
+reaches `buildPlugin` without passing through `check`, so an upload could otherwise start on
+unverified copy.
+
+**Three of them read the built distribution rather than the checked-in files**, and the reason is
+the descriptor: it is patched at build time, so the description is set in Gradle and appears nowhere
+in `plugin.xml`. A rule that read the source descriptor would be blind to anything else written the
+same way — change notes first among them. The phrase list itself is an `extra` on the root project,
+read by both builds, for the reason the corpus sweep's task name is one: two lists would drift, and
+they would drift towards the strictest surface being checked against the laxest rule.
+
+### The banned phrases
+
+**The list is spelled once, in `bannedPhrases` in the root `build.gradle.kts`, and deliberately not
+repeated here.** A documentation file is one of the surfaces the check reads, so a ban list quoted
+into it fails the build on its own contents — which is not an awkwardness to work around but the
+rule working: there is no exception list, and a file exempted "because it is only explaining the
+rule" is exactly where a violation eventually hides.
+
+What is on it: eight phrases, and the inflections of the two that are verbs. Every one of them is a
+claim about an adversary's capability, and none of them is ours to make. **Copy here states the
+mechanism and never the category** — *"14 names replaced"* is a count of an operation; a verdict on
+whether the result is now fit to send is a verdict about an attacker we have never met.
+
+One entry is a past participle whose plain noun form is *not* banned, and the asymmetry is
+deliberate: THREAT-MODEL.md turns on a sentence saying what actually holds the no-network claim up,
+and that sentence needs the noun. Banning it too would be the kind of noise that teaches people to
+suppress a check.
+
+**Markdown is read whole; Kotlin is read for its string literals only.** The comments in this
+codebase quote banned phrases in order to explain the ban, and a rule that read them would fail the
+build over its own rationale. Telling the two apart needs a scanner rather than a pattern —
+stripping line comments with a regular expression takes the `//` out of `https://` with it — so
+there is a small state machine over Kotlin's comments, strings, raw strings and character literals,
+exercised against a fixture carrying all four before it is pointed at anything real.
+
+### No roadmap, anywhere
+
+Not in the README, not in the listing, not in the change notes. **A live commit history is evidence
+of maintenance; a roadmap is a promise about it** — and a solo hobby v1 that misses a published
+roadmap item wounds precisely the thing this product sells. Status is not a roadmap and stays legal:
+*"the plugin is not yet published"* is a fact about today.
+
+### `demo/`, and the screenshots
+
+[`demo/`](demo/README.md) is the invented, JDK-only sample the Marketplace screenshots are shot
+from, committed so the shots are reproducible at any commit. **It is not a Gradle subproject** — the
+build is fixed at `:core` + `:plugin`, and the release asserts the shipped classpath holds `:core`
+and nothing else — so it is loose source, opened as its own IDEA project, and never on the
+distribution's path. [`docs/screenshots/README.md`](docs/screenshots/README.md) lists the five shots
+and the selection each is taken from.
+
+## Signing off: the DCO, and deliberately no CLA
+
+Every commit needs a `Signed-off-by` line. Git writes one for you:
+
+```
+git commit -s
+```
+
+That line is an assertion under the [Developer Certificate of Origin 1.1](https://developercertificate.org/),
+reproduced in full at the bottom of this section. In one sentence: *you have the right to submit
+this, under this project's licence.*
+
+**There is no CLA, and that is a decision rather than an omission.**
+
+A contributor licence agreement exists to solve a problem this project does not have. Apache-2.0 §5
+already states that a contribution intentionally submitted for inclusion is licensed under these
+same terms unless you say otherwise — **inbound is outbound, in the licence itself, with nothing to
+sign.** And Apache-2.0 is permissive, so the relicensing freedom a CLA is usually collected for is
+already granted to everyone, maintainer included: nothing here is waiting on a signature to be
+reused in a proprietary product.
+
+CLAs are for the *copyleft* open-core shape — a GPL project whose owner wants to ship a proprietary
+edition needs rights the GPL does not give them, so they collect them one contributor at a time.
+Ask for one here and you buy nothing that is not already granted, at the cost of a signing step on
+every pull request. That step is measurably the biggest deterrent to small contributions, and small
+contributions are the ones this repository most wants: a typo in a threat model, a fixture for a
+shape the anonymiser gets wrong.
+
+**What the DCO adds is the one thing §5 leaves out: an explicit right-to-submit assertion.** §5 says
+what licence a contribution arrives under; it says nothing about whether the person submitting it
+was entitled to. That gap used to be theoretical. It is not now — **AI-authored pull requests are
+routine**, and "where did this code come from" is a question a public repository gets asked. The DCO
+answers it at the point of the commit, for the price of one flag.
+
+**Nothing enforces this mechanically**, and that is worth stating in a file full of checks that do.
+There is no sign-off bot and no CI gate; an unsigned commit is caught in review or not at all. A
+missing `Signed-off-by` is a thing to fix with `git commit --amend -s`, not a thing to argue about.
+
+### Developer Certificate of Origin 1.1
+
+```
+Developer Certificate of Origin
+Version 1.1
+
+Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications, whether created in whole or in part
+    by me, under the same license (unless I am permitted to submit
+    under a different license), as indicated in the file; or
+
+(c) The contribution was provided directly to me by some other
+    person who certified (a), (b) or (c) and I have not modified
+    it.
+
+(d) I understand and agree that this project and the contribution
+    are public and that a record of the contribution (including all
+    personal information I submit with it, including my sign-off) is
+    maintained indefinitely and may be redistributed consistent with
+    this project and the open source license(s) involved.
+```
+
 ## Inbound dependency policy
 
 Today the shipped distribution contains no third-party code at all: `:core` has zero runtime

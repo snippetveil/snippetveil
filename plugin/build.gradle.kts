@@ -91,11 +91,147 @@ kotlin {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// The listing copy
+//
+// **The Marketplace `<description>` and the README opening are the same strings, not two texts
+// saying the same thing.** The reasoning is drift: two differently-worded statements of the same
+// claim invite *which one is true*, and on a plugin whose entire moat is trust that question is
+// more expensive than the tailoring it buys.
+//
+// README.md is the one copy. The block between its two `listing copy` markers is rendered to HTML
+// here and patched into the descriptor, so the descriptor cannot be edited into a second version of
+// itself — `plugin.xml` carries no `<description>` at all. `assertTheListingCopyIsTheReadme` below
+// reads the description back out of the built distribution and asserts it is still that block.
+//
+// Consequence, by construction rather than discipline: **the Approval Guidelines now govern the
+// README too** — no third-party brand references, no marketing adjectives, no unverifiable claims,
+// English first, HTTPS links only. The strictest surface wins automatically.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Every jar in the built distribution's `lib/`.
+ *
+ * Spelled once because three rules below walk the same zip looking for different files inside it,
+ * and a narrowing applied to one copy of this pattern would quietly stop the other two reading a
+ * directory without any of them going red. `scanDistributionForBannedReferences` keeps a pattern of
+ * its own on purpose: it matches everything in `lib/` rather than only the jars, because a file in
+ * there that is *not* an archive is a hole in that scan rather than a file to skip.
+ */
+val libraryJarEntry = Regex("""[^/]+/lib/.+\.jar""")
+
+/**
+ * The markers README.md fences the shared block with.
+ *
+ * Spelled once and read by both the renderer below and the assertion at the bottom of this file,
+ * because a rename that touched only one of them would leave a check reading an empty block — and a
+ * check that cannot fail is worse than no check, since it reads as a guarantee.
+ *
+ * The *extraction* around them is written twice, once here at configuration time and once inside
+ * that task, because a task action may not call back into the script without dragging the script
+ * into the configuration cache. Both spellings refuse an empty block for that reason.
+ */
+val listingCopyStart = "<!-- listing copy -->"
+val listingCopyEnd = "<!-- listing copy end -->"
+
+/**
+ * The shared block, as Markdown.
+ *
+ * Read through `providers.fileContents` rather than with `File.readText`, so that Gradle records
+ * README.md as an input of the *configuration* and an edit to the copy re-patches the descriptor
+ * instead of hitting a stale configuration cache.
+ */
+val listingCopyMarkdown: String = run {
+    val readme = providers.fileContents(layout.settingsDirectory.file("README.md")).asText.get()
+    val start = readme.indexOf(listingCopyStart)
+    val end = readme.indexOf(listingCopyEnd)
+    check(start >= 0 && end > start) {
+        "README.md must fence the listing copy between `$listingCopyStart` and `$listingCopyEnd`."
+    }
+    readme.substring(start + listingCopyStart.length, end).trim()
+}
+
+/**
+ * Renders the shared block to the HTML the Marketplace shows.
+ *
+ * **Deliberately tiny, and deliberately fail-closed.** It knows the four constructs the block is
+ * written in — paragraph, `###` heading, `-` list, and the `**bold**` / `*italic*` / `` `code` ``
+ * spans — and throws on anything else rather than passing it through as literal text. A renderer
+ * that shrugged at an unknown construct would ship a stray asterisk to every IDE that shows the
+ * listing, and the listing is the one surface nobody reviews after the first upload.
+ *
+ * A Markdown library would be a build dependency to avoid one screenful of code, on a build whose
+ * dependencies are themselves part of the claim.
+ */
+fun markdownToHtml(markdown: String): String {
+    fun inline(text: String): String {
+        val rendered = text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace(Regex("""`([^`]+)`"""), "<code>$1</code>")
+            .replace(Regex("""\*\*([^*]+)\*\*"""), "<b>$1</b>")
+            .replace(Regex("""\*([^*]+)\*"""), "<i>$1</i>")
+
+        val unconsumed = Regex("""[`*_\[\]]""").find(rendered)
+        check(unconsumed == null) {
+            "The listing copy uses a construct this renderer does not know, at " +
+                "'${rendered.substring(maxOf(0, unconsumed!!.range.first - 30), unconsumed.range.last + 1)}'. " +
+                "Teach the renderer or change the copy; do not let it ship as literal text."
+        }
+        return rendered
+    }
+
+    return markdown.trim().split(Regex("""\n[ \t]*\n""")).joinToString("\n") { block ->
+        val lines = block.trim().lines()
+        when {
+            lines.first().startsWith("### ") -> {
+                check(lines.size == 1) { "A heading is one line; this one is ${lines.size}: $block" }
+                "<h3>${inline(lines.first().removePrefix("### "))}</h3>"
+            }
+
+            lines.first().startsWith("- ") -> {
+                val items = mutableListOf<StringBuilder>()
+                lines.forEach { line ->
+                    if (line.startsWith("- ")) {
+                        items += StringBuilder(line.removePrefix("- "))
+                    } else {
+                        // A wrapped continuation of the item above. Indentation is what says so, and
+                        // an unindented line here means the block is not the list it looked like.
+                        check(line.startsWith("  ")) { "A list item's continuation must be indented: $line" }
+                        items.last().append(' ').append(line.trim())
+                    }
+                }
+                items.joinToString("\n", "<ul>\n", "\n</ul>") { "<li>${inline(it.toString())}</li>" }
+            }
+
+            else -> {
+                // Nothing that looks like another construct may reach the paragraph branch: a `>`
+                // quote or a numbered list rendered as a run-on paragraph is exactly the silent
+                // pass-through this renderer exists to refuse.
+                lines.forEach { line ->
+                    check(!Regex("""^([#>|]|\d+\.|- )""").containsMatchIn(line)) {
+                        "The listing copy uses a block construct this renderer does not know: $line"
+                    }
+                }
+                "<p>${inline(lines.joinToString(" ") { it.trim() })}</p>"
+            }
+        }
+    }
+}
+
+/** The descriptor's `<description>`, and the only place it is produced. */
+val listingCopyHtml: String = markdownToHtml(listingCopyMarkdown)
+
 intellijPlatform {
     // The distribution is SnippetVeil, not "plugin" — the subproject name must not name the product.
     projectName = "SnippetVeil"
 
     pluginConfiguration {
+        // Generated from README.md; see the listing-copy section above. Assigning it here is what
+        // makes `plugin.xml` free to carry no `<description>` of its own.
+        description = listingCopyHtml
+
         ideaVersion {
             sinceBuild = "241"
 
@@ -414,6 +550,682 @@ tasks.named("check") {
     // and a pull request actually run. Without it, the one check that covers bundled code would be
     // the one check nobody runs before pushing.
     dependsOn(scanDistributionForBannedReferences)
+}
+
+
+/**
+ * Fails if the description in the built distribution is not the listing-copy block in README.md,
+ * word for word — and if that block breaks one of the Approval Guidelines it is now under.
+ *
+ * **The identity is generated, so this check exists to catch the generator being bypassed**, not to
+ * re-verify an assignment two lines apart. The failure it is written against is the ordinary one: a
+ * `<description>` put back into `plugin.xml` and the patch quietly unwired, leaving a listing that
+ * reads differently from the README while both look authoritative. So it reads the description out
+ * of the zip that gets uploaded, the same input `scanDistributionForBannedReferences` reads, and
+ * compares it against README.md by a *second, independent* derivation: tags stripped on one side,
+ * Markdown markers stripped on the other, both reduced to a stream of words. A renderer that
+ * silently dropped a bullet fails here too.
+ *
+ * The three guideline rules it can actually decide are checked on the same text, because this is
+ * where the shipped description is already open: no banned phrase, no third-party brand, and
+ * HTTPS-only links. `assertNoBannedPhraseAppearsOnAnySurface` in the root build covers the phrase
+ * ban across every other surface; the rest of the guidelines are judgement, and a check that guessed
+ * at them would be the kind of noise that teaches people to suppress a check.
+ */
+val assertTheListingCopyIsTheReadme by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the shipped description is not the listing-copy block in README.md."
+
+    val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    val readme = layout.settingsDirectory.file("README.md")
+    val report = layout.buildDirectory.file("reports/trust/listing-copy.txt")
+
+    // Bound here rather than read inside the action: a task action that reaches back into the script
+    // for a top-level property drags the script into the configuration cache with it.
+    val startMarker = listingCopyStart
+    val endMarker = listingCopyEnd
+    val libraryJar = libraryJarEntry
+
+    /**
+     * The headings the block carries, in the order it carries them.
+     *
+     * **This is the fold rule, asserted.** The value proposition and *How it works* are above both
+     * negative lists; the negative lists ship full, in this order, below them. Every alternative
+     * ordering silently re-cuts a closed decision, so the order is pinned rather than left to
+     * whoever next edits the copy.
+     */
+    val headings = listOf(
+        "How it works",
+        "No network",
+        "What SnippetVeil does not hide",
+        "What it does not preserve",
+        "Non-goals",
+        "Source",
+    )
+
+    /**
+     * Names this copy would plausibly reach for and may not use.
+     *
+     * **Not a trademark database, and it does not pretend to be one.** The guideline is "no
+     * third-party brand references"; what is checkable is a short list of the names a sentence about
+     * pasting Java into an AI chat would actually be tempted by — the assistants, and the editors
+     * that are not the one this plugin ships to. IDEA, Android Studio and the JetBrains Marketplace
+     * are the host platform rather than a third party, and are absent for that reason.
+     */
+    val thirdPartyBrands = listOf(
+        "ChatGPT", "OpenAI", "Claude", "Anthropic", "Copilot", "Gemini", "Bard", "Llama",
+        "Cursor", "VS Code", "Visual Studio", "Eclipse", "NetBeans", "Vim",
+        "Spring", "Lombok", "Hibernate", "Jackson", "Guava",
+    )
+
+    // The listing is the one surface the phrase ban exists for, so it is checked here as well as in
+    // the root build's sweep over the repository — on the shipped bytes rather than on a file that
+    // is asserted, elsewhere, to be the same as them.
+    //
+    // **The list itself comes from the root build**, the way the corpus sweep's task name does. Two
+    // lists would drift, and the direction they would drift in is the bad one: the strictest surface
+    // checked against the laxest rule, with both checks green.
+    @Suppress("UNCHECKED_CAST")
+    val bannedPhrases = rootProject.extra["bannedPhrases"] as List<String>
+
+    inputs.file(distribution).withPropertyName("distribution")
+    inputs.file(readme).withPropertyName("readme")
+    inputs.property("headings", headings)
+    inputs.property("thirdPartyBrands", thirdPartyBrands)
+    inputs.property("bannedPhrases", bannedPhrases)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        /**
+         * Every word of an HTML fragment, tags and entities resolved away.
+         *
+         * **A block tag is whitespace and an inline tag is not**, and the distinction is
+         * load-bearing rather than tidiness: `<b>Copy Anonymized</b>.` is one word ending in a full
+         * stop, exactly as `**Copy Anonymized**.` is on the Markdown side. Collapsing every tag to a
+         * space would put the stop in a word of its own and report a drift on copy that had not
+         * moved — and a check that cries wolf is a check people learn to re-run until it is green.
+         *
+         * A tag this rule cannot classify throws, rather than being guessed at in either direction.
+         */
+        fun wordsOfHtml(html: String): List<String> {
+            val text = html
+                .replace(Regex("""</?(p|h[1-6]|ul|ol|li|br|blockquote|pre)\b[^>]*>"""), " ")
+                .replace(Regex("""</?(b|i|em|strong|code|a|u|span)\b[^>]*>"""), "")
+            check("<" !in text.replace("&lt;", "")) {
+                "The description uses an HTML tag this check cannot classify as block or inline: " +
+                    Regex("""<[^>]+>""").find(text)?.value
+            }
+            return text
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .split(Regex("""\s+"""))
+                .filter { it.isNotBlank() }
+        }
+
+        /** Every word of a Markdown fragment, markers stripped away. */
+        fun wordsOfMarkdown(markdown: String): List<String> =
+            markdown.replace(Regex("""(?m)^###\s+"""), "")
+                .replace(Regex("""(?m)^-\s+"""), "")
+                .replace(Regex("""[*`]"""), "")
+                .split(Regex("""\s+"""))
+                .filter { it.isNotBlank() }
+
+        // Both derivations prove they can agree, and prove they can disagree, before either is
+        // pointed at the real thing. A comparison whose red path is never exercised decays into a
+        // check that always passes.
+        val sampleHtml = "<p>One <b>two</b>. &amp; <code>three</code></p><ul><li>four</li></ul>"
+        val sampleMarkdown = "One **two**. & `three`\n\n- four"
+        val sampleWords = listOf("One", "two.", "&", "three", "four")
+
+        check(wordsOfHtml(sampleHtml) == sampleWords) {
+            "The HTML side read ${wordsOfHtml(sampleHtml)} out of a fragment whose words are $sampleWords."
+        }
+        check(wordsOfMarkdown(sampleMarkdown) == sampleWords) {
+            "The Markdown side read ${wordsOfMarkdown(sampleMarkdown)} out of a block whose words are $sampleWords."
+        }
+        check(wordsOfHtml(sampleHtml.replace("four", "five")) != wordsOfMarkdown(sampleMarkdown)) {
+            "The comparison called two different texts equal. It is checking nothing."
+        }
+
+        val readmeText = readme.asFile.readText()
+        val start = readmeText.indexOf(startMarker)
+        val end = readmeText.indexOf(endMarker)
+        check(start >= 0 && end > start) {
+            "README.md must fence the listing copy between `$startMarker` and `$endMarker`."
+        }
+        val block = readmeText.substring(start + startMarker.length, end).trim()
+        check(block.isNotEmpty()) { "The listing-copy block in README.md is empty. Nothing was checked." }
+
+        // The descriptor as it ships: inside the plugin jar, inside the zip that gets uploaded.
+        val descriptors = mutableMapOf<String, String>()
+        ZipFile(distribution.get().asFile).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory && libraryJar.matches(it.name) }
+                .forEach { entry ->
+                    ZipInputStream(zip.getInputStream(entry)).use { jar ->
+                        generateSequence { jar.nextEntry }
+                            .filter { it.name == "META-INF/plugin.xml" }
+                            .forEach { descriptors["${entry.name}!/${it.name}"] = jar.readBytes().decodeToString() }
+                    }
+                }
+        }
+
+        check(descriptors.size == 1) {
+            "The distribution has ${descriptors.size} plugin descriptors: ${descriptors.keys}. " +
+                "Exactly one of them is the listing, and this check cannot tell which."
+        }
+        val (where, descriptor) = descriptors.entries.single()
+
+        val shipped = Regex("""<description><!\[CDATA\[(.*?)]]></description>""", RegexOption.DOT_MATCHES_ALL)
+            .find(descriptor)?.groupValues?.get(1)
+            ?: throw GradleException("$where carries no <description>. The listing copy is not being patched in.")
+
+        val shippedWords = wordsOfHtml(shipped)
+        val readmeWords = wordsOfMarkdown(block)
+
+        if (shippedWords != readmeWords) {
+            val at = shippedWords.zip(readmeWords).indexOfFirst { (a, b) -> a != b }
+                .let { if (it >= 0) it else minOf(shippedWords.size, readmeWords.size) }
+            throw GradleException(
+                "The Marketplace description and the README opening are the same strings, or they are " +
+                    "two texts inviting the question of which one is true. They have drifted, at word " +
+                    "${at + 1}:\n" +
+                    "  shipped: ${shippedWords.drop(maxOf(0, at - 6)).take(12).joinToString(" ")}\n" +
+                    "  README:  ${readmeWords.drop(maxOf(0, at - 6)).take(12).joinToString(" ")}\n" +
+                    "README.md is the one copy; $where is generated from it."
+            )
+        }
+
+        val violations = mutableListOf<String>()
+
+        val shippedHeadings = Regex("""<h3>(.*?)</h3>""").findAll(shipped).map { it.groupValues[1] }.toList()
+        if (shippedHeadings != headings) {
+            violations += "the headings are $shippedHeadings, and the fold rule pins them to $headings"
+        }
+
+        // The value proposition is above the fold by being first: the negative lists follow it,
+        // full and verbatim, and nothing is allowed to overtake it.
+        if (!shipped.trimStart().startsWith("<p>")) {
+            violations += "the description does not open with the value proposition"
+        }
+
+        // The Marketplace rejects a description shorter than this, and a listing that reached the
+        // floor by accident would mean the copy had collapsed to a sentence.
+        val text = shippedWords.joinToString(" ")
+        if (text.length < 40) violations += "the description is ${text.length} characters; 40 is the floor"
+
+        Regex("""\bhttp://\S+""").findAll(shipped).forEach {
+            violations += "${it.value} is not HTTPS"
+        }
+
+        // Word by word and rejoined on `\s+`, character for character as the root build matches it:
+        // the two rules read one list, so they had better read it the same way.
+        bannedPhrases.filter { phrase ->
+            val pattern = phrase.split(" ").joinToString("""\s+""") { Regex.escape(it) }
+            Regex("""\b$pattern\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        }.forEach {
+            violations += "\"$it\" is banned from every surface: it is a claim about an adversary's " +
+                "capability, and the copy states the mechanism rather than the category"
+        }
+
+        thirdPartyBrands.filter { Regex("""\b${Regex.escape(it)}\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) }
+            .forEach { violations += "\"$it\" is a third-party brand reference" }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("$where — description: ${shippedWords.size} words, ${text.length} characters")
+                appendLine("Identical, word for word, to the listing-copy block in README.md.")
+                appendLine()
+                appendLine("Headings, in order:")
+                shippedHeadings.forEach { appendLine("  $it") }
+                appendLine()
+                appendLine("Checked for: ${bannedPhrases.size} banned phrases, ${thirdPartyBrands.size} third-party brands, HTTPS-only links.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "The shipped description breaks the Approval Guidelines the README is now under:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(assertTheListingCopyIsTheReadme)
+}
+
+// An upload must not start while the listing is unverified, for the reason the banned-reference
+// scan gets the same edge: `publishPlugin` reaches `buildPlugin` without passing through `check`.
+tasks.named("publishPlugin") {
+    dependsOn(assertTheListingCopyIsTheReadme)
+}
+
+
+/**
+ * Fails if `demo/` is a Gradle subproject, or if anything from it reaches the distribution.
+ *
+ * **`demo/` is loose source, and that is a constraint rather than laziness.** The build is fixed at
+ * `:core` + `:plugin` and the release asserts that the shipped runtime classpath holds `:core` and
+ * nothing else; a third subproject perturbs both. So the sample the Marketplace screenshots are shot
+ * from is a directory of `.java` files opened as its own IDEA project, and never on the
+ * distribution's path.
+ *
+ * Two layers, because the two ways it could stop being true are unrelated. `settings.gradle.kts`
+ * says whether Gradle knows about it. The zip says whether anything from it is being uploaded — and
+ * the second is checked against the demo's own root package, read out of the demo sources rather
+ * than written down here, so that renaming the sample cannot leave the rule guarding a name nothing
+ * uses any more.
+ */
+val assertTheDemoIsNotShipped by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if demo/ is a Gradle subproject or appears in the built distribution."
+
+    val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    val settings = layout.settingsDirectory.file("settings.gradle.kts")
+    val demo = layout.settingsDirectory.dir("demo")
+    val demoSources = fileTree(demo) { include("**/*.java") }
+    val demoBuildFiles = fileTree(demo) {
+        include("**/build.gradle", "**/build.gradle.kts", "**/settings.gradle", "**/settings.gradle.kts", "**/pom.xml")
+    }
+    val report = layout.buildDirectory.file("reports/trust/demo-is-not-shipped.txt")
+    val demoName = demo.asFile.name
+
+    inputs.file(distribution).withPropertyName("distribution")
+    inputs.file(settings).withPropertyName("settings")
+    inputs.files(demoSources).withPropertyName("demoSources")
+    inputs.files(demoBuildFiles).withPropertyName("demoBuildFiles")
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        val sources = demoSources.files.sortedBy { it.path }
+
+        // A rule that passes because the thing it guards is missing is not a pass: the screenshots
+        // are reproducible only while the project they were shot from is here.
+        check(sources.isNotEmpty()) {
+            "There are no Java sources under ${demo.asFile}. The screenshots have nothing to be shot from."
+        }
+
+        val violations = mutableListOf<String>()
+
+        demoBuildFiles.files.sortedBy { it.path }.forEach {
+            violations += "${it.name} is in $demoName/, which makes it a build rather than loose source"
+        }
+
+        // `include(":core", ":plugin")` and nothing else. Read as text rather than off the project
+        // model, so that the rule states what settings.gradle.kts says rather than what Gradle made
+        // of it — the file is the thing a reader checks.
+        val includes = Regex("""(?m)^\s*include\s*\(.*$""").findAll(settings.asFile.readText()).map { it.value }.toList()
+        check(includes.isNotEmpty()) {
+            "No `include(` line was read out of ${settings.asFile}. The subproject rule is checking nothing."
+        }
+        fun includesNaming(lines: List<String>) = lines.filter { demoName in it }
+
+        check(includesNaming(listOf("""include(":core", ":plugin", ":$demoName")""")).isNotEmpty()) {
+            "The rule failed to flag an include line naming the sample. Nothing is being guarded."
+        }
+        check(includesNaming(listOf("""include(":core", ":plugin")""")).isEmpty()) {
+            "The rule flagged the include line this build actually has. It is matching everything."
+        }
+
+        includesNaming(includes).forEach {
+            violations += "settings.gradle.kts includes the sample as a subproject: ${it.trim()}"
+        }
+
+        /**
+         * The demo's own root package, taken from its sources.
+         *
+         * Two segments — `com.harborlight` rather than `com` — because the first alone is every Java
+         * package in the distribution, and the pair is the part that is the sample's.
+         */
+        val rootPackages = sources.mapNotNull {
+            Regex("""(?m)^package\s+([\w.]+)\s*;""").find(it.readText())?.groupValues?.get(1)
+        }.map { it.split(".").take(2).joinToString(".") }.distinct()
+
+        check(rootPackages.size == 1) {
+            "The sample declares ${rootPackages.size} root packages ($rootPackages). This rule needs one to look for."
+        }
+        val rootPackage = rootPackages.single()
+
+        // Every path in the zip, at both levels: the distribution's own entries and the entries of
+        // the jars inside it. A `.java` file added to the plugin's resources by accident lands in the
+        // second, which is the level a top-level listing cannot see.
+        val paths = mutableListOf<String>()
+        ZipFile(distribution.get().asFile).use { zip ->
+            zip.entries().asSequence().filterNot { it.isDirectory }.forEach { entry ->
+                paths += entry.name
+                if (entry.name.endsWith(".jar")) {
+                    ZipInputStream(zip.getInputStream(entry)).use { jar ->
+                        generateSequence { jar.nextEntry }
+                            .filterNot { it.isDirectory }
+                            .forEach { paths += "${entry.name}!/${it.name}" }
+                    }
+                }
+            }
+        }
+
+        check(paths.isNotEmpty()) { "The distribution is empty. Nothing was checked." }
+
+        val packagePath = rootPackage.replace('.', '/')
+
+        fun sampleIn(entries: List<String>) =
+            entries.filter { "/$demoName/" in it || it.startsWith("$demoName/") || packagePath in it }
+
+        // The rule is shown to flag the sample at both levels of the zip, and to leave the plugin's
+        // own classes alone — a path rule that matched everything would report a violation nobody
+        // could act on, and one that matched nothing would be a permanent green.
+        check(sampleIn(listOf("SnippetVeil/lib/plugin.jar!/$packagePath/billing/Invoice.class")).size == 1) {
+            "The rule did not flag the sample's own package inside a jar, which is where it would land."
+        }
+        check(sampleIn(listOf("SnippetVeil/$demoName/Invoice.java", "$demoName/Invoice.java")).size == 2) {
+            "The rule did not flag a $demoName/ path in the distribution."
+        }
+        check(sampleIn(listOf("SnippetVeil/lib/plugin.jar!/com/snippetveil/plugin/CopyAnonymizedAction.class")).isEmpty()) {
+            "The rule flagged the plugin's own class. It is matching more than the sample."
+        }
+
+        sampleIn(paths).forEach { violations += "$it is in the distribution, and it is the sample" }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("$demoName/ — ${sources.size} Java sources, root package $rootPackage")
+                appendLine("Not a Gradle subproject: ${includes.joinToString("; ") { it.trim() }}")
+                appendLine("Not in the distribution: ${paths.size} entries read, at both levels of the zip.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "$demoName/ is loose source, opened as its own IDEA project, and never on the " +
+                    "distribution's path:\n" + violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+/**
+ * Fails if either plugin icon is missing from the distribution, or is the wrong sort of image.
+ *
+ * **`pluginIcon_dark.svg` is mandatory here, and the platform documentation calling it optional is
+ * the reason to say so.** The mark is grey bars with two of them recoloured — the substitution drawn
+ * literally — so at 40 px *the distinction is the accent contrast*. One light-tuned file on a dark
+ * IDE collapses into a generic "lines of code" glyph, which is the most crowded shape on the
+ * Marketplace. That is what the two-file rule and the differing-accents rule below are for.
+ *
+ * The geometry the icons are drawn to, since the failure message sends people here: a 40 × 40
+ * viewBox with 2 px of transparent padding, all content inside the middle 36 × 36. Light is
+ * `#6C707E` with a `#7B61FF` accent; dark is `#9DA0A8` with a `#9B84FF` accent.
+ *
+ * Neither may carry text. Best practice forbids a logo that merely repeats the plugin name, and a
+ * `<text>` element is the mechanical half of that rule — the half a check can decide.
+ */
+val assertBothPluginIconsShip by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if either plugin icon is missing from the distribution or is a wordmark."
+
+    val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    val report = layout.buildDirectory.file("reports/trust/plugin-icons.txt")
+    val required = listOf("META-INF/pluginIcon.svg", "META-INF/pluginIcon_dark.svg")
+    val libraryJar = libraryJarEntry
+
+    inputs.file(distribution).withPropertyName("distribution")
+    inputs.property("required", required)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        val icons = mutableMapOf<String, String>()
+        val shipped = mutableListOf<String>()
+        ZipFile(distribution.get().asFile).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory && libraryJar.matches(it.name) }
+                .forEach { entry ->
+                    ZipInputStream(zip.getInputStream(entry)).use { jar ->
+                        generateSequence { jar.nextEntry }
+                            .filterNot { it.isDirectory }
+                            .forEach { nested ->
+                                shipped += "${entry.name}!/${nested.name}"
+                                if (nested.name in required) icons[nested.name] = jar.readBytes().decodeToString()
+                            }
+                    }
+                }
+        }
+
+        check(shipped.isNotEmpty()) { "The distribution's jars are empty. Nothing was checked." }
+
+        /** Everything wrong with one icon. */
+        fun problemsWith(name: String, svg: String): List<String> = buildList {
+            if (!Regex("""viewBox\s*=\s*"0 0 40 40"""").containsMatchIn(svg)) {
+                add("$name is not drawn on a 40x40 viewBox")
+            }
+            if (Regex("""<text\b""").containsMatchIn(svg)) {
+                add("$name carries text, and a logo may not merely repeat the plugin name")
+            }
+            if (Regex("""<image\b""").containsMatchIn(svg)) {
+                add("$name embeds a raster, which does not scale to the sizes the IDE asks for")
+            }
+        }
+
+        fun coloursIn(svg: String) = Regex("""#[0-9A-Fa-f]{6}""").findAll(svg).map { it.value.uppercase() }.toSet()
+
+        // Every rule is run against something it must flag, and against something it must not,
+        // before any of them is pointed at the real mark. Four rules that have never gone red are
+        // four rules a typo turns into a permanent pass.
+        val fixture = """<svg viewBox="0 0 40 40"><rect fill="#6C707E" x="2" y="2" width="8" height="4"/></svg>"""
+
+        check(problemsWith("fixture", fixture).isEmpty()) {
+            "The rules flagged a well-formed icon: ${problemsWith("fixture", fixture)}"
+        }
+        check(problemsWith("fixture", fixture.replace("0 0 40 40", "0 0 32 32")).size == 1) {
+            "The viewBox rule did not flag a 32x32 icon, so the size is not being checked."
+        }
+        check(problemsWith("fixture", fixture.replace("<rect", "<text")).size == 1) {
+            "The wordmark rule did not flag a <text> element. Nothing stops the mark becoming a wordmark."
+        }
+        check(problemsWith("fixture", fixture.replace("<rect", "<image")).size == 1) {
+            "The raster rule did not flag an <image> element."
+        }
+        check(
+            Regex("""\.(png|jpg|jpeg|gif|webp|bmp|svg|ico)$""", RegexOption.IGNORE_CASE)
+                .containsMatchIn("a/b/Screenshot 2026-08-23.PNG")
+        ) {
+            "The picture rule does not match a capitalised extension, which is what a screenshot has."
+        }
+        check(coloursIn("""a #6c707E b #7B61FF""") == setOf("#6C707E", "#7B61FF")) {
+            "The colour reader is case-sensitive or is not reading hex colours at all, so two icons " +
+                "spelling one colour differently would read as contrasting."
+        }
+
+        val violations = mutableListOf<String>()
+
+        required.filterNot { it in icons }.forEach {
+            violations += "$it is not in the distribution"
+        }
+
+        icons.forEach { (name, svg) -> violations += problemsWith(name, svg) }
+
+        // **The mark is the only picture that ships, and this is what says so.** The near miss it
+        // guards is an ordinary one: the Marketplace screenshots are 1280x800 PNGs that have to live
+        // somewhere while they are being cut, and `plugin/src/main/resources/` is a directory a
+        // screenshot lands in without anybody deciding it should — from there it is in the jar, in
+        // the distribution, and on every user's disk, and nothing else here would have noticed.
+        //
+        // A picture this project genuinely wants to ship goes in `required` above, deliberately.
+        val pictures = Regex("""\.(png|jpg|jpeg|gif|webp|bmp|svg|ico)$""", RegexOption.IGNORE_CASE)
+        shipped.filter { pictures.containsMatchIn(it) && it.substringAfter("!/") !in required }
+            .forEach { violations += "$it is an image in the distribution, and it is not the mark" }
+
+        if (icons.size == required.size) {
+            val (light, dark) = required.map { icons.getValue(it) }
+
+            // A dark variant that is a copy of the light one is the failure the two-file rule exists
+            // to prevent, and it is the one a file listing cannot see.
+            if (light == dark) {
+                violations += "pluginIcon_dark.svg is byte-identical to pluginIcon.svg, so the dark IDE gets the light mark"
+            }
+
+            val shared = coloursIn(light) intersect coloursIn(dark)
+            if (shared.isNotEmpty()) {
+                violations += "the two icons share the colours $shared; at 40 px the distinction is the contrast"
+            }
+        }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Icons in the distribution: ${icons.keys.sorted().joinToString(", ")}")
+                appendLine("Files read: ${shipped.size}, of which images: ${shipped.count { pictures.containsMatchIn(it) }}")
+                icons.toSortedMap().forEach { (name, svg) ->
+                    val colours = Regex("""#[0-9A-Fa-f]{6}""").findAll(svg).map { it.value }.distinct().toList()
+                    appendLine("  $name — ${svg.toByteArray().size} bytes, colours ${colours.joinToString(", ")}")
+                }
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "The Marketplace mark is a 40x40 SVG pair, and the dark variant is mandatory rather " +
+                    "than optional:\n" + violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(assertTheDemoIsNotShipped)
+    dependsOn(assertBothPluginIconsShip)
+}
+
+/**
+ * Fails if a roadmap appears in the README, the listing copy, or the change notes.
+ *
+ * **A live commit history is evidence of maintenance; a roadmap is a promise about it.** The
+ * discipline is never to make a claim a counterexample can kill, and a solo hobby v1 that misses a
+ * published roadmap item inflicts precisely that wound on a product whose entire position is trust.
+ *
+ * Status is not a roadmap and is not touched here: *"the plugin is not yet published"* is a fact
+ * about today, and *"work in progress is tracked in this repository's issues"* points at a list that
+ * is already public and already qualified. What is banned is the sentence that commits.
+ *
+ * **The change notes are read out of the built distribution, not out of `plugin.xml`**, and that is
+ * the whole reason this task lives in `:plugin` rather than beside the other repository-wide rules.
+ * The descriptor is patched at build time — the description above is set from README.md in Gradle
+ * and appears nowhere in the checked-in file — so a rule that read the source descriptor would be
+ * blind to change notes written the same way, which is the way this build has just established.
+ *
+ * There are no change notes yet, in either place. The rule is not vacuous meanwhile, because the
+ * README always exists; CHANGELOG.md is declared as an input so that adding one invalidates this
+ * task rather than leaving it `UP-TO-DATE` over a file it has never read.
+ */
+val assertNoRoadmapIsPublished by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the README, the listing copy or the change notes promise future work."
+
+    val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    val readme = layout.settingsDirectory.file("README.md")
+    val changelog = layout.settingsDirectory.file("CHANGELOG.md")
+    val report = layout.buildDirectory.file("reports/trust/no-roadmap.txt")
+    val libraryJar = libraryJarEntry
+
+    val promises = listOf(
+        "roadmap",
+        "coming soon",
+        "in a future release",
+        "in a future version",
+        "in an upcoming release",
+        "we plan to",
+        "we intend to",
+        "will be added",
+        "will be supported",
+        "is planned",
+        "are planned",
+    )
+
+    inputs.file(distribution).withPropertyName("distribution")
+    inputs.file(readme).withPropertyName("readme")
+
+    // `files` rather than `file`: CHANGELOG.md does not exist, and an input that refused to be
+    // declared until it did would be an input nobody remembers to declare on the day it arrives.
+    inputs.files(changelog).withPropertyName("changelog")
+    inputs.property("promises", promises)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        // Word by word and rejoined on `\s+`, for the reason the phrase ban is: a phrase escaped
+        // whole quotes its own separator and then matches only where the prose happens not to wrap.
+        fun promisesIn(text: String): List<String> = promises.filter { promise ->
+            val pattern = promise.split(" ").joinToString("""\s+""") { Regex.escape(it) }
+            Regex("""\b$pattern\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        }
+
+        check(promisesIn("Java support is planned for the next release.").isNotEmpty()) {
+            "The rule failed to flag a promise about future work. Nothing is being guarded."
+        }
+        check(promisesIn("A roadmap\nis a promise").isNotEmpty()) {
+            "The rule missed a phrase across a line wrap, which is how prose is written."
+        }
+        check(promisesIn("The plugin is not yet published to the JetBrains Marketplace.").isEmpty()) {
+            "The rule flagged a statement of status. Saying what today is must stay legal."
+        }
+
+        // The descriptor as it ships, for the change notes. Same walk as the two rules above; the
+        // entry pattern is the one `libraryJarEntry` spells, so the three cannot drift apart on the
+        // one thing that would silently narrow all of them.
+        val descriptors = mutableMapOf<String, String>()
+        ZipFile(distribution.get().asFile).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory && libraryJar.matches(it.name) }
+                .forEach { entry ->
+                    ZipInputStream(zip.getInputStream(entry)).use { jar ->
+                        generateSequence { jar.nextEntry }
+                            .filter { it.name == "META-INF/plugin.xml" }
+                            .forEach { descriptors["${entry.name}!/${it.name}"] = jar.readBytes().decodeToString() }
+                    }
+                }
+        }
+        check(descriptors.size == 1) {
+            "The distribution has ${descriptors.size} plugin descriptors: ${descriptors.keys}."
+        }
+        val (where, descriptor) = descriptors.entries.single()
+
+        val changeNotes = Regex("""<change-notes>(.*?)</change-notes>""", RegexOption.DOT_MATCHES_ALL)
+            .find(descriptor)?.groupValues?.get(1)
+
+        // The listing copy is the block inside README.md, so reading the README covers both.
+        val surfaces = buildMap {
+            put("README.md", readme.asFile.readText())
+            if (changelog.asFile.exists()) put("CHANGELOG.md", changelog.asFile.readText())
+            if (changeNotes != null) put("$where <change-notes>", changeNotes)
+        }
+
+        val violations = surfaces.flatMap { (name, text) ->
+            promisesIn(text).map { "$name promises \"$it\"" }
+        }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Surfaces read: ${surfaces.keys.joinToString(", ")}")
+                appendLine("None of them may promise: ${promises.joinToString(", ")}")
+                appendLine()
+                appendLine("The listing copy is the block inside README.md, so reading the README covers both.")
+                if (changeNotes == null) {
+                    appendLine("The shipped descriptor carries no change notes yet; this reads them the day it does.")
+                }
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "A live commit history is evidence of maintenance; a roadmap is a promise about it, " +
+                    "and a missed one wounds the only thing this product sells:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(assertNoRoadmapIsPublished)
 }
 
 // ---------------------------------------------------------------------------------------------

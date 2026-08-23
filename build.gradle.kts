@@ -308,7 +308,262 @@ val assertTheSweepIsNeverRunInCi by tasks.registering {
     }
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// The copy rules
+//
+// Two claims about what SnippetVeil says about itself, checked the same way everything else here is
+// checked — as a Gradle task, so that `./gradlew check` decides them on any machine.
+//
+// The listing itself is checked in `plugin/build.gradle.kts`, against the description in the built
+// distribution rather than against a file that is asserted to be the same as it. These two cover
+// every other surface: the documents in this repository, and the strings the plugin puts on screen.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Every phrase banned from every surface — listing, README, UI strings, docs.
+ *
+ * **Each one is a claim about an adversary's capability, and none of them is ours to make.** Copy
+ * here states the mechanism and never the category: *"14 names replaced"* is a count of an
+ * operation, *"safe to paste"* is a verdict on an attacker we have never met.
+ *
+ * The inflections are listed rather than stemmed, because the two directions are not symmetrical.
+ * *obfuscation* and *sanitizing* are the same claim as the words the decision named, so they are
+ * here; **`guarantee` is deliberately absent while `guaranteed` is present**, because a document
+ * that says *"the real guarantee is 100%-open-source-from-the-first-commit"* is describing what
+ * holds the claim up, and banning that sentence would be the kind of noise that teaches people to
+ * suppress a check.
+ *
+ * **An `extra`, for the reason [corpusSweepTask] is one.** `:plugin` checks the shipped description
+ * against this same list, and two lists that drifted would leave the strictest surface checked
+ * against the laxest rule — with both checks green.
+ */
+val bannedPhrases by extra(listOf(
+    "safe to paste",
+    "paste with confidence",
+    "untraceable",
+    "cannot be traced back to your company",
+    "provably",
+    "guaranteed",
+    "sanitize", "sanitizes", "sanitized", "sanitizing", "sanitization",
+    "sanitise", "sanitises", "sanitised", "sanitising", "sanitisation",
+    "obfuscate", "obfuscates", "obfuscated", "obfuscating", "obfuscation",
+))
+
+/**
+ * Fails if a banned phrase appears in a document in this repository or in a string the plugin shows.
+ *
+ * **Two kinds of surface, read two different ways.** A Markdown file is read whole: all of it is
+ * prose somebody may quote. A Kotlin file is read for its *string literals only* — the comments in
+ * this codebase discuss the ban, and several of them quote the banned phrases in order to explain
+ * why they are banned. A rule that read those would fail this build over its own rationale.
+ *
+ * Telling the two apart needs a scanner rather than a regular expression, because a line comment
+ * stripped by a pattern takes the `//` out of `https://` with it. The one below is a state machine
+ * over the four things a Kotlin file is made of, and it is exercised against a fixture carrying each
+ * of them before it is pointed at anything real.
+ *
+ * What it does not check is the build scripts — this one names every banned phrase in order to ban
+ * it — or test sources, which are not a surface anybody reads the product through.
+ */
+val assertNoBannedPhraseAppearsOnAnySurface by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if a banned marketing phrase appears in a document or a UI string."
+
+    val documents = fileTree(layout.projectDirectory) {
+        include("**/*.md")
+        exclude("**/build/**", "**/.gradle/**", "**/.git/**", "**/.idea/**", "**/.intellijPlatform/**")
+    }
+    val sources = fileTree(layout.projectDirectory) {
+        include("*/src/main/kotlin/**/*.kt")
+    }
+
+    // The third kind of surface: **the descriptor's own strings are UI**. `text=` is a menu item,
+    // `description=` is the tooltip under it, `displayName=` is a settings page — all of them shown
+    // to a user, none of them reachable from a Kotlin source or a Markdown file. The `<description>`
+    // element is not here, and cannot be: it is generated from README.md, and `:plugin` checks the
+    // rendered result against this same list.
+    val descriptor = layout.projectDirectory.file("plugin/src/main/resources/META-INF/plugin.xml")
+    val report = layout.buildDirectory.file("reports/trust/banned-phrases.txt")
+    val banned = bannedPhrases
+    val root = layout.projectDirectory.asFile
+
+    inputs.files(documents).withPropertyName("documents")
+    inputs.files(sources).withPropertyName("sources")
+    inputs.file(descriptor).withPropertyName("descriptor")
+    inputs.property("banned", banned)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        /**
+         * Every string literal in a Kotlin file: the contents of every `"…"` and `"""…"""`, and
+         * nothing that is a comment, a character literal or code.
+         */
+        fun stringLiteralsIn(source: String): List<String> {
+            val literals = mutableListOf<String>()
+            val literal = StringBuilder()
+            var index = 0
+            var depth = 0 // Kotlin block comments nest.
+
+            fun at(text: String) = source.startsWith(text, index)
+
+            while (index < source.length) {
+                when {
+                    depth > 0 -> when {
+                        at("/*") -> { depth++; index += 2 }
+                        at("*/") -> { depth--; index += 2 }
+                        else -> index++
+                    }
+                    at("/*") -> { depth = 1; index += 2 }
+                    at("//") -> index = source.indexOf('\n', index).let { if (it < 0) source.length else it }
+                    at("\"\"\"") -> {
+                        val end = source.indexOf("\"\"\"", index + 3)
+                        val close = if (end < 0) source.length else end
+                        literals += source.substring(index + 3, close)
+                        index = close + 3
+                    }
+                    source[index] == '"' -> {
+                        literal.setLength(0)
+                        index++
+                        while (index < source.length && source[index] != '"') {
+                            if (source[index] == '\\') index++ // An escape; whatever follows is content.
+                            if (index < source.length) literal.append(source[index])
+                            index++
+                        }
+                        literals += literal.toString()
+                        index++
+                    }
+                    source[index] == '\'' -> {
+                        index++
+                        while (index < source.length && source[index] != '\'') {
+                            if (source[index] == '\\') index++
+                            index++
+                        }
+                        index++
+                    }
+                    else -> index++
+                }
+            }
+            return literals
+        }
+
+        /**
+         * Every banned phrase in a piece of text, matched whole-word and case-insensitively.
+         *
+         * The words of a phrase are escaped one at a time and rejoined on `\s+`, so that a phrase
+         * broken across a line wrap is still the phrase. Escaping it whole would quote the
+         * separator along with the words and match nothing but a single-word entry — which is a
+         * rule that reads as a guarantee and checks half a list.
+         */
+        fun bannedPhrasesIn(text: String): List<String> = banned.filter { phrase ->
+            val pattern = phrase.split(" ").joinToString("""\s+""") { Regex.escape(it) }
+            Regex("""\b$pattern\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        }
+
+        // The scanner proves it can tell the four constructs apart before it is trusted to exempt a
+        // comment. A rule that read a comment as code would fail this build over its own rationale;
+        // one that read code as a comment would exempt the surface it exists to check.
+        val fixture = """
+            // "safe to paste" — a line comment quoting the ban, and a https://example.com/ in it.
+            /* "untraceable" in a block comment, /* nested, */ still a comment. */
+            val url = "https://example.com/a"
+            val shown = "14 names replaced"
+            val raw = ${"\"\"\""}multi
+            line${"\"\"\""}
+            val quote = '"'
+        """.trimIndent()
+
+        val fixtureLiterals = stringLiteralsIn(fixture)
+        check(fixtureLiterals == listOf("https://example.com/a", "14 names replaced", "multi\nline")) {
+            "The scanner read $fixtureLiterals out of the fixture. It is not telling Kotlin's " +
+                "comments, strings and character literals apart, so what it exempts is unknown."
+        }
+        check(bannedPhrasesIn(fixtureLiterals.joinToString(" ")).isEmpty()) {
+            "The scanner flagged a comment. The ban's own rationale would fail this build."
+        }
+        check(bannedPhrasesIn("this output is Sanitized.") == listOf("sanitized")) {
+            "The rule missed `Sanitized`. It is matching neither case-insensitively nor at all."
+        }
+        check(bannedPhrasesIn("it is safe\n            to paste") == listOf("safe to paste")) {
+            "The rule missed a multi-word phrase across a line wrap, which is how prose is written."
+        }
+        check(bannedPhrasesIn("no words of the list are here").isEmpty()) {
+            "The rule flagged clean text. It is matching more than the list."
+        }
+        check(bannedPhrasesIn("the real guarantee is the source").isEmpty()) {
+            "The rule flagged `guarantee`. Only `guaranteed` is banned; see the list."
+        }
+
+        /**
+         * A descriptor with its comments taken out.
+         *
+         * Everything that is left is either markup or a string a user is shown, and a phrase in the
+         * markup is a phrase in an id or a class name — which is not a sentence anybody reads. The
+         * comments go for the reason Kotlin's do: this descriptor explains the copy rules it is
+         * subject to, and a rule that read its own rationale would fail the build over it.
+         */
+        fun descriptorStrings(xml: String): String = xml.replace(Regex("""<!--.*?-->""", RegexOption.DOT_MATCHES_ALL), " ")
+
+        check(bannedPhrasesIn(descriptorStrings("""<!-- no "safe to paste" here --><a text="fine"/>""")).isEmpty()) {
+            "The rule read an XML comment. The descriptor's own rationale would fail this build."
+        }
+        check(bannedPhrasesIn(descriptorStrings("""<a text="Paste  with confidence"/>""")).isNotEmpty()) {
+            "The rule missed an attribute value, which is where every menu item in the descriptor lives."
+        }
+
+        val violations = mutableListOf<String>()
+        var surfaces = 0
+
+        surfaces++
+        bannedPhrasesIn(descriptorStrings(descriptor.asFile.readText())).forEach {
+            violations += "${descriptor.asFile.relativeTo(root)} shows a string saying \"$it\""
+        }
+
+        documents.files.sortedBy { it.path }.forEach { file ->
+            surfaces++
+            bannedPhrasesIn(file.readText()).forEach {
+                violations += "${file.relativeTo(root)} says \"$it\""
+            }
+        }
+
+        sources.files.sortedBy { it.path }.forEach { file ->
+            surfaces++
+            stringLiteralsIn(file.readText()).forEach { text ->
+                bannedPhrasesIn(text).forEach {
+                    violations += "${file.relativeTo(root)} shows a string saying \"$it\""
+                }
+            }
+        }
+
+        // A sweep that found nothing to sweep is not a pass.
+        check(surfaces > 0) { "No documents and no sources were found under $root. Nothing was checked." }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine(
+                    "Surfaces read: $surfaces (${documents.files.size} documents, ${sources.files.size} sources, " +
+                        "and the plugin descriptor)"
+                )
+                appendLine("None of them may say any of: ${banned.joinToString(", ")}")
+                appendLine()
+                appendLine("Documents are read whole; Kotlin sources are read for their string literals only,")
+                appendLine("and the descriptor for everything its comments do not cover.")
+                appendLine("The Marketplace description is checked separately, in :plugin:assertTheListingCopyIsTheReadme.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "Each of these is a claim about an adversary's capability, and copy here states the " +
+                    "mechanism rather than the category:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
 tasks.named("check") {
     dependsOn(assertWorkflowsAreHardened)
     dependsOn(assertTheSweepIsNeverRunInCi)
+    dependsOn(assertNoBannedPhraseAppearsOnAnySurface)
 }

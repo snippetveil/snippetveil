@@ -1,12 +1,76 @@
 # SnippetVeil
 
-Anonymize a Java snippet before you paste it into an AI chat.
+<!-- Everything between the two `listing copy` markers below is the plugin descriptor's
+     `<description>`, generated from these exact lines by `plugin/build.gradle.kts`. There is no
+     second copy of this text anywhere: the Marketplace listing and this README are the same
+     strings, and `assertTheListingCopyIsTheReadme` fails the build if they ever stop being.
 
-An IntelliJ IDEA plugin. Every name your project owns — classes, methods, fields, packages,
-string literals — is replaced with a placeholder before the snippet leaves the editor. The
-structure, the control flow, and the libraries you call go as-is.
+     Consequence, and it is the point: **the Marketplace Approval Guidelines govern this block** —
+     no third-party brand references, no marketing adjectives, no unverifiable claims, English
+     first, HTTPS links only. The strictest surface wins automatically. -->
 
-SnippetVeil makes no network calls.
+<!-- listing copy -->
+
+**Anonymize a Java snippet before you paste it into an AI chat.**
+
+Every name your project owns — classes, methods, fields, packages, string literals — is
+replaced with a placeholder before the snippet leaves the editor. The structure, the
+control flow, and the libraries you call go as-is.
+
+### How it works
+
+- Select Java code, right-click, **Copy Anonymized**. The anonymized text is on your clipboard.
+- **Anonymize with Preview…** shows the code that will be copied beside its mapping table,
+  with counts: `14 renamed · 3 unknown · 22 preserved · 2 comments stripped`. It is the only
+  place you can anonymize *less* — keep comments for this snippet, or preserve a name
+  SnippetVeil could not resolve.
+- **De-anonymize Clipboard** turns the placeholders in a reply back into your real names.
+- The mapping is per-project and stays on your machine. Placeholders are stable across
+  invocations and IDE restarts, so a second snippet never contradicts the first.
+
+### No network
+
+SnippetVeil makes no network calls. No networking code — enforced on every pull request,
+scanned in every release build, and public from the first commit.
+
+### What SnippetVeil does not hide
+
+- **Your stack.** Frameworks, libraries, the identity provider, the persistence layer —
+  preserved by design, because they are what make the snippet answerable.
+- **Your structure and your algorithm.** Control flow and logic survive intact. If your
+  proprietary value *is* the algorithm, SnippetVeil does nothing for you.
+- **The prompt you type around the snippet.** SnippetVeil anonymizes the code, not the
+  sentence above it.
+
+### What it does not preserve
+
+- **The text inside your strings** — a string literal in your own code becomes `"str1"`.
+- **Your comments**, by default.
+- **Your stack trace** — it is not anonymized at all.
+
+### Non-goals
+
+Not a secret scanner. Java files only — the action does not appear anywhere else.
+
+### Source
+
+Apache-2.0. Source and issue tracker: `https://github.com/snippetveil/snippetveil` ·
+Threat model, including the limits of the no-network checks:
+`https://github.com/snippetveil/snippetveil/blob/main/THREAT-MODEL.md`
+
+<!-- listing copy end -->
+
+---
+
+## About this repository
+
+An IntelliJ IDEA plugin, for IDEA Community, IDEA Ultimate and Android Studio.
+
+**Status: pre-release.** This repository is public from its first commit, deliberately — a
+continuous commit history is the evidence behind the no-network claim, and it can only be
+accumulated by starting early. The plugin is not yet published to the JetBrains Marketplace.
+
+Work in progress is tracked in this repository's [issues](https://github.com/snippetveil/snippetveil/issues).
 
 **Every fixture in this repository is synthetic.** The anonymiser is exercised against real
 codebases by a local instrument that is never run in CI and writes its findings outside the
@@ -15,12 +79,14 @@ real code that revealed it. Running the anonymiser over a real codebase and comm
 would be exactly circular: if it leaked, the leak would be in a public repository, permanently.
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
----
+The `demo/` directory is the sample project the Marketplace screenshots are shot from. It is not
+part of the build and is not in the distribution — see [demo/README.md](demo/README.md).
 
-**Status: pre-release.** This repository is public from its first commit, deliberately — a
-continuous commit history is the evidence behind the no-network claim, and it can only be
-accumulated by starting early. The plugin is not yet published to the JetBrains Marketplace.
+## Documents
 
-Work in progress is tracked in this repository's issues.
-
-Licence: Apache-2.0.
+- [THREAT-MODEL.md](THREAT-MODEL.md) — what SnippetVeil conceals, what it discloses, and what
+  defeats it.
+- [PRIVACY.md](PRIVACY.md) — what SnippetVeil stores and where. A factual statement, not a policy.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — building, the trust checks, the DCO, and the inbound
+  dependency policy.
+- [LICENSE](LICENSE) and [NOTICE](NOTICE) — Apache-2.0.
