@@ -1,5 +1,7 @@
 package com.snippetveil.plugin
 
+import com.intellij.lang.java.beans.PropertyKind
+import com.snippetveil.core.AccessorEvidence
 import com.snippetveil.core.CommentOccurrence
 import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.SnippetPlan
@@ -513,4 +515,24 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
         )
     }
 
+    /**
+     * **The accessor prefixes this builder reports and the ones `:core` recognises are one list.**
+     *
+     * `AccessorEvidence.PREFIXES` is spelled out in `:core` because [com.snippetveil.core.deanonymize]
+     * reads it: `getField1` is a placeholder the engine mints, and it is not `prefix + number`, so a
+     * recogniser that did not know the shape would leave an unreadable word in a reply and report
+     * nothing beside it. But the *source* of the list is the platform's `PropertyKind`, which is on
+     * this side of the seam — so a list nothing checked is a list that goes stale silently the day
+     * the platform grows a fourth kind.
+     *
+     * This is the check that cannot be written on either side alone, which is why it is a test rather
+     * than a comment saying the two agree.
+     */
+    fun `test the accessor prefixes core recognises are the ones the platform reports`() {
+        assertEquals(
+            "the platform's accessor prefixes and the ones a reversal recognises have drifted apart",
+            PropertyKind.entries.map { it.prefix }.sorted(),
+            AccessorEvidence.PREFIXES.sorted(),
+        )
+    }
 }

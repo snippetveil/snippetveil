@@ -35,6 +35,12 @@
         mapping table before anything reaches the clipboard, and it is the only place where a name
         the IDE could not resolve can be released, or comments kept, for that one copy. Neither
         choice is remembered: a persistent setting here may only ever anonymize more.</p>
+        <p><b>De-anonymize Clipboard</b> is the way back: paste the AI's reply, run it from
+        <b>Tools &gt; SnippetVeil</b>, and the placeholders become the real names again, on the
+        clipboard. It matches only the exact placeholder strings this plugin minted, case-sensitively
+        and on word boundaries, so a word the model invented is left exactly as written rather than
+        guessed at — and the balloon says how many were restored and how many were not, split into
+        placeholders this project has forgotten and placeholders it never issued.</p>
     ]]></description>
 
     <!-- The bundled Java plugin: IDEA Community/Ultimate and Android Studio, nowhere else. -->
@@ -73,10 +79,21 @@
             <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="SnippetVeil.CopyAnonymized"/>
         </action>
 
+        <!-- The other direction, and **no editor-popup entry**. It is invoked after pasting a
+             reply — into a scratch buffer, a Markdown file or a commit message — so gating it to
+             Java files would make it actively wrong, and leaving it ungated in the popup would put
+             an item that reads no source into every popup in the IDE. Tools is where a
+             clipboard-to-clipboard command belongs. -->
+        <action id="SnippetVeil.DeanonymizeClipboard"
+                class="com.snippetveil.plugin.DeanonymizeClipboardAction"
+                text="De-anonymize Clipboard"
+                description="Replace SnippetVeil placeholders in the clipboard with the real names"/>
+
         <group id="SnippetVeil.ToolsMenu" text="SnippetVeil" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <reference ref="SnippetVeil.CopyAnonymized"/>
             <reference ref="SnippetVeil.AnonymizeWithPreview"/>
+            <reference ref="SnippetVeil.DeanonymizeClipboard"/>
         </group>
     </actions>
 </idea-plugin>

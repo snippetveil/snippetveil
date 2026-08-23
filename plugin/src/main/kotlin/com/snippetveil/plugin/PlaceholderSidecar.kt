@@ -132,8 +132,18 @@ internal class PlaceholderSidecar : PersistentStateComponent<PlaceholderSidecar.
      */
     @Synchronized
     fun record(table: Map<String, String>) {
-        state = stateOf(window().recording(RecordedInvocation(Instant.now(), table)))
+        state = stateOf(stored().recording(RecordedInvocation(Instant.now(), table)))
     }
+
+    /**
+     * **The window as `:core` reasons about it, trimmed** — which is what a reversal takes, once,
+     * rather than asking this class a question per word of an AI's reply.
+     *
+     * Handing out the value type rather than answering lookups is what keeps the horizon enforced on
+     * every read while a reversal stays a pure function: the cap is applied here, on the way out, and
+     * what the caller then holds is an immutable window it can ask a thousand times for nothing.
+     */
+    fun window(): Sidecar = trimmed()
 
     /**
      * What [placeholder] stood for, or `null` when nothing inside the horizon knows — which a
@@ -149,10 +159,10 @@ internal class PlaceholderSidecar : PersistentStateComponent<PlaceholderSidecar.
      * rather than about answers.
      */
     @Synchronized
-    private fun trimmed(): Sidecar = window().bounded(Instant.now()).also { state = stateOf(it) }
+    private fun trimmed(): Sidecar = stored().bounded(Instant.now()).also { state = stateOf(it) }
 
     /** The stored bean as the value type `:core` reasons about. Reads; changes nothing. */
-    private fun window(): Sidecar = Sidecar(
+    private fun stored(): Sidecar = Sidecar(
         state.invocations.map { entry ->
             RecordedInvocation(
                 Instant.ofEpochMilli(entry.at),

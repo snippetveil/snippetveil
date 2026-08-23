@@ -54,12 +54,16 @@ fun anonymize(
         ledger.nextNumber,
         namesSurviving(plan, symbols.filter { isReplaced(it.symbol) } + stripped),
     )
-    val placeholderByKey = LinkedHashMap<String, String>(ledger.placeholders)
+    val placeholderByKey = ledger.placeholders.mapValuesTo(LinkedHashMap()) { (_, minted) -> minted.placeholder }
 
     // What this invocation would add to the ledger: **the qualified keys, and only those.** A symbol
     // identified by where it is written draws a number from the same counter and is then forgotten,
     // which is what burns the number rather than reusing it. See [LedgerDelta].
-    val persisted = LinkedHashMap<String, String>()
+    //
+    // A row is the placeholder **and the name it was minted for**, because the mapping is read back
+    // the other way round by a reversal and only the forward direction was ever a key. See
+    // [MintedName].
+    val persisted = LinkedHashMap<String, MintedName>()
 
     /**
      * The placeholder [symbol] renders as, allocating one the first time its key is asked for.
@@ -93,7 +97,14 @@ fun anonymize(
         } else {
             val field = placeholderByKey.getOrPut(accessor.fieldKey) {
                 allocator.next(SymbolRole.FIELD.placeholderPrefix).also {
-                    if (accessor.fieldKeyIsQualified) persisted[accessor.fieldKey] = it
+                    if (accessor.fieldKeyIsQualified) {
+                        // The field's own name rather than a name derived from the accessor's: the
+                        // builder found the field, so it reports what it is called. This row is
+                        // frequently the *only* record of that field — with Lombok it has no
+                        // accessor declaration in source, and the field may not be in the snippet
+                        // either.
+                        persisted[accessor.fieldKey] = MintedName(it, accessor.fieldName)
+                    }
                 }
             }
 
@@ -106,7 +117,7 @@ fun anonymize(
         }
 
         placeholderByKey[key] = placeholder
-        if (sharedKeyIsQualified(symbol)) persisted[key] = placeholder
+        if (sharedKeyIsQualified(symbol)) persisted[key] = MintedName(placeholder, symbol.declaredName)
         return placeholder
     }
 
@@ -724,7 +735,7 @@ private class PlaceholderAllocator(start: Int, private val reserved: Set<String>
 }
 
 /** The namespace a reference that failed to resolve falls into. See [namespaceOf]. */
-private const val UNKNOWN_PREFIX = "Unknown"
+internal const val UNKNOWN_PREFIX = "Unknown"
 
 /**
  * What a row with no placeholder is filed under, in front of the symbol key standing in for one.
@@ -738,4 +749,4 @@ private const val PRESERVED = "?"
  * numbered from. A literal is not a symbol and has no key, so two identical literals get two
  * placeholders: collapsing them would mean deciding from their text that they are the same thing.
  */
-private const val LITERAL_PREFIX = "str"
+internal const val LITERAL_PREFIX = "str"

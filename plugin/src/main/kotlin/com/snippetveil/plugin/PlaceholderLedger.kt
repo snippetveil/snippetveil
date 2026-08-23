@@ -10,6 +10,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.snippetveil.core.LedgerDelta
 import com.snippetveil.core.LedgerSnapshot
+import com.snippetveil.core.MintedName
 import com.snippetveil.core.plus
 
 /**
@@ -111,10 +112,24 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
         var placeholders: MutableList<Naming> = mutableListOf()
     }
 
-    /** One symbol, and what it was called. */
+    /**
+     * One symbol, and what it was called.
+     *
+     * @param original the symbol's own name, which is what makes this file a **reverse** mapping
+     *   rather than only a forward one: `De-anonymize Clipboard` arrives holding `Type1` and has no
+     *   idea what key it was filed under. It puts nothing new on the disk — [key] is derived from
+     *   the fully-qualified name and already contains it — and what it buys is that reversal reads a
+     *   stated fact instead of parsing a key whose spelling belongs to the plan builder. See
+     *   [com.snippetveil.core.MintedName].
+     *
+     *   **Empty on a row written before this field existed**, and that is the whole of the migration:
+     *   such a row still names its placeholder, so it still keeps the number out of circulation, and
+     *   what it costs is one name that decodes to nothing. Under-recovery, never a wrong name.
+     */
     class Naming {
         var key: String = ""
         var placeholder: String = ""
+        var original: String = ""
     }
 
     /**
@@ -159,10 +174,11 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
         val entry = ProjectEntry().also {
             it.project = project.locationHash
             it.nextNumber = committed.nextNumber
-            it.placeholders = committed.placeholders.mapTo(mutableListOf()) { (key, placeholder) ->
+            it.placeholders = committed.placeholders.mapTo(mutableListOf()) { (key, minted) ->
                 Naming().also { naming ->
                     naming.key = key
-                    naming.placeholder = placeholder
+                    naming.placeholder = minted.placeholder
+                    naming.original = minted.original
                 }
             }
         }
@@ -180,7 +196,10 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
     private fun snapshotOf(state: State, project: Project): LedgerSnapshot {
         val entry = state.projects.firstOrNull { it.project == project.locationHash }
             ?: return LedgerSnapshot.EMPTY
-        return LedgerSnapshot(entry.placeholders.associate { it.key to it.placeholder }, entry.nextNumber)
+        return LedgerSnapshot(
+            entry.placeholders.associate { it.key to MintedName(it.placeholder, it.original) },
+            entry.nextNumber,
+        )
     }
 
     companion object {

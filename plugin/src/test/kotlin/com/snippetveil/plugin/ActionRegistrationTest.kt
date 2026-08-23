@@ -57,11 +57,36 @@ class ActionRegistrationTest : BasePlatformTestCase() {
         )
     }
 
+    /**
+     * **The reversal is under Tools and nowhere else, and that absence is the assertion.**
+     *
+     * It is invoked *after* pasting a reply — into a scratch buffer, a Markdown file, a commit
+     * message — so it is available on every file type, and an item that is available everywhere and
+     * reads no source is exactly the item that must not be in the editor popup. Both halves are
+     * checked, because *present under Tools* alone is satisfied by an action that is also in every
+     * popup in the IDE.
+     */
+    fun `test De-anonymize Clipboard sits under Tools and not in the editor popup`() {
+        val action = ActionManager.getInstance().getAction(DEANONYMIZE)
+        assertNotNull("The reversal action is not registered at all.", action)
+        assertEquals("De-anonymize Clipboard", action.templatePresentation.text)
+
+        assertTrue(
+            "The reversal is missing from Tools > SnippetVeil.",
+            DEANONYMIZE in childIdsOf("SnippetVeil.ToolsMenu"),
+        )
+        assertFalse(
+            "The reversal reached the editor popup, where it would sit on every file in the IDE.",
+            DEANONYMIZE in childIdsOf(IdeActions.GROUP_EDITOR_POPUP),
+        )
+    }
+
     /** No default shortcut: every combination worth having is taken, differently, in four keymaps. */
-    fun `test neither action ships a keyboard shortcut`() {
+    fun `test no action ships a keyboard shortcut`() {
         val manager = ActionManager.getInstance()
         assertEmpty(manager.getAction(COPY_ANONYMIZED).shortcutSet.shortcuts)
         assertEmpty(manager.getAction(ANONYMIZE_WITH_PREVIEW).shortcutSet.shortcuts)
+        assertEmpty(manager.getAction(DEANONYMIZE).shortcutSet.shortcuts)
     }
 
     private fun childIdsOf(groupId: String): List<String> {
@@ -76,3 +101,5 @@ class ActionRegistrationTest : BasePlatformTestCase() {
 private const val COPY_ANONYMIZED = "SnippetVeil.CopyAnonymized"
 
 private const val ANONYMIZE_WITH_PREVIEW = "SnippetVeil.AnonymizeWithPreview"
+
+private const val DEANONYMIZE = "SnippetVeil.DeanonymizeClipboard"

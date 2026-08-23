@@ -7,13 +7,16 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.snippetveil.core.Reversal
+import com.snippetveil.core.Unrestored
 import com.snippetveil.core.fidelityNotices
 
 /**
- * The two things SnippetVeil ever says out loud.
+ * Everything SnippetVeil ever says out loud.
  *
- * Both are balloons in a group of their own, so that a user who does not want them can turn off
- * exactly these and nothing else.
+ * All of them are balloons in a group of their own, so that a user who does not want them can turn
+ * off exactly these and nothing else. Two are about a copy leaving, two are about a reply coming
+ * back, and one is the failure either direction can hit.
  */
 internal object SnippetVeilNotifications {
 
@@ -102,6 +105,72 @@ internal object SnippetVeilNotifications {
         LOG.warn("SnippetVeil could not anonymize the selection; the clipboard was left untouched.", failure)
         group().createNotification(
             "Anonymization failed — your clipboard was not changed.",
+            NotificationType.ERROR,
+        ).addAction(REPORT).notify(project)
+    }
+
+    /**
+     * **What came back, counted the same way the copy was: every number, every time.**
+     *
+     * *"12 placeholders restored · 3 not restored"* is a count of an operation, and the second number
+     * is on it even when it is zero for the reason the first is — a number that appeared only when it
+     * fired would make its absence unreadable, and *not restored* is precisely the figure a user
+     * would otherwise assume was zero.
+     *
+     * **`Show details` is the exception, and it follows the notices' rule rather than the counts'.**
+     * A number is a fact worth stating at zero; an action offering to list nothing is a dead end
+     * dressed as an offer. So it appears only when there is something in the list.
+     */
+    fun deanonymized(project: Project, reversal: Reversal) {
+        val balloon = group().createNotification(
+            "Clipboard de-anonymized",
+            "${reversal.restored.size} placeholders restored · ${reversal.unrestored.size} not restored",
+            NotificationType.INFORMATION,
+        )
+        if (reversal.unrestored.isNotEmpty()) balloon.addAction(showDetails(project, reversal.unrestored))
+        balloon.notify(project)
+    }
+
+    /**
+     * The list of what did not come back, **read-only and per bucket**.
+     *
+     * Read-only because there is nothing to do to a placeholder that decoded to nothing: the two
+     * answers are *the name is gone* and *this was never ours*, and neither is an action. What the
+     * list is for is telling those two apart on the rows the user is actually holding.
+     */
+    private fun showDetails(project: Project, unrestored: List<Unrestored>) =
+        NotificationAction.createSimple("Show details") { UnrestoredDialog(project, unrestored).show() }
+
+    /**
+     * **A reply with none of ours in it, said out loud rather than left to silence.**
+     *
+     * The clipboard is deliberately not rewritten — an identical string written back is
+     * indistinguishable from a reversal that worked, and *"I ran it, so these must be real names"* is
+     * the one reading this product cannot afford. So the message carries the clipboard fact in the
+     * title, exactly as [failed] does, and for the same reason: it is what the user's next keystroke
+     * depends on.
+     */
+    fun nothingToRestore(project: Project) {
+        group().createNotification(
+            "No SnippetVeil placeholders found — clipboard unchanged.",
+            NotificationType.INFORMATION,
+        ).notify(project)
+    }
+
+    /**
+     * **The mirror of [failed], and the safe half of it.**
+     *
+     * When a copy fails the clipboard holds whatever was there before, and the next paste may be the
+     * raw snippet — which is why that message is the sharpest sentence in the product. When a
+     * reversal fails the clipboard still holds the *anonymized* reply: unreadable, and nothing of
+     * the project's has gone anywhere. The clipboard fact is stated anyway, because the user's next
+     * keystroke depends on it either way and a message that only stated it when the news was bad
+     * would be a message nobody could read at a glance.
+     */
+    fun reversalFailed(project: Project?, failure: Throwable) {
+        LOG.warn("SnippetVeil could not de-anonymize the clipboard; it was left untouched.", failure)
+        group().createNotification(
+            "De-anonymization failed — your clipboard was not changed.",
             NotificationType.ERROR,
         ).addAction(REPORT).notify(project)
     }

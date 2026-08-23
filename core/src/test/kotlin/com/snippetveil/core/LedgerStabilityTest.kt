@@ -29,12 +29,12 @@ class LedgerStabilityTest {
     @Test
     fun `a symbol already in the ledger keeps the placeholder it was given`() {
         val payment = qualified("Payment", SymbolRole.TYPE, "class:com.acme.Payment")
-        val ledger = LedgerSnapshot(mapOf(payment.key to "Type1"), nextNumber = 2)
+        val ledger = LedgerSnapshot(mapOf(payment.key to MintedName("Type1", "Payment")), nextNumber = 2)
 
         val result = anonymize(planOf("Payment p;", payment), AnonymizationSettings.DEFAULTS, ledger)
 
         result.assertRendersAs(STABILITY, "Payment", "Type1")
-        assertEquals(emptyMap<String, String>(), result.delta.placeholders)
+        assertEquals(emptyMap<String, MintedName>(), result.delta.placeholders)
         assertEquals(2, result.delta.nextNumber, "nothing was allocated, so nothing moved")
     }
 
@@ -47,7 +47,7 @@ class LedgerStabilityTest {
     fun `a known symbol keeps its number however late in the snippet it appears`() {
         val payment = qualified("Payment", SymbolRole.TYPE, "class:com.acme.Payment")
         val refund = qualified("Refund", SymbolRole.TYPE, "class:com.acme.Refund")
-        val ledger = LedgerSnapshot(mapOf(payment.key to "Type9"), nextNumber = 10)
+        val ledger = LedgerSnapshot(mapOf(payment.key to MintedName("Type9", "Payment")), nextNumber = 10)
 
         val result = anonymize(planOf("Refund r; Payment p;", refund, payment), AnonymizationSettings.DEFAULTS, ledger)
 
@@ -73,7 +73,7 @@ class LedgerStabilityTest {
         )
 
         assertEquals("Type1 local2;", result.text)
-        assertEquals(mapOf(payment.key to "Type1"), result.delta.placeholders)
+        assertEquals(mapOf(payment.key to MintedName("Type1", "Payment")), result.delta.placeholders)
         assertFalse(local.key in result.delta.placeholders, "a positional key must not be written down")
     }
 
@@ -97,7 +97,7 @@ class LedgerStabilityTest {
         val result = anonymize(planOf("state;", anonymousMember), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
         assertEquals("field1;", result.text)
-        assertEquals(emptyMap<String, String>(), result.delta.placeholders)
+        assertEquals(emptyMap<String, MintedName>(), result.delta.placeholders)
         assertEquals(2, result.delta.nextNumber, "the number it used must not be handed out again")
     }
 
@@ -114,7 +114,7 @@ class LedgerStabilityTest {
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
         assertEquals("log(\"str1\");", result.text)
-        assertEquals(emptyMap<String, String>(), result.delta.placeholders)
+        assertEquals(emptyMap<String, MintedName>(), result.delta.placeholders)
         assertEquals(2, result.delta.nextNumber)
     }
 
@@ -138,7 +138,7 @@ class LedgerStabilityTest {
         val committed = ledger + second.delta
 
         assertEquals(
-            mapOf(before.key to "Type1", after.key to "Type2"),
+            mapOf(before.key to MintedName("Type1", "Payment"), after.key to MintedName("Type2", "Charge")),
             committed.placeholders,
             "the old key is a record of what was sent, and is never rewritten or removed",
         )
@@ -157,7 +157,7 @@ class LedgerStabilityTest {
     fun `a placeholder already issued is kept even when the snippet preserves that very word`() {
         val payment = qualified("Payment", SymbolRole.TYPE, "class:com.acme.Payment")
         val vendor = symbol("Type1", SymbolRole.TYPE, SymbolOrigin.LIBRARY, key = "class:org.vendor.Type1")
-        val ledger = LedgerSnapshot(mapOf(payment.key to "Type1"), nextNumber = 2)
+        val ledger = LedgerSnapshot(mapOf(payment.key to MintedName("Type1", "Payment")), nextNumber = 2)
 
         val result = anonymize(planOf("Type1 a; Payment b;", vendor, payment), AnonymizationSettings.DEFAULTS, ledger)
 
@@ -192,7 +192,7 @@ class LedgerStabilityTest {
             LedgerSnapshot.EMPTY,
         )
 
-        assertEquals(mapOf(qualifiedRoot.key to "method1"), result.delta.placeholders)
+        assertEquals(mapOf(qualifiedRoot.key to MintedName("method1", "settle")), result.delta.placeholders)
         assertTrue(overriding.key !in result.delta.placeholders, "the chain is named by its root, not by this end of it")
         assertEquals(3, result.delta.nextNumber, "the positional chain still burnt its number")
     }

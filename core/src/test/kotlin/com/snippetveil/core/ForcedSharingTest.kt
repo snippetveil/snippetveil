@@ -160,7 +160,7 @@ class ForcedSharingTest {
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
         result.assertShared(OVERRIDE_ROOT, "run")
-        assertEquals(mapOf("method:class:com.acme.Audited#run" to "method1"), result.delta.placeholders)
+        assertEquals(mapOf("method:class:com.acme.Audited#run" to MintedName("method1", "run")), result.delta.placeholders)
     }
 
     // ------------------------------------------- Rule 3: accessors derive from their backing field
@@ -181,7 +181,7 @@ class ForcedSharingTest {
                 SymbolRole.METHOD,
                 SymbolOrigin.IN_CONTENT,
                 key = "method:Payment#getMerchantId",
-                accessor = AccessorEvidence(field.key, "get"),
+                accessor = AccessorEvidence(field.key, field.declaredName, "get"),
             )),
             at(1, field),
         )
@@ -204,12 +204,12 @@ class ForcedSharingTest {
             text,
             at(0, symbol(
                 "setAmount", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT,
-                key = "method:Payment#setAmount", accessor = AccessorEvidence(amount.key, "set"),
+                key = "method:Payment#setAmount", accessor = AccessorEvidence(amount.key, amount.declaredName, "set"),
             )),
             at(0, symbol("amount", SymbolRole.PARAMETER, SymbolOrigin.IN_CONTENT, key = "param:amount")),
             at(0, symbol(
                 "isSettled", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT,
-                key = "method:Payment#isSettled", accessor = AccessorEvidence(settled.key, "is"),
+                key = "method:Payment#isSettled", accessor = AccessorEvidence(settled.key, settled.declaredName, "is"),
             )),
             at(0, settled),
         )
@@ -243,6 +243,7 @@ class ForcedSharingTest {
                 key = "method:class:com.acme.Payment#getMerchantId",
                 accessor = AccessorEvidence(
                     "field:class:com.acme.Payment#merchantId",
+                    "merchantId",
                     "get",
                     fieldKeyIsQualified = true,
                 ),
@@ -257,7 +258,7 @@ class ForcedSharingTest {
 
         // The absent field is in the delta under its own key: the next invocation, which may well
         // show the field itself, has to reach the same name for it.
-        assertEquals("field2", result.delta.placeholders["field:class:com.acme.Payment#merchantId"])
+        assertEquals(MintedName("field2", "merchantId"), result.delta.placeholders["field:class:com.acme.Payment#merchantId"])
     }
 
     /**
@@ -303,7 +304,7 @@ class ForcedSharingTest {
                 SymbolRole.METHOD,
                 SymbolOrigin.IN_CONTENT,
                 key = "method:Payment#getMerchantId",
-                accessor = AccessorEvidence("field:Payment#merchantId", "get"),
+                accessor = AccessorEvidence("field:Payment#merchantId", "merchantId", "get"),
             )),
             at(0, symbol("getField1", SymbolRole.METHOD, SymbolOrigin.LIBRARY, key = "method:lib.Ctx#getField1")),
         )
