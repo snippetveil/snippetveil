@@ -31,9 +31,37 @@ class ActionRegistrationTest : BasePlatformTestCase() {
         )
     }
 
+    /**
+     * **The preview sits beside the fast path, not inside it.** Two flat items rather than one that
+     * always asks: preview-first taxes the common case to protect against a risk that does not exist
+     * on that path, and a submenu would bury the item that is the only place a reduction lives.
+     */
+    fun `test Anonymize with Preview sits beside it in both places`() {
+        val action = ActionManager.getInstance().getAction(ANONYMIZE_WITH_PREVIEW)
+        assertNotNull("The preview action is not registered at all.", action)
+        assertEquals("Anonymize with Preview\u2026", action.templatePresentation.text)
+
+        val popup = childIdsOf(IdeActions.GROUP_EDITOR_POPUP)
+        assertTrue(
+            "The preview is missing from the editor popup; its anchor was probably renamed.",
+            ANONYMIZE_WITH_PREVIEW in popup,
+        )
+        assertEquals(
+            "The preview does not sit directly after the action it is the alternative to.",
+            popup.indexOf(COPY_ANONYMIZED) + 1,
+            popup.indexOf(ANONYMIZE_WITH_PREVIEW),
+        )
+        assertTrue(
+            "The preview is missing from Tools > SnippetVeil.",
+            ANONYMIZE_WITH_PREVIEW in childIdsOf("SnippetVeil.ToolsMenu"),
+        )
+    }
+
     /** No default shortcut: every combination worth having is taken, differently, in four keymaps. */
-    fun `test the action ships no keyboard shortcut`() {
-        assertEmpty(ActionManager.getInstance().getAction(COPY_ANONYMIZED).shortcutSet.shortcuts)
+    fun `test neither action ships a keyboard shortcut`() {
+        val manager = ActionManager.getInstance()
+        assertEmpty(manager.getAction(COPY_ANONYMIZED).shortcutSet.shortcuts)
+        assertEmpty(manager.getAction(ANONYMIZE_WITH_PREVIEW).shortcutSet.shortcuts)
     }
 
     private fun childIdsOf(groupId: String): List<String> {
@@ -46,3 +74,5 @@ class ActionRegistrationTest : BasePlatformTestCase() {
 }
 
 private const val COPY_ANONYMIZED = "SnippetVeil.CopyAnonymized"
+
+private const val ANONYMIZE_WITH_PREVIEW = "SnippetVeil.AnonymizeWithPreview"

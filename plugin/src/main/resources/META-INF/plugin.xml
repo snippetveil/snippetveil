@@ -31,6 +31,10 @@
         renames with the class. <b>Comments and javadoc are stripped</b>, and the balloon says how
         many were removed: prose is where a snippet's domain vocabulary actually lives, and renaming
         symbols does nothing to it.</p>
+        <p><b>Anonymize with Preview&#8230;</b> shows the text that is about to be copied beside its
+        mapping table before anything reaches the clipboard, and it is the only place where a name
+        the IDE could not resolve can be released, or comments kept, for that one copy. Neither
+        choice is remembered: a persistent setting here may only ever anonymize more.</p>
     ]]></description>
 
     <!-- The bundled Java plugin: IDEA Community/Ultimate and Android Studio, nowhere else. -->
@@ -57,9 +61,22 @@
             <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Copy.Paste.Special"/>
         </action>
 
+        <!-- The same invocation, stopped at a dialog. Two actions rather than one that always asks:
+             preview-first taxes the common case to protect against a risk that does not exist on
+             that path. The ellipsis is the platform's own convention for an item that opens a
+             dialog, and here it is load-bearing — the difference between these two items is
+             precisely whether one opens. -->
+        <action id="SnippetVeil.AnonymizeWithPreview"
+                class="com.snippetveil.plugin.AnonymizeWithPreviewAction"
+                text="Anonymize with Preview&#8230;"
+                description="Show the anonymized selection and its mapping before copying it">
+            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="SnippetVeil.CopyAnonymized"/>
+        </action>
+
         <group id="SnippetVeil.ToolsMenu" text="SnippetVeil" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <reference ref="SnippetVeil.CopyAnonymized"/>
+            <reference ref="SnippetVeil.AnonymizeWithPreview"/>
         </group>
     </actions>
 </idea-plugin>

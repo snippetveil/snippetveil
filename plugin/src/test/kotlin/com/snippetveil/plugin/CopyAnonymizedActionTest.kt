@@ -913,6 +913,29 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **The way back to the table for the invocation that took the fast path.**
+     *
+     * `Copy Anonymized` shows no dialog, so the balloon is where the rows are — and what it reopens
+     * is the preview [read-only][PreviewDialog.forReview], the same object re-rendered. Read-only
+     * because by then the delta is committed and the text has already left: a reduction offered here
+     * would offer to change something that is gone. That half is asserted in [PreviewDialogTest].
+     */
+    fun `test the balloon offers the way back to the mapping`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            "class Ledger { <selection>void audit(int amount) { String.valueOf(amount); }</selection> }",
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            listOf("Show mapping"),
+            notifications.single().actions.map { it.templatePresentation.text },
+        )
+    }
+
+    /**
      * **Red code is the common case, not an edge case** — the snippet a developer is debugging is
      * exactly the one most likely to contain names the IDE cannot resolve. Every one of them fails
      * closed into its own namespace rather than passing through verbatim, which is what this used to

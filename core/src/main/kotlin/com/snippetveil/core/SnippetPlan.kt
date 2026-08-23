@@ -21,11 +21,23 @@ package com.snippetveil.core
  *   or `null` for the default package. It is a fact about the file rather than a judgment, and it is
  *   the evidence the internal-library prefix rule reads: a library symbol under this prefix is the
  *   company's own code arriving as a jar. See [InternalLibraries].
+ * @param selectionExpanded whether snapping the selection outward to whole tokens moved either end
+ *   of it — a fact about how [text] was cut, and the one thing in this plan no rule here reads.
+ *
+ *   It is carried because the preview has to disclose it and cannot work it out: by the time the
+ *   dialog is up, the offsets it would have to compare it against are gone. **Conditional, never
+ *   always-on** — *selection expanded to whole tokens* is information when it fired and noise when
+ *   it did not, and a notice that shows on every invocation is one nobody reads on the invocation
+ *   where it matters.
+ *
+ *   `false` when there is no selection at all, which is the whole file: nothing was extended,
+ *   because nothing was cut.
  */
 class SnippetPlan(
     val text: String,
     val occurrences: List<Occurrence>,
     val rootPackage: String? = null,
+    val selectionExpanded: Boolean = false,
 )
 
 /**

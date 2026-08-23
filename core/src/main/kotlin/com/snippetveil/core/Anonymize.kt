@@ -122,7 +122,20 @@ fun anonymize(
     // one: the sidecar records it, the preview shows it and the export writes it, and a caller that
     // had to remember to merge a second map would leave the literals out on the day it forgot.
     // Filled in the same document-order pass, so the rows come out in first-occurrence order.
-    val mapping = LinkedHashMap<String, String>()
+    //
+    // Keyed by placeholder, so that one symbol met a dozen times is one row — and so that two
+    // symbols forced to share a placeholder are one row rather than two rows saying the same thing.
+    // A preserved unresolved name has no placeholder to be keyed by and stands under its own symbol
+    // key, in a keyspace of its own: every placeholder allocated here is a Java identifier, so
+    // [PRESERVED] in front of the other kind of key separates them on a property this file owns
+    // rather than on a guess about how whoever built the plan spells a key.
+    val names = LinkedHashMap<String, MappedName>()
+
+    fun record(symbol: SymbolEvidence, placeholder: String?) {
+        names.getOrPut(placeholder ?: PRESERVED + symbol.key) {
+            MappedName(symbol.declaredName, placeholder, kindOf(symbol), symbol.key)
+        }
+    }
 
     // One pass in document order, which is what makes the output read top to bottom: every
     // placeholder is allocated the first time the thing it stands for is written, whether that is
@@ -133,11 +146,16 @@ fun anonymize(
     for (occurrence in surviving) {
         when (occurrence) {
             is SymbolOccurrence -> {
-                namedSymbols += occurrence.symbol
-                if (isReplaced(occurrence.symbol)) {
-                    val placeholder = placeholderFor(occurrence.symbol)
+                val symbol = occurrence.symbol
+                namedSymbols += symbol
+                if (isReplaced(symbol)) {
+                    val placeholder = placeholderFor(symbol)
                     edits += Edit(occurrence.start, occurrence.end, placeholder)
-                    mapping[placeholder] = occurrence.symbol.declaredName
+                    record(symbol, placeholder)
+                } else if (symbol.origin == SymbolOrigin.UNRESOLVED) {
+                    // Preserved by the one reduction the design authorises, and a row *because* it
+                    // was preserved — see [MappedName].
+                    record(symbol, placeholder = null)
                 }
             }
 
@@ -151,7 +169,11 @@ fun anonymize(
                     // The content as it is written, delimiters excluded — which is what the
                     // replacement went inside, so it is what putting the original back would have to
                     // restore.
-                    mapping[placeholder] = plan.text.substring(occurrence.contentStart, occurrence.contentEnd)
+                    names[placeholder] = MappedName(
+                        original = plan.text.substring(occurrence.contentStart, occurrence.contentEnd),
+                        placeholder = placeholder,
+                        kind = MappedKind.LITERAL,
+                    )
                 }
 
                 is LiteralRewrite.Spliced -> for (reference in rewrite.references) {
@@ -159,7 +181,7 @@ fun anonymize(
                     if (isReplaced(reference.symbol)) {
                         val placeholder = placeholderFor(reference.symbol)
                         edits += Edit(reference.start, reference.end, placeholder)
-                        mapping[placeholder] = reference.symbol.declaredName
+                        record(reference.symbol, placeholder)
                     }
                 }
             }
@@ -200,7 +222,7 @@ fun anonymize(
 
     return AnonymizationResult(
         text = text.toString(),
-        mapping = mapping,
+        names = names.values.toList(),
         unknowns = unknowns,
         counts = countsOf(namedSymbols, ::isReplaced, unknowns.size),
         comments = CommentCounts(
@@ -616,6 +638,29 @@ private fun namespaceOf(symbol: SymbolEvidence): String =
     if (symbol.origin == SymbolOrigin.UNRESOLVED) UNKNOWN_PREFIX else symbol.role.placeholderPrefix
 
 /**
+ * What a symbol is, as a table reads it. Unresolved outranks the role for the same reason
+ * [namespaceOf] puts it in a namespace of its own: the role of a name nothing resolved is a guess,
+ * and the placeholder does not carry it either.
+ */
+private fun kindOf(symbol: SymbolEvidence): MappedKind =
+    if (symbol.origin == SymbolOrigin.UNRESOLVED) {
+        MappedKind.UNKNOWN
+    } else {
+        when (symbol.role) {
+            SymbolRole.TYPE -> MappedKind.TYPE
+            SymbolRole.TYPE_PARAMETER -> MappedKind.TYPE_PARAMETER
+            SymbolRole.METHOD -> MappedKind.METHOD
+            SymbolRole.FIELD -> MappedKind.FIELD
+            SymbolRole.PARAMETER -> MappedKind.PARAMETER
+            SymbolRole.PACKAGE -> MappedKind.PACKAGE
+            SymbolRole.ANNOTATION -> MappedKind.ANNOTATION
+            SymbolRole.ATTRIBUTE -> MappedKind.ATTRIBUTE
+            SymbolRole.LOCAL -> MappedKind.LOCAL
+            SymbolRole.LABEL -> MappedKind.LABEL
+        }
+    }
+
+/**
  * Every identifier-shaped word that survives into the output — which is every word in the snippet
  * except the ones about to leave it.
  *
@@ -679,6 +724,13 @@ private class PlaceholderAllocator(start: Int, private val reserved: Set<String>
 
 /** The namespace a reference that failed to resolve falls into. See [namespaceOf]. */
 private const val UNKNOWN_PREFIX = "Unknown"
+
+/**
+ * What a row with no placeholder is filed under, in front of the symbol key standing in for one.
+ * Not an identifier character, so it cannot be the start of anything [PlaceholderAllocator] hands
+ * out — which is the whole of what it has to be.
+ */
+private const val PRESERVED = "?"
 
 /**
  * The namespace a redacted literal falls into — `"str1"`, out of the same counter every symbol is
