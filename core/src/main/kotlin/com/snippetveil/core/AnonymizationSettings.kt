@@ -219,6 +219,11 @@ fun LedgerSnapshot.isStill(latest: LedgerSnapshot): Boolean = nextNumber == late
  * @param unknowns every name that failed to resolve, in document order of first occurrence
  * @param flattened every source name two or more of this snippet's renamed symbols shared, in
  *   first-occurrence order. See [FlattenedName], and [fidelityNotices] for what is said about it.
+ *
+ *   Carried here rather than worked out by whoever renders the notice, for the reason [unknowns] is:
+ *   **a loss is something this invocation produced**, and the result is where what it produced is
+ *   said. It is derivable from [names] — so is [unknowns], and so is [mapping] — and a derivation
+ *   each surface repeats is one each surface can eventually disagree about.
  * @param delta what to commit, if the caller gets as far as committing
  */
 class AnonymizationResult(

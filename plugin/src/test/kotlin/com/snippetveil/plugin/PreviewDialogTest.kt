@@ -295,16 +295,16 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             assertEquals(
                 listOf(
                     "field1 and param3 were the same name",
-                    "1 comment stripped, and it was commented-out code",
+                    "1 comment stripped, 1 of them commented-out code",
                 ),
-                noticesIn(dialog.createCenterPanel()),
+                noticesIn(dialog),
             )
         }
 
         val clean = analysisOf("class Ledger { <selection>void settle(int amount) {}</selection> }")
 
         withDialog(PreviewDialog.forCopy(project, clean)) { dialog ->
-            assertEmpty(noticesIn(dialog.createCenterPanel()))
+            assertEmpty(noticesIn(dialog))
         }
     }
 
@@ -326,11 +326,11 @@ class PreviewDialogTest : JavaSnippetTestCase() {
 
         withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
             val panel = dialog.createCenterPanel()
-            assertEquals(listOf("1 comment stripped"), noticesIn(panel))
+            assertEquals(listOf("1 comment stripped, 0 of them commented-out code"), noticesIn(dialog))
 
             checkBoxesIn(panel).single().doClick()
 
-            assertEmpty(noticesIn(panel))
+            assertEmpty(noticesIn(dialog))
         }
     }
 
@@ -352,8 +352,8 @@ class PreviewDialogTest : JavaSnippetTestCase() {
 
         withDialog(PreviewDialog.forReview(project, analysis)) { dialog ->
             assertEquals(
-                listOf("1 comment stripped, and it was commented-out code"),
-                noticesIn(dialog.createCenterPanel()),
+                listOf("1 comment stripped, 1 of them commented-out code"),
+                noticesIn(dialog),
             )
         }
     }
@@ -379,12 +379,16 @@ class PreviewDialogTest : JavaSnippetTestCase() {
      * The notices as a reader sees them — every label in the footer that is not the counts strip.
      * Read off the rendered components rather than off the analysis, because *"the preview carries
      * them"* is a claim about what is on screen.
+     *
+     * The strip is told apart by being the strip — the exact string [stripOf] produced for what is
+     * rendered — rather than by anything about how it is worded, so a reworded strip stays a strip
+     * here instead of quietly becoming a third notice.
      */
-    private fun noticesIn(component: Container): List<String> =
-        descendantsOf(component)
+    private fun noticesIn(dialog: PreviewDialog): List<String> =
+        descendantsOf(dialog.createCenterPanel())
             .filterIsInstance<JBLabel>()
             .map { it.text }
-            .filterNot { " renamed · " in it }
+            .filterNot { it == stripOf(dialog.analysis) }
 
     private fun tableIn(component: Container): JTable = descendantsOf(component).filterIsInstance<JTable>().single()
 

@@ -49,8 +49,8 @@ package com.snippetveil.core
  * @return zero, one or two sentences, flattened names first
  */
 fun AnonymizationResult.fidelityNotices(): List<String> = listOfNotNull(
-    flattened.takeIf { it.isNotEmpty() }?.joinToString("; ") { "${listing(it.placeholders)} were the same name" },
-    comments.takeIf { it.stripped > 0 }?.let(::strippedComments),
+    flattened.takeIf { it.isNotEmpty() }?.let(::flattenedNamesNotice),
+    comments.takeIf { it.stripped > 0 }?.let(::strippedCommentsNotice),
 )
 
 /**
@@ -101,29 +101,49 @@ internal fun flattenedNamesIn(names: Collection<MappedName>): List<FlattenedName
     .filter { it.size > 1 }
     .map { group -> FlattenedName(group.mapNotNull { it.placeholder }) }
 
+/** **Notice 1** — *`param1 and field1 were the same name`*, one clause per destroyed coincidence. */
+private fun flattenedNamesNotice(flattened: List<FlattenedName>): String =
+    flattened.joinToString("; ") { "${listing(it.placeholders)} were the same name" }
+
 /**
- * **`2 comments stripped, 1 of them commented-out code`** — the count, and the half of it a user can
- * act on.
+ * **Notice 2** — *`2 comments stripped, 1 of them commented-out code`*: the count, and the half of
+ * it a user can act on.
  *
  * The count already existed and the split is what makes it actionable: *`2 comments stripped`* is a
  * number, and the keep-comments tick is already sitting in the preview. Disclosure plus that tick
  * closes the loop with no new leak surface and no reopened decision.
  *
- * The wording is a branch rather than one format string because the natural sentence is not the same
- * shape in all three cases, and a notice that reads like a template is one a user stops reading.
+ * It is here rather than on [CommentCounts], which is the type it reads and nothing else: the two
+ * notices are **one closed list**, and half of that list living on its own count type is half of it
+ * a reader looking for *the notices* would not find. What [CommentCounts] owns is the split; what
+ * this file owns is that the split is disclosed and how the two disclosures agree with each other.
+ *
+ * **The split is stated whenever the notice is, zero included** — *`2 comments stripped, 0 of them
+ * commented-out code`* — and that is the point rather than an oversight. A strip that took no code
+ * is the case where the user does **not** need to open the preview, and a clause that vanished on
+ * zero would leave them to work that out from its absence. Dropping it also lands the commonest
+ * strip there is, all-prose, back on the bare *`2 comments stripped`* the split exists to replace.
+ *
+ * That is the opposite rule from the notice around it, and the two are not in tension: **whether
+ * there is a notice** is conditional, because a snippet that lost nothing has nothing to say; what
+ * a notice that exists **says** is not, because a number missing from a sentence is unreadable in
+ * exactly the way a missing count is.
+ *
+ * One sentence shape rather than a branch per case. *`1 comment stripped, 1 of them commented-out
+ * code`* is a shade stiff read aloud, and it is the trade taken knowingly: prose that varied with
+ * the numbers would be copy this ticket did not buy, and a disclosure a user has to re-read to see
+ * whether it is the same sentence as last time is worse than a stiff one they can scan.
  */
-private fun strippedComments(comments: CommentCounts): String {
-    val head = "${comments.stripped} ${if (comments.stripped == 1) "comment" else "comments"} stripped"
-    return head + when {
-        comments.code == 0 -> ""
-        comments.prose > 0 -> ", ${comments.code} of them commented-out code"
-        comments.code == 1 -> ", and it was commented-out code"
-        else -> ", all of them commented-out code"
-    }
-}
+private fun strippedCommentsNotice(comments: CommentCounts): String =
+    "${comments.stripped} ${if (comments.stripped == 1) "comment" else "comments"} stripped" +
+        ", ${comments.code} of them commented-out code"
 
-/** `a`, `a and b`, `a, b and c` — an English list, because a notice is read as a sentence. */
-private fun listing(placeholders: List<String>): String = when (placeholders.size) {
-    1 -> placeholders.single()
-    else -> placeholders.dropLast(1).joinToString(", ") + " and " + placeholders.last()
-}
+/**
+ * `a and b`, `a, b and c` — an English list, because a notice is read as a sentence.
+ *
+ * **Never called with fewer than two**, and there is no arm for it: a group of one is not a
+ * coincidence and [flattenedNamesIn] does not emit one. An arm handling it would be dead code
+ * standing where a reader would take it for a case that happens.
+ */
+private fun listing(placeholders: List<String>): String =
+    placeholders.dropLast(1).joinToString(", ") + " and " + placeholders.last()

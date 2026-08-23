@@ -328,11 +328,13 @@ class FidelityNoticeTest {
     }
 
     /**
-     * Prose alone is the commonest strip there is, and the split has nothing to add to it: the
-     * clause appears only where there is commented-out code to report.
+     * **Prose alone is the commonest strip there is, and it still states the split.** A zero there
+     * is the case where the user does *not* need to open the preview, and a clause that vanished on
+     * zero would leave them to work that out from its absence — and would land the commonest strip
+     * of all back on the bare `2 comments stripped` the split exists to replace.
      */
     @Test
-    fun `a strip of prose alone says only how many`() {
+    fun `a strip of prose alone still states the split`() {
         val plan = planOf(
             """
             void settle() {
@@ -346,15 +348,15 @@ class FidelityNoticeTest {
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals(listOf("1 comment stripped"), result.fidelityNotices())
+        assertEquals(listOf("1 comment stripped, 0 of them commented-out code"), result.fidelityNotices())
     }
 
     /**
-     * The case the ticket is written for, and the one where the wording has to hold up: a single
-     * stripped comment that *was* the commented-out assignment. The one question every variant of
-     * the naming experiment answered at a full 9/9 was *"find the commented-out assignment"*, and a
-     * reviewer called that line the most useful surviving clue. The default deletes it on every
-     * paste; the default does not flip, and the loss is disclosed instead.
+     * The case the ticket is written for: a single stripped comment that *was* the commented-out
+     * assignment. The one question every variant of the naming experiment answered at a full 9/9 was
+     * *"find the commented-out assignment"*, and a reviewer called that line the most useful
+     * surviving clue. The default deletes it on every paste; the default does not flip, and the loss
+     * is disclosed instead.
      */
     @Test
     fun `a single stripped comment that was code says so`() {
@@ -371,12 +373,12 @@ class FidelityNoticeTest {
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals(listOf("1 comment stripped, and it was commented-out code"), result.fidelityNotices())
+        assertEquals(listOf("1 comment stripped, 1 of them commented-out code"), result.fidelityNotices())
     }
 
-    /** Every one of them, and none of them prose — a strip that is entirely commented-out code. */
+    /** The other end of the same number: a strip that is entirely commented-out code. */
     @Test
-    fun `a strip that is all code says all of them`() {
+    fun `a strip that is all code counts every one of them`() {
         val plan = planOf(
             """
             void settle() {
@@ -393,7 +395,7 @@ class FidelityNoticeTest {
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals(listOf("2 comments stripped, all of them commented-out code"), result.fidelityNotices())
+        assertEquals(listOf("2 comments stripped, 2 of them commented-out code"), result.fidelityNotices())
     }
 
     /**
@@ -453,7 +455,7 @@ class FidelityNoticeTest {
         assertEquals(
             listOf(
                 "field2 and method3 were the same name",
-                "1 comment stripped, and it was commented-out code",
+                "1 comment stripped, 1 of them commented-out code",
             ),
             result.fidelityNotices(),
         )
