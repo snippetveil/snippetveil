@@ -153,6 +153,25 @@ internal class PlaceholderSidecar : PersistentStateComponent<PlaceholderSidecar.
     fun window(): Sidecar = stored().bounded(Instant.now()).also { state = stateOf(it) }
 
     /**
+     * **Forgets the window, whole.**
+     *
+     * Called by [MappingReset] together with the mapping's own clear, and the two are one operation
+     * from the user's side: a *Reset Mappings* that emptied the durable table and left the last
+     * fifty invocations' locals, parameters and **literal text** sitting in `cache-state.xml` would
+     * have reset the half nobody worries about and kept the half that holds the most directly
+     * sensitive content the product handles.
+     *
+     * It is still two calls rather than one, because the stores are deliberately separate — see the
+     * reset semantics above — and this is what the separation costs: one line at the one call site,
+     * against a merged component in which *keep the org prefixes* would be a hand-written special
+     * case.
+     */
+    @Synchronized
+    fun clear() {
+        state = State()
+    }
+
+    /**
      * What [placeholder] stood for, or `null` when nothing inside the horizon knows.
      *
      * **One lookup, and it trims the whole window to answer it** — which is why a reversal does not

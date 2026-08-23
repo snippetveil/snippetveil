@@ -1,6 +1,7 @@
 package com.snippetveil.plugin
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.Service
@@ -12,6 +13,7 @@ import com.snippetveil.core.LedgerDelta
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.MintedName
 import com.snippetveil.core.plus
+import java.nio.file.Path
 
 /**
  * **What each of a project's symbols has been called, kept between invocations and across restarts.**
@@ -72,7 +74,7 @@ import com.snippetveil.core.plus
 @Service(Service.Level.APP)
 @State(
     name = "SnippetVeilPlaceholders",
-    storages = [Storage("snippetveil-placeholders.xml", roamingType = RoamingType.DISABLED)],
+    storages = [Storage(LEDGER_FILE, roamingType = RoamingType.DISABLED)],
 )
 internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.State> {
 
@@ -190,6 +192,30 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
     }
 
     /**
+     * **Forgets everything [project] has been handed — the one operation that is not append-only.**
+     *
+     * Nothing else here deletes a row, and the reason pruning is forbidden applies to every
+     * automatic version of this: a number that comes back into circulation makes an old placeholder
+     * stand for a new symbol, and a reply decoded against it comes back with a *plausible wrong
+     * name*. This is that, deliberately — which is why it exists only behind
+     * [MappingReset]'s confirmation, and why the confirmation states the consequence rather than
+     * asking whether the user is sure. The counter goes with the rows: what is left is a project
+     * that has never been pasted from, and the numbers it hands out next are the numbers of a
+     * mapping nothing outstanding can be read against.
+     *
+     * **Only this project's entries.** The component is application-level and the data is
+     * partitioned, so a reset that took the whole bean would silently destroy the mapping of every
+     * other project on the machine.
+     */
+    @Synchronized
+    fun clear(project: Project) {
+        val current = state
+        state = State().also {
+            it.projects = current.projects.filterTo(mutableListOf()) { other -> other.project != project.locationHash }
+        }
+    }
+
+    /**
      * What [project] had been handed as of [state] — read against a stated version of the bean rather
      * than against the field, so that a commit reads and replaces one and the same ledger.
      */
@@ -205,5 +231,29 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
     companion object {
         /** The one store. A light service, so the platform creates it on first ask. */
         fun getInstance(): PlaceholderLedger = ApplicationManager.getApplication().service()
+
+        /**
+         * **The file itself, in full — which the settings page shows and does not summarise.**
+         *
+         * Showing the path is the cheapest possible support for auditability: the four properties
+         * argued above are claims about *where this file is*, and a suspicious person can check all
+         * of them in two seconds by reading the path — not in `.idea/`, not in the cache directory,
+         * not anywhere Settings Sync collects from. A product whose pitch is *audit me* hands over
+         * the evidence rather than the assurance.
+         *
+         * Derived from [LEDGER_FILE], which is the same constant the `@Storage` above names, so the
+         * page cannot show a path the platform is not writing to. A bare file name on an
+         * application-level `@State` resolves under `$APP_CONFIG$`, which is
+         * [PathManager.getOptionsPath]; `PlaceholderLedgerTest` holds the platform to that step
+         * rather than assuming it.
+         */
+        fun storagePath(): Path = Path.of(PathManager.getOptionsPath()).resolve(LEDGER_FILE)
     }
 }
+
+/**
+ * The mapping's file name, named once: the `@Storage` above and [PlaceholderLedger.storagePath] are
+ * two readings of one fact, and a settings page displaying a path the platform does not write to
+ * would be worse than showing none at all.
+ */
+private const val LEDGER_FILE = "snippetveil-placeholders.xml"

@@ -19,6 +19,9 @@ import com.snippetveil.core.fidelityNotices
  * back, one is about a mapping written to a file, and each of the three directions says its own
  * failure — because what a failure leaves behind differs by direction, and that is the half of the
  * message a user acts on.
+ *
+ * [installed] is the exception to the shape of every other one here: it reports no operation,
+ * because there has not been one yet.
  */
 internal object SnippetVeilNotifications {
 
@@ -89,6 +92,34 @@ internal object SnippetVeilNotifications {
      */
     private fun showMapping(project: Project, analysis: Analysis) =
         NotificationAction.createSimple("Show mapping") { PreviewDialog.forReview(project, analysis).show() }
+
+    /**
+     * **The only thing this plugin ever says unprompted**, and it says what to do rather than what
+     * it is.
+     *
+     * *"SnippetVeil is installed"* on its own is an announcement about us; the sentence that follows
+     * is the whole point, and it is an instruction short enough to act on from memory a week later —
+     * select, right-click, the item's own name. The surface is otherwise invisible by design (see
+     * [FirstRunNotice]), so this one balloon is carrying the discoverability of the entire product
+     * and cannot afford to spend its second line on a description.
+     *
+     * **`Open settings` rather than a link to documentation**, because the page it opens is where
+     * the two questions a new user actually has get answered — where the mapping is kept, and how to
+     * put a keyboard shortcut on the action they were just told about. A documentation link would
+     * also be a web page opened by a plugin that promises not to fetch one; the action here reaches
+     * nothing outside the IDE.
+     */
+    fun installed(project: Project) {
+        group().createNotification(
+            "SnippetVeil is installed",
+            "Select Java code, then right-click \u2192 <b>Copy Anonymized</b>.",
+            NotificationType.INFORMATION,
+        ).addAction(openSettings(project)).notify(project)
+    }
+
+    /** Opens the settings page, and expires the balloon: a second click has nothing left to open. */
+    private fun openSettings(project: Project) =
+        NotificationAction.createSimpleExpiring("Open settings") { SnippetVeilConfigurable.openFor(project) }
 
     /**
      * **What was saved, and what the thing that was saved *is*** — one line, because the second

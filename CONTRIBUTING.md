@@ -108,6 +108,12 @@ list, and it is an increase. Before it existed every library symbol was preserve
 can be written into the list takes the output back past that baseline — the removals only give back
 what the additions and the root-package heuristic claimed.
 
+*Exactly one setting* is a claim about settings rather than about `@State`. Four components ship that
+the platform can write to disk, and only this one holds a choice: the other three — the mapping, the
+sidecar and the first-run marker — record what happened, and nothing any of them can hold changes
+what the anonymizer does. `Settings > Tools > SnippetVeil` is the page, and one tick box with a
+prefix list beneath it is the whole of the product's persistent configuration.
+
 ### And one absolute claim: **no `@State` in SnippetVeil is roamable**
 
 Settings sync copies a roamable `@State` to JetBrains' servers, and the one setting this product
@@ -210,11 +216,59 @@ It gets the treatment the mapping refuses, and each half of that follows from on
 - **It allocates nothing.** Numbers come from the mapping's single shared counter, so nothing here
   can collide with anything there — by construction, not by care.
 - **`RoamingType.DISABLED`**, like everything else that ships, and the absolute rule's test names it
-  among the three state holders it covers.
+  among the four state holders it covers.
 
 `PlaceholderSidecarTest` asserts the tier rather than describing it — it resolves `$CACHE_FILE$`
 through the project's own storage manager and checks where that lands — and the window itself is a
 value type in `:core`, held over generated sequences of invocations by `SidecarHorizonTest`.
+
+### The settings page, and the one destructive button in the product
+
+`Settings > Tools > SnippetVeil` is **project-level**, because the one setting it edits is inherently
+per-repository: a different employer means a different group id, and a global page would offer to
+write one project's vocabulary into the next one's analysis.
+
+It shows **the mapping's storage path in full**, and that is the cheapest possible support for
+auditability there is: the four properties argued above are claims about *where the file is*, and a
+suspicious person can check all four by reading one line instead of taking our word for it. The whole
+no-network claim rests on evidence a sceptic can check, and this is the same bargain one directory
+down. `PlaceholderLedgerTest` asserts that the line names the file the platform actually writes.
+
+**The orphan count is deliberately not shown.** Orphans — entries for symbols that no longer exist —
+are non-actionable *by construction*, since pruning is forbidden and they are retained on purpose.
+The only action the number could motivate is `Reset Mappings…`, and **a number whose sole affordance
+is the button you should not press is worse than no number.** A test reads the built page's own text
+and fails if the word appears on it.
+
+`Reset Mappings…` is **a button on the settings page and not an action**, so it is nowhere near
+`Copy Anonymized` and — the accepted cost, stated rather than discovered — not reachable from Find
+Action. It is the single place the append-only rule ends: it clears this project's mapping and the
+sidecar, and **leaves the org-prefix configuration intact**, which is a structural fact rather than a
+special case because the three are separate components. Its confirmation states the consequence —
+*existing anonymized snippets become undecodable* — rather than asking whether the user is sure,
+because the effect is invisible until a reply fails to decode days later. `MappingResetTest` holds
+each half, including the text the platform is actually shown.
+
+**No default keyboard shortcut ships**, and that is a decision: every combination worth having is
+taken, differently, across the Default, macOS, Eclipse and VS Code keymaps, so a binding clean on one
+machine ships a conflict badge on another. `Configure shortcut…` on the page opens Keymap with
+`Copy Anonymized` selected, which turns the absence into one click. `ActionRegistrationTest` asserts
+that nothing ships a shortcut.
+
+### The one balloon nobody asked for
+
+The surface is deliberately invisible — no toolbar button, no tool window, no default shortcut, no
+menu entry outside a Java editor — and together those make **install-and-never-notice** the realistic
+failure mode. One dismissible notification, on the first project opened after installing, shown once
+ever, is the whole mitigation; `FirstRunNotice` is the application-level record that keeps it to once
+and the fourth state holder the roaming rule covers.
+
+**A post-install web page is refused, and that is a release-configuration constraint as well as a
+code one: the Marketplace listing must not be configured with one.** A user who installs a plugin
+whose proposition is *makes no network connections* and immediately watches their IDE fetch
+`snippetveil.com` has been handed a counterexample on day one — and that the request comes from the
+platform rather than from our code does not help, because the claim is built on evidence a sceptic
+can check.
 
 ### The one file that leaves both stores
 

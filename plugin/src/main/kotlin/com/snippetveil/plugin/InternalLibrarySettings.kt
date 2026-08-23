@@ -35,8 +35,9 @@ import com.snippetveil.core.InternalLibraries
  * judgement, which is a claim a reader can check with one grep and one test
  * (`NoPersistentStateIsRoamableTest`).
  *
- * A settings UI for this list is a later ticket. Until it exists the state is written by hand or
- * left at its defaults, and the defaults are what the heuristic alone produces.
+ * The settings page that edits it is [SnippetVeilConfigurable], and it reaches the state through
+ * [configuration] rather than through [State]: the page is handed a value it can compare, and the
+ * bean the platform serializes stays this class's own business.
  */
 @Service(Service.Level.PROJECT)
 @State(
@@ -82,8 +83,57 @@ internal class InternalLibrarySettings : PersistentStateComponent<InternalLibrar
             thirdPartyPrefixes = state.thirdPartyPrefixes.toSet(),
         )
 
+    /**
+     * **What the settings page reads and writes** — the same three fields as [State], as a value
+     * that can be compared.
+     *
+     * The page needs to answer *is this modified?* on every keystroke, and [State] is a mutable
+     * bean with no equality: comparing two of them compares identities, which is always false and
+     * would leave the `Apply` button permanently lit. Handing out a value closes that, and it keeps
+     * the bean the platform serializes from being passed around as the product's edit model — the
+     * setter below is the only writer, so a page that forgot to copy a list cannot reach back into
+     * stored state through one it was handed.
+     *
+     * [policy] stays separate rather than being derived from this: it is what `:core` reads, in
+     * `:core`'s own type, and the two would only look alike until the page grows a field the engine
+     * does not have.
+     */
+    var configuration: PrefixConfiguration
+        get() = PrefixConfiguration(
+            autoDetectRootPackage = state.autoDetectRootPackage,
+            internalPrefixes = state.internalPrefixes.toList(),
+            thirdPartyPrefixes = state.thirdPartyPrefixes.toList(),
+        )
+        set(value) {
+            state = State().also {
+                it.autoDetectRootPackage = value.autoDetectRootPackage
+                it.internalPrefixes = value.internalPrefixes.toMutableList()
+                it.thirdPartyPrefixes = value.thirdPartyPrefixes.toMutableList()
+            }
+        }
+
     companion object {
         /** This project's list. A light service, so the platform creates it on first ask. */
         fun of(project: Project): InternalLibrarySettings = project.service()
     }
 }
+
+/**
+ * **The one persistent knob and its prefix list, as one comparable value.**
+ *
+ * Ordered lists rather than the sets [InternalLibraries] holds, because this is what a table on a
+ * settings page shows and a table has rows in an order the user put them in. The engine does not
+ * care — [InternalLibrarySettings.policy] takes the sets — so the ordering is presentation, kept
+ * where presentation is.
+ *
+ * @param autoDetectRootPackage the root-package heuristic, which is the knob
+ * @param internalPrefixes prefixes the user added: library packages that are the company's own code
+ * @param thirdPartyPrefixes prefixes the user took back: packages the heuristic claimed and should
+ *   not have. A prefix in both lists is a removal, which is [InternalLibraries]' rule and not this
+ *   type's — a value that resolved the tie here would be deciding classification on a settings page.
+ */
+internal data class PrefixConfiguration(
+    val autoDetectRootPackage: Boolean = true,
+    val internalPrefixes: List<String> = emptyList(),
+    val thirdPartyPrefixes: List<String> = emptyList(),
+)
