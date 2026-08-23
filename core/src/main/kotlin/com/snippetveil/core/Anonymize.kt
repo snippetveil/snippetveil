@@ -111,11 +111,18 @@ fun anonymize(
     }
 
     // What the output replaces, in ascending order, and every symbol the output speaks about — the
-    // second being what the counts partition and what the mapping has to explain. A reference the
-    // coverage rule spliced names its symbol as surely as an identifier does; a literal replaced
-    // whole contributes nothing, because none of its references survived as a name.
+    // second being what the counts partition. A reference the coverage rule spliced names its symbol
+    // as surely as an identifier does; a literal replaced whole names none, because none of its
+    // references survived as a name.
     val edits = mutableListOf<Edit>()
     val namedSymbols = mutableListOf<SymbolEvidence>()
+
+    // **What every placeholder in the output stands for, built as the output is** — a name, or the
+    // text of a literal that was replaced whole. One table rather than two, because it is read as
+    // one: the sidecar records it, the preview shows it and the export writes it, and a caller that
+    // had to remember to merge a second map would leave the literals out on the day it forgot.
+    // Filled in the same document-order pass, so the rows come out in first-occurrence order.
+    val mapping = LinkedHashMap<String, String>()
 
     // One pass in document order, which is what makes the output read top to bottom: every
     // placeholder is allocated the first time the thing it stands for is written, whether that is
@@ -128,20 +135,31 @@ fun anonymize(
             is SymbolOccurrence -> {
                 namedSymbols += occurrence.symbol
                 if (isReplaced(occurrence.symbol)) {
-                    edits += Edit(occurrence.start, occurrence.end, placeholderFor(occurrence.symbol))
+                    val placeholder = placeholderFor(occurrence.symbol)
+                    edits += Edit(occurrence.start, occurrence.end, placeholder)
+                    mapping[placeholder] = occurrence.symbol.declaredName
                 }
             }
 
             is LiteralOccurrence -> when (val rewrite = rewriteOf(plan.text, occurrence)) {
                 LiteralRewrite.Preserved -> Unit
 
-                LiteralRewrite.Redacted ->
-                    edits += Edit(occurrence.contentStart, occurrence.contentEnd, allocator.next(LITERAL_PREFIX))
+                LiteralRewrite.Redacted -> {
+                    val placeholder = allocator.next(LITERAL_PREFIX)
+                    edits += Edit(occurrence.contentStart, occurrence.contentEnd, placeholder)
+
+                    // The content as it is written, delimiters excluded — which is what the
+                    // replacement went inside, so it is what putting the original back would have to
+                    // restore.
+                    mapping[placeholder] = plan.text.substring(occurrence.contentStart, occurrence.contentEnd)
+                }
 
                 is LiteralRewrite.Spliced -> for (reference in rewrite.references) {
                     namedSymbols += reference.symbol
                     if (isReplaced(reference.symbol)) {
-                        edits += Edit(reference.start, reference.end, placeholderFor(reference.symbol))
+                        val placeholder = placeholderFor(reference.symbol)
+                        edits += Edit(reference.start, reference.end, placeholder)
+                        mapping[placeholder] = reference.symbol.declaredName
                     }
                 }
             }
@@ -158,10 +176,6 @@ fun anonymize(
     // of literals, and the lines the comments were on.
     val text = StringBuilder(plan.text)
     for (edit in edits.asReversed()) text.replace(edit.start, edit.end, edit.text)
-
-    val mapping = namedSymbols
-        .filter(::isReplaced)
-        .associate { placeholderByKey.getValue(sharedKeyOf(it)) to it.declaredName }
 
     // Every unresolved name, once, in document order of first occurrence — the order the preview
     // dialog sorts its rows by. The placeholder is read back through [isAnonymized] rather than out

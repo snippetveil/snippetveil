@@ -36,6 +36,28 @@ class LiteralRedactionTest {
     }
 
     /**
+     * **A redacted literal's text is in the invocation's table, next to the names.**
+     *
+     * The table is what a reply is read back through, and a reply quotes the literal it was shown:
+     * *"the `str2` you pass to `warn` is the message"*. Without a row, `str2` decodes to nothing —
+     * and the text it stood for is in no other artifact the product keeps, because a literal has no
+     * qualified key and is never written into the persistent mapping. The one place it survives at
+     * all is the sidecar, and the sidecar records this table.
+     */
+    @Test
+    fun `a redacted literal is in the mapping so a reply that mentions it can be decoded`() {
+        val plan = planOf(
+            """log.warn("merchant settlement failed");""",
+            symbol("log", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT),
+            symbol("warn", SymbolRole.METHOD, SymbolOrigin.LIBRARY),
+        ).withLiteral(""""merchant settlement failed"""")
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals(mapOf("field1" to "log", "str2" to "merchant settlement failed"), result.mapping)
+    }
+
+    /**
      * **Row one of the coverage table.** `JavaClassReferenceSet` yields one reference per dotted
      * segment, so the gaps are the dots — non-alphanumeric, and coverage holds. Each segment then
      * renames as whatever its own symbol renames as, including `com` being passed through as the

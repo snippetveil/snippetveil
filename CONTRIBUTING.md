@@ -171,6 +171,39 @@ when today's snippet preserves a library name spelled the same way, so that word
 standing for two things. Both are argued where they live, in `PlaceholderLedger` and in
 `Anonymize.placeholderFor`, and both are pinned by a test.
 
+### And where the sidecar lives
+
+There is a second store beside the mapping, and it is deliberately a *second* one: **the sidecar**,
+which holds the complete symbol table of the last ~50 invocations — locals, parameters, type
+parameters, anonymous-class members and the text of every string literal that was replaced. Only
+FQN-keyed symbols persist in the mapping, and an AI's reply talks about the rest constantly — *"the
+`local43` here is null before you validate"* — so without a sidecar the round trip recovers types
+and fields and drops exactly the detail a debugging conversation runs on.
+
+It gets the treatment the mapping refuses, and each half of that follows from one fact:
+
+- **It is in the cache tier.** `$CACHE_FILE$`, the platform's own per-project cache slot, declared
+  deletable at any time. Losing it costs **under-recovery** — a placeholder past the horizon stays
+  verbatim in the reply, a visible gap and **never a wrong name**, because no number is ever reused.
+  *The sidecar is cache; the mapping is data*, and that asymmetry is what lets Invalidate Caches
+  wipe one and not the other. It is also what lets this component be project-level where the
+  mapping could not be: `$CACHE_FILE$` is the one project-level storage outside the project tree.
+- **It is a separate component**, not a second field on the mapping's `@State`. The two differ on
+  nature and decisively on **reset semantics**: *Reset Mappings* has to clear the mapping without
+  destroying the org-prefix configuration, and a merged component makes that a hand-written special
+  case instead of a structural fact.
+- **It is bounded**: ~50 invocations, FIFO by invocation, with a 30-day age cap — applied on every
+  read as well as on every write, because a count bound is no bound at all for someone who pastes
+  twice a month, and this file is the one durable place a **literal's text** comes to rest.
+- **It allocates nothing.** Numbers come from the mapping's single shared counter, so nothing here
+  can collide with anything there — by construction, not by care.
+- **`RoamingType.DISABLED`**, like everything else that ships, and the absolute rule's test names it
+  among the three state holders it covers.
+
+`PlaceholderSidecarTest` asserts the tier rather than describing it — it resolves `$CACHE_FILE$`
+through the project's own storage manager and checks where that lands — and the window itself is a
+value type in `:core`, held over generated sequences of invocations by `SidecarHorizonTest`.
+
 ### Known limits
 
 This is deliberate, and it is stated here rather than left for a reader to discover, because a trust

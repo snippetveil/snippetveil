@@ -186,7 +186,8 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
     }
 
     /**
-     * The clipboard first, the ledger second, the balloon third — and the failure modes told apart.
+     * The clipboard first, the ledger second, the balloon third, the sidecar last — and the failure
+     * modes told apart.
      *
      * A clipboard write that throws leaves the clipboard as it was, so it is reported as a failure
      * like any other **and the delta is dropped**: the snippet was never sent, so nothing in it was
@@ -201,6 +202,14 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
      * on a paste the user already has, if the balloon threw.
      *
      * The delta is committed unconditionally, empty map or not — see [PlaceholderLedger.commit].
+     *
+     * **The sidecar goes last, after the balloon, and that is the same rule read from the other
+     * end.** It is recorded under the same condition as the commit — the snippet reached the
+     * clipboard — but it is the only step here whose loss the design already has an answer for:
+     * a window missing a paste is under-recovery, while a balloon suppressed by a failing cache
+     * write would leave the user with no account of a copy that did happen. It is a **second**
+     * holder rather than a second field of the first for the reason it is last: one is data and one
+     * is cache, and they part company on what losing them costs — see [PlaceholderSidecar].
      *
      * ### Two invocations at once, and why the ledger is read a second time here
      *
@@ -232,6 +241,12 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
         }
         ledger.commit(project, result.delta)
         SnippetVeilNotifications.copied(project, result.counts, result.comments)
+
+        // The mapping keeps the qualified keys; **the sidecar keeps this invocation whole** — its
+        // locals, parameters, anonymous-class members and the text of every redacted literal, none
+        // of which has a key that could be written down. Recorded only because the clipboard write
+        // happened, and recorded after the balloon because it is the step that may be lost.
+        PlaceholderSidecar.getInstance(project).record(result.mapping)
     }
 }
 
