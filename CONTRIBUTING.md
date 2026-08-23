@@ -536,6 +536,82 @@ eye, and these files are read by people deciding whether to trust the build. Wha
 does, and a rule that guessed at it would be the kind of noise that teaches people to suppress a
 check.
 
+## Signing off: the DCO, and deliberately no CLA
+
+Every commit needs a `Signed-off-by` line. Git writes one for you:
+
+```
+git commit -s
+```
+
+That line is an assertion under the [Developer Certificate of Origin 1.1](https://developercertificate.org/),
+reproduced in full at the bottom of this section. In one sentence: *you have the right to submit
+this, under this project's licence.*
+
+**There is no CLA, and that is a decision rather than an omission.**
+
+A contributor licence agreement exists to solve a problem this project does not have. Apache-2.0 §5
+already states that a contribution intentionally submitted for inclusion is licensed under these
+same terms unless you say otherwise — **inbound is outbound, in the licence itself, with nothing to
+sign.** And Apache-2.0 is permissive, so the relicensing freedom a CLA is usually collected for is
+already granted to everyone, maintainer included: nothing here is waiting on a signature to be
+reused in a proprietary product.
+
+CLAs are for the *copyleft* open-core shape — a GPL project whose owner wants to ship a proprietary
+edition needs rights the GPL does not give them, so they collect them one contributor at a time.
+Ask for one here and you buy nothing that is not already granted, at the cost of a signing step on
+every pull request. That step is measurably the biggest deterrent to small contributions, and small
+contributions are the ones this repository most wants: a typo in a threat model, a fixture for a
+shape the anonymiser gets wrong.
+
+**What the DCO adds is the one thing §5 leaves out: an explicit right-to-submit assertion.** §5 says
+what licence a contribution arrives under; it says nothing about whether the person submitting it
+was entitled to. That gap used to be theoretical. It is not now — **AI-authored pull requests are
+routine**, and "where did this code come from" is a question a public repository gets asked. The DCO
+answers it at the point of the commit, for the price of one flag.
+
+**Nothing enforces this mechanically**, and that is worth stating in a file full of checks that do.
+There is no sign-off bot and no CI gate; an unsigned commit is caught in review or not at all. A
+missing `Signed-off-by` is a thing to fix with `git commit --amend -s`, not a thing to argue about.
+
+### Developer Certificate of Origin 1.1
+
+```
+Developer Certificate of Origin
+Version 1.1
+
+Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications, whether created in whole or in part
+    by me, under the same license (unless I am permitted to submit
+    under a different license), as indicated in the file; or
+
+(c) The contribution was provided directly to me by some other
+    person who certified (a), (b) or (c) and I have not modified
+    it.
+
+(d) I understand and agree that this project and the contribution
+    are public and that a record of the contribution (including all
+    personal information I submit with it, including my sign-off) is
+    maintained indefinitely and may be redistributed consistent with
+    this project and the open source license(s) involved.
+```
+
 ## Inbound dependency policy
 
 Today the shipped distribution contains no third-party code at all: `:core` has zero runtime
