@@ -976,17 +976,23 @@ val assertBothPluginIconsShip by tasks.registering {
 
     doLast {
         val icons = mutableMapOf<String, String>()
+        val shipped = mutableListOf<String>()
         ZipFile(distribution.get().asFile).use { zip ->
             zip.entries().asSequence()
                 .filter { !it.isDirectory && libraryJar.matches(it.name) }
                 .forEach { entry ->
                     ZipInputStream(zip.getInputStream(entry)).use { jar ->
                         generateSequence { jar.nextEntry }
-                            .filter { it.name in required }
-                            .forEach { icons[it.name] = jar.readBytes().decodeToString() }
+                            .filterNot { it.isDirectory }
+                            .forEach { nested ->
+                                shipped += "${entry.name}!/${nested.name}"
+                                if (nested.name in required) icons[nested.name] = jar.readBytes().decodeToString()
+                            }
                     }
                 }
         }
+
+        check(shipped.isNotEmpty()) { "The distribution's jars are empty. Nothing was checked." }
 
         /** Everything wrong with one icon. */
         fun problemsWith(name: String, svg: String): List<String> = buildList {
@@ -1020,6 +1026,12 @@ val assertBothPluginIconsShip by tasks.registering {
         check(problemsWith("fixture", fixture.replace("<rect", "<image")).size == 1) {
             "The raster rule did not flag an <image> element."
         }
+        check(
+            Regex("""\.(png|jpg|jpeg|gif|webp|bmp|svg|ico)$""", RegexOption.IGNORE_CASE)
+                .containsMatchIn("a/b/Screenshot 2026-08-23.PNG")
+        ) {
+            "The picture rule does not match a capitalised extension, which is what a screenshot has."
+        }
         check(coloursIn("""a #6c707E b #7B61FF""") == setOf("#6C707E", "#7B61FF")) {
             "The colour reader is case-sensitive or is not reading hex colours at all, so two icons " +
                 "spelling one colour differently would read as contrasting."
@@ -1032,6 +1044,17 @@ val assertBothPluginIconsShip by tasks.registering {
         }
 
         icons.forEach { (name, svg) -> violations += problemsWith(name, svg) }
+
+        // **The mark is the only picture that ships, and this is what says so.** The near miss it
+        // guards is an ordinary one: the Marketplace screenshots are 1280x800 PNGs that have to live
+        // somewhere while they are being cut, and `plugin/src/main/resources/` is a directory a
+        // screenshot lands in without anybody deciding it should — from there it is in the jar, in
+        // the distribution, and on every user's disk, and nothing else here would have noticed.
+        //
+        // A picture this project genuinely wants to ship goes in `required` above, deliberately.
+        val pictures = Regex("""\.(png|jpg|jpeg|gif|webp|bmp|svg|ico)$""", RegexOption.IGNORE_CASE)
+        shipped.filter { pictures.containsMatchIn(it) && it.substringAfter("!/") !in required }
+            .forEach { violations += "$it is an image in the distribution, and it is not the mark" }
 
         if (icons.size == required.size) {
             val (light, dark) = required.map { icons.getValue(it) }
@@ -1051,6 +1074,7 @@ val assertBothPluginIconsShip by tasks.registering {
         report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
             buildString {
                 appendLine("Icons in the distribution: ${icons.keys.sorted().joinToString(", ")}")
+                appendLine("Files read: ${shipped.size}, of which images: ${shipped.count { pictures.containsMatchIn(it) }}")
                 icons.toSortedMap().forEach { (name, svg) ->
                     val colours = Regex("""#[0-9A-Fa-f]{6}""").findAll(svg).map { it.value }.distinct().toList()
                     appendLine("  $name — ${svg.toByteArray().size} bytes, colours ${colours.joinToString(", ")}")

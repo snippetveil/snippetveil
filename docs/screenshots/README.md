@@ -22,7 +22,7 @@ that cannot be reproduced cannot be corrected when the dialog it shows moves on.
   scaled to a listing card.
 - **Nothing but `demo/` on screen.** Close every other project window and every other editor tab.
 
-## The five
+## The shots
 
 ### 1. `right-click-copy-anonymized.png`
 
@@ -37,7 +37,15 @@ using.
 non-zero in shots 2 and 4, and a listing that showed a zero there would be illustrating the one
 disclosure this product most wants read.
 
-### 2. `preview-dialog.png`
+### 2. `right-click-anonymize-with-preview.png`
+
+The same popup, the same selection, with **Anonymize with Preview…** highlighted instead.
+
+Two shots of one menu is a repetition worth paying for: the two items are two different promises —
+one copies, one stops and shows you what it is about to copy — and the difference between them is
+the ellipsis, which is not a thing a reader spots in a single frame.
+
+### 3. `preview-dialog.png`
 
 **Anonymize with Preview…** on the same selection — `LateFeeCalculator.java`, lines 30–59 — showing
 the anonymized code beside its mapping table, with the counts strip along the bottom.
@@ -45,7 +53,7 @@ the anonymized code beside its mapping table, with the counts strip along the bo
 This is the shot that carries the product. The mapping table should be scrolled to the top, so that
 the first rows are the type and method names a reader recognises from the code beside them.
 
-### 3. `preview-fidelity-notice.png`
+### 4. `preview-fidelity-notice.png`
 
 The preview again, on a selection that makes a fidelity notice fire.
 
@@ -54,14 +62,20 @@ class below it. `customer`, `overdue` and `fees` are each both a field and a met
 renamed symbols share one source name and the preview says so. The notice is the subject of the shot
 — frame it so the sentence is readable rather than implied.
 
-### 4. `copy-balloon-with-counts.png`
+### 5. `copy-balloon-with-counts.png`
 
 The balloon after a plain **Copy Anonymized**, showing the counts and the **Show mapping** action.
 
 Take it from the selection in shot 1, so that a reader moving between the two shots is looking at
 one story rather than two.
 
-### 5. `walkthrough.gif` (optional)
+**Turn off the code author inlay first** — `Settings > Editor > Inlay Hints > Code Vision > Code
+author`. It renders the name of whoever last touched the line, from `git blame`, in the editor
+beside the method signature. In shots 1 and 2 the context menu happens to cover it; nothing covers
+it here, and a real person's name in a listing image is the one rule in this file with no judgement
+in it.
+
+### 6. `walkthrough.gif` (optional)
 
 Roughly ten seconds, no audio: select, **Copy Anonymized**, paste into a scratch buffer, then
 **De-anonymize Clipboard** on a reply pasted back. Same window, same theme, same rules as above.
@@ -85,8 +99,21 @@ sips -z 800 1280 docs/screenshots/<name>.png
 Keep `<x>,<y>` the same for all five so the shots line up, and place the region well inside the
 editor area rather than against the window's edges.
 
-## Status
+## What is here
 
-**The images are not in this directory yet.** Shooting them needs a running sandbox IDE
-(`./gradlew runIde`) and a person at the screen. Everything they need to be reproducible — the
-project, the selections, and the rules — is committed; the capture is the step that is not.
+Four of the six, shot from `demo/` in a sandbox IDE, normalised to 1280 x 800: each scaled to fit
+and centred on a ground sampled from its own edge, so the set reads as one product rather than as
+four window sizes. `assertBothPluginIconsShip` fails the build if any image other than the two icons
+reaches the distribution — screenshots are cut somewhere while they are being worked on, and
+`plugin/src/main/resources/` is a directory one lands in without anybody deciding it should.
+
+Still outstanding:
+
+- **`copy-balloon-with-counts.png`** — shot, and not committed: the code author inlay was on, so a
+  real person's name is in the frame beside line 36. Re-shoot with the setting off, per shot 5.
+- **`preview-fidelity-notice.png` is a crop, not the whole dialog.** It was shot from a window 3442
+  pixels wide, and scaling all of that down to 1280 puts the notice — the subject — at a size nobody
+  reads. The committed version crops to the code pane, the first column of the table and the notice.
+  A re-shoot from a window around 1600 points wide would carry the whole dialog at the same
+  legibility.
+- **`walkthrough.gif`** — optional, and not attempted.
