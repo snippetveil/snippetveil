@@ -101,19 +101,23 @@ editor area rather than against the window's edges.
 
 ## What is here
 
-Four of the six, shot from `demo/` in a sandbox IDE, normalised to 1280 x 800: each scaled to fit
-and centred on a ground sampled from its own edge, so the set reads as one product rather than as
-four window sizes. `assertBothPluginIconsShip` fails the build if any image other than the two icons
-reaches the distribution — screenshots are cut somewhere while they are being worked on, and
-`plugin/src/main/resources/` is a directory one lands in without anybody deciding it should.
+All five stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each scaled to fit
+and centred on a ground sampled from its own edge, so the letterboxing is invisible and the set
+reads as one product rather than as five window sizes.
 
-Still outstanding:
+`assertBothPluginIconsShip` fails the build if any image other than the two icons reaches the
+distribution. That rule exists because of how these were made: a screenshot has to live somewhere
+while it is being cut, and `plugin/src/main/resources/` is a directory one lands in without anybody
+deciding it should — from there it is in the jar, in the distribution, and on every user's disk,
+and nothing else in the build would have noticed.
 
-- **`copy-balloon-with-counts.png`** — shot, and not committed: the code author inlay was on, so a
-  real person's name is in the frame beside line 36. Re-shoot with the setting off, per shot 5.
-- **`preview-fidelity-notice.png` is a crop, not the whole dialog.** It was shot from a window 3442
-  pixels wide, and scaling all of that down to 1280 puts the notice — the subject — at a size nobody
-  reads. The committed version crops to the code pane, the first column of the table and the notice.
-  A re-shoot from a window around 1600 points wide would carry the whole dialog at the same
-  legibility.
-- **`walkthrough.gif`** — optional, and not attempted.
+**Shoot at 2560 pixels wide or narrower.** A capture on a Retina display is twice the logical size,
+so a 2560-wide shot scales to 1280 at exactly the size the UI is drawn at, and a wider one arrives
+smaller than natural. `preview-fidelity-notice.png` is the one that was shot wide — 3442 px — which
+put its notice, the only reason that shot exists, at 74% of natural size. The committed version
+crops to the code pane, the first column of the table and the notice rather than scaling all of it
+down. A re-shoot from a dialog at its designed width would carry the whole of it at the same
+legibility; the dialog remembers whatever width it was last dragged to, so the fix is to drag it
+back rather than to reframe the capture.
+
+`walkthrough.gif` is optional and was not attempted.
