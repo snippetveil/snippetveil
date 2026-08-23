@@ -18,6 +18,8 @@ import com.snippetveil.core.MappedName
 import com.snippetveil.core.fidelityNotices
 import java.awt.BorderLayout
 import java.awt.Component
+import java.awt.event.ActionEvent
+import javax.swing.AbstractAction
 import javax.swing.Action
 import javax.swing.BoxLayout
 import javax.swing.JComponent
@@ -64,9 +66,10 @@ import javax.swing.table.TableRowSorter
  * different settings and the ledger is not touched by any of them. Cancel discards an object.
  */
 internal class PreviewDialog private constructor(
-    project: Project,
+    private val project: Project,
     opening: Analysis,
     private val reducible: Boolean,
+    private val files: MappingFiles,
 ) : DialogWrapper(project, true) {
 
     /**
@@ -136,6 +139,35 @@ internal class PreviewDialog private constructor(
     /** Built once, however often it is asked for — the panes are the dialog's, not each caller's. */
     private val center: JComponent by lazy { assemble() }
 
+    /**
+     * **`Export Mapping…`, on both openings and reaching nothing but [analysis].**
+     *
+     * It is a button on this dialog rather than an entry in the `SnippetVeil` menu, and that is the
+     * decision rather than a placement: a Tools-menu item has no invocation in front of it, so the
+     * only thing it could mean is *dump the whole stored mapping* — the complete plaintext domain
+     * glossary of the codebase, written outside the storage location this product chose so carefully
+     * to keep it out of git and out of cloud sync. There is no such action here because there is
+     * nowhere to invoke one from.
+     *
+     * On the left, where the platform puts an action that is neither the commit nor the way out.
+     * Exporting is neither: it writes a file and leaves the dialog exactly where it was, so the user
+     * can save the mapping and *then* copy — the order this ticket exists to make possible.
+     *
+     * **Disabled when there is nothing to write**, which the [rerender] keeps true as the user
+     * reduces. See [exportable].
+     *
+     * **What it writes is this render, and on the reduction surface that is a render the copy can
+     * still overtake.** [deliver] re-renders against the ledger as it stands at the moment of the
+     * copy, so a second invocation that commits while this dialog is open moves the numbers, and a
+     * file exported before that lands describes placeholders the copy never used. The cost is
+     * under-recovery and never a wrong name — those placeholders are not in the reply either, since
+     * they were never in the text that left — which is the direction everything here errs in. The
+     * read-only re-open has no such window: it holds the invocation that was delivered.
+     */
+    private val export = object : AbstractAction("Export Mapping\u2026") {
+        override fun actionPerformed(event: ActionEvent) = exportMapping(project, analysis, files)
+    }.also { it.isEnabled = exportable() }
+
     init {
         title = if (reducible) "Anonymize with Preview" else "Anonymized Snippet"
         if (reducible) setOKButtonText("Copy Anonymized")
@@ -162,6 +194,16 @@ internal class PreviewDialog private constructor(
         cancelAction.putValue(Action.NAME, "Close")
         return arrayOf(cancelAction)
     }
+
+    /**
+     * The export, on both openings — the one control the read-only re-open keeps, because a file
+     * that reverses a snippet is worth writing exactly when the snippet has already left.
+     *
+     * Public for the same reason [createActions] is: *"it is offered here, and only here"* is the
+     * whole of what this ticket decided, and a guarantee nobody can assert is a guarantee nobody is
+     * keeping.
+     */
+    public override fun createLeftSideActions(): Array<Action> = arrayOf(export)
 
     /** Public for the same reason [createActions] is: the absence of the toggles is assertable. */
     public override fun createCenterPanel(): JComponent = center
@@ -243,8 +285,21 @@ internal class PreviewDialog private constructor(
         code.text = analysis.result.text
         rows.showing = analysis.result.names
         strip.text = stripOf(analysis)
+        export.isEnabled = exportable()
         showNotices()
     }
+
+    /**
+     * **Whether this render minted anything at all** — the question the export button answers, asked
+     * of what is on screen rather than of what the dialog was handed, because a reduction can empty
+     * the table and the button is a statement about the file it would write.
+     *
+     * An invocation that renamed nothing would export a header and no rows, under a balloon saying
+     * the file reverses the snippet. That is the *`Show details`* rule read on this side: a count is
+     * worth stating at zero, and an action offering to write nothing is a dead end dressed as an
+     * offer.
+     */
+    private fun exportable(): Boolean = analysis.result.mapping.isNotEmpty()
 
     private fun settingsNow(): AnonymizationSettings = AnonymizationSettings(
         preservedUnknowns = preserved.toSet(),
@@ -255,12 +310,12 @@ internal class PreviewDialog private constructor(
     companion object {
 
         /** The reduction surface: toggles, and a Copy button that is the commit point. */
-        fun forCopy(project: Project, analysis: Analysis): PreviewDialog =
-            PreviewDialog(project, analysis, reducible = true)
+        fun forCopy(project: Project, analysis: Analysis, files: MappingFiles = SavedMappingFiles): PreviewDialog =
+            PreviewDialog(project, analysis, reducible = true, files = files)
 
         /** The balloon's `Show mapping`: the same dialog over an invocation that has already left. */
-        fun forReview(project: Project, analysis: Analysis): PreviewDialog =
-            PreviewDialog(project, analysis, reducible = false)
+        fun forReview(project: Project, analysis: Analysis, files: MappingFiles = SavedMappingFiles): PreviewDialog =
+            PreviewDialog(project, analysis, reducible = false, files = files)
     }
 }
 

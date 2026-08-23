@@ -16,7 +16,9 @@ import com.snippetveil.core.fidelityNotices
  *
  * All of them are balloons in a group of their own, so that a user who does not want them can turn
  * off exactly these and nothing else. Two are about a copy leaving, two are about a reply coming
- * back, and one is the failure either direction can hit.
+ * back, one is about a mapping written to a file, and each of the three directions says its own
+ * failure — because what a failure leaves behind differs by direction, and that is the half of the
+ * message a user acts on.
  */
 internal object SnippetVeilNotifications {
 
@@ -87,6 +89,50 @@ internal object SnippetVeilNotifications {
      */
     private fun showMapping(project: Project, analysis: Analysis) =
         NotificationAction.createSimple("Show mapping") { PreviewDialog.forReview(project, analysis).show() }
+
+    /**
+     * **What was saved, and what the thing that was saved *is*** — one line, because the second
+     * sentence is not a detail.
+     *
+     * The file is a reversal key in plaintext, sitting wherever the user pointed the chooser, which
+     * is very likely `~/Downloads` — outside the storage location this product chose so carefully to
+     * keep the mapping out of git and out of cloud sync. *"Mapping saved"* alone would report a
+     * successful write and say nothing about what the user now has; the clause is what makes it a
+     * file they think about again.
+     *
+     * It states what the file does rather than warning about it, for the same reason the copy
+     * balloon states a count and makes no claim about safety: *"be careful with this"* is an
+     * instruction the tool is in no position to give, and *"it reverses the anonymized snippet"* is
+     * the fact the instruction would have been derived from.
+     *
+     * Nothing is said when the user cancels the chooser. A balloon there would be the tool
+     * announcing its own no-op, and the cancel is already visible — the dialog closed.
+     */
+    fun mappingSaved(project: Project) {
+        group().createNotification(
+            "Mapping saved. This file reverses the anonymized snippet.",
+            NotificationType.INFORMATION,
+        ).notify(project)
+    }
+
+    /**
+     * **The third failure, and the one with nothing at stake on the clipboard.**
+     *
+     * [failed] and [reversalFailed] both state what the clipboard holds, because the user's next
+     * keystroke is a paste either way. Nothing here has touched the clipboard, so the fact worth
+     * stating is the one about the export: the mapping did not get saved, and an invocation whose
+     * ephemeral half falls past the horizon is not decodable later after all.
+     *
+     * **It does not claim that no file was written**, which is the sentence that first suggests
+     * itself and is not reliably true: a write that fails partway leaves a truncated file behind.
+     * A message that must not contain a lie may not say the one thing this code cannot check.
+     */
+    fun exportFailed(project: Project?, failure: Throwable) = report(
+        project,
+        failure,
+        logged = "SnippetVeil could not write the mapping file.",
+        said = "Mapping export failed — the mapping was not saved.",
+    )
 
     /**
      * **The sharp edge of the whole design: when this fires, the clipboard is not empty.**
