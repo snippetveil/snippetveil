@@ -536,6 +536,76 @@ eye, and these files are read by people deciding whether to trust the build. Wha
 does, and a rule that guessed at it would be the kind of noise that teaches people to suppress a
 check.
 
+## The publication checks
+
+Everything the Marketplace listing needs, other than the plugin itself, is in this repository — and
+five more Gradle tasks decide whether it still says what it is supposed to.
+
+**The Marketplace `<description>` and the README opening are the same strings**, not two texts
+saying the same thing. Two differently-worded statements of one claim invite *which one is true*,
+and on a plugin whose entire moat is trust that question costs more than the tailoring it buys.
+
+So README.md is the one copy. The block between its two `<!-- listing copy -->` markers is rendered
+to HTML by a small fail-closed renderer in `plugin/build.gradle.kts` and patched into the descriptor
+— which carries **no `<description>` element of its own**, so the second copy cannot be written.
+
+The consequence is the point: **the Approval Guidelines now govern the README too.** No third-party
+brand references, no marketing adjectives, no unverifiable claims, English first, HTTPS links only.
+The strictest surface wins automatically, by construction rather than by discipline.
+
+| Check | Where | Covers |
+|---|---|---|
+| `assertTheListingCopyIsTheReadme` | `plugin/build.gradle.kts` | The description in the built distribution, word for word against README.md — plus the heading order, the 40-character floor, HTTPS-only links, the phrase ban and third-party brand names |
+| `assertNoBannedPhraseAppearsOnAnySurface` | root `build.gradle.kts` | Every Markdown file in the repository, and every string literal in `:core` and `:plugin` main sources |
+| `assertNoRoadmapIsPublished` | root `build.gradle.kts` | README.md, and the change notes the day there are any |
+| `assertTheDemoIsNotShipped` | `plugin/build.gradle.kts` | `settings.gradle.kts`, and every path in the zip at both levels |
+| `assertBothPluginIconsShip` | `plugin/build.gradle.kts` | Both icons in the distribution: 40 × 40, no text, and a dark variant that is not a copy of the light one |
+
+All five run in `check`, and the listing one also gates `publishPlugin` directly — `publishPlugin`
+reaches `buildPlugin` without passing through `check`, so an upload could otherwise start on
+unverified copy.
+
+### The banned phrases
+
+**The list is spelled once, in `bannedPhrases` in the root `build.gradle.kts`, and deliberately not
+repeated here.** A documentation file is one of the surfaces the check reads, so a ban list quoted
+into it fails the build on its own contents — which is not an awkwardness to work around but the
+rule working: there is no exception list, and a file exempted "because it is only explaining the
+rule" is exactly where a violation eventually hides.
+
+What is on it: eight phrases, and the inflections of the two that are verbs. Every one of them is a
+claim about an adversary's capability, and none of them is ours to make. **Copy here states the
+mechanism and never the category** — *"14 names replaced"* is a count of an operation; a verdict on
+whether the result is now fit to send is a verdict about an attacker we have never met.
+
+One entry is a past participle whose plain noun form is *not* banned, and the asymmetry is
+deliberate: THREAT-MODEL.md turns on a sentence saying what actually holds the no-network claim up,
+and that sentence needs the noun. Banning it too would be the kind of noise that teaches people to
+suppress a check.
+
+**Markdown is read whole; Kotlin is read for its string literals only.** The comments in this
+codebase quote banned phrases in order to explain the ban, and a rule that read them would fail the
+build over its own rationale. Telling the two apart needs a scanner rather than a pattern —
+stripping line comments with a regular expression takes the `//` out of `https://` with it — so
+there is a small state machine over Kotlin's comments, strings, raw strings and character literals,
+exercised against a fixture carrying all four before it is pointed at anything real.
+
+### No roadmap, anywhere
+
+Not in the README, not in the listing, not in the change notes. **A live commit history is evidence
+of maintenance; a roadmap is a promise about it** — and a solo hobby v1 that misses a published
+roadmap item wounds precisely the thing this product sells. Status is not a roadmap and stays legal:
+*"the plugin is not yet published"* is a fact about today.
+
+### `demo/`, and the screenshots
+
+[`demo/`](demo/README.md) is the invented, JDK-only sample the Marketplace screenshots are shot
+from, committed so the shots are reproducible at any commit. **It is not a Gradle subproject** — the
+build is fixed at `:core` + `:plugin`, and the release asserts the shipped classpath holds `:core`
+and nothing else — so it is loose source, opened as its own IDEA project, and never on the
+distribution's path. [`docs/screenshots/README.md`](docs/screenshots/README.md) lists the five shots
+and the selection each is taken from.
+
 ## Signing off: the DCO, and deliberately no CLA
 
 Every commit needs a `Signed-off-by` line. Git writes one for you:

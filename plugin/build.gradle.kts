@@ -779,6 +779,223 @@ tasks.named("publishPlugin") {
     dependsOn(assertTheListingCopyIsTheReadme)
 }
 
+
+/**
+ * Fails if `demo/` is a Gradle subproject, or if anything from it reaches the distribution.
+ *
+ * **`demo/` is loose source, and that is a constraint rather than laziness.** The build is fixed at
+ * `:core` + `:plugin` and the release asserts that the shipped runtime classpath holds `:core` and
+ * nothing else; a third subproject perturbs both. So the sample the Marketplace screenshots are shot
+ * from is a directory of `.java` files opened as its own IDEA project, and never on the
+ * distribution's path.
+ *
+ * Two layers, because the two ways it could stop being true are unrelated. `settings.gradle.kts`
+ * says whether Gradle knows about it. The zip says whether anything from it is being uploaded — and
+ * the second is checked against the demo's own root package, read out of the demo sources rather
+ * than written down here, so that renaming the sample cannot leave the rule guarding a name nothing
+ * uses any more.
+ */
+val assertTheDemoIsNotShipped by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if demo/ is a Gradle subproject or appears in the built distribution."
+
+    val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    val settings = layout.settingsDirectory.file("settings.gradle.kts")
+    val demo = layout.settingsDirectory.dir("demo")
+    val demoSources = fileTree(demo) { include("**/*.java") }
+    val demoBuildFiles = fileTree(demo) {
+        include("**/build.gradle", "**/build.gradle.kts", "**/settings.gradle", "**/settings.gradle.kts", "**/pom.xml")
+    }
+    val report = layout.buildDirectory.file("reports/trust/demo-is-not-shipped.txt")
+    val demoName = demo.asFile.name
+
+    inputs.file(distribution).withPropertyName("distribution")
+    inputs.file(settings).withPropertyName("settings")
+    inputs.files(demoSources).withPropertyName("demoSources")
+    inputs.files(demoBuildFiles).withPropertyName("demoBuildFiles")
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        val sources = demoSources.files.sortedBy { it.path }
+
+        // A rule that passes because the thing it guards is missing is not a pass: the screenshots
+        // are reproducible only while the project they were shot from is here.
+        check(sources.isNotEmpty()) {
+            "There are no Java sources under ${demo.asFile}. The screenshots have nothing to be shot from."
+        }
+
+        val violations = mutableListOf<String>()
+
+        demoBuildFiles.files.sortedBy { it.path }.forEach {
+            violations += "${it.name} is in $demoName/, which makes it a build rather than loose source"
+        }
+
+        // `include(":core", ":plugin")` and nothing else. Read as text rather than off the project
+        // model, so that the rule states what settings.gradle.kts says rather than what Gradle made
+        // of it — the file is the thing a reader checks.
+        val includes = Regex("""(?m)^\s*include\s*\(.*$""").findAll(settings.asFile.readText()).map { it.value }.toList()
+        check(includes.isNotEmpty()) {
+            "No `include(` line was read out of ${settings.asFile}. The subproject rule is checking nothing."
+        }
+        includes.filter { demoName in it }.forEach {
+            violations += "settings.gradle.kts includes the sample as a subproject: ${it.trim()}"
+        }
+
+        /**
+         * The demo's own root package, taken from its sources.
+         *
+         * Two segments — `com.harborlight` rather than `com` — because the first alone is every Java
+         * package in the distribution, and the pair is the part that is the sample's.
+         */
+        val rootPackages = sources.mapNotNull {
+            Regex("""(?m)^package\s+([\w.]+)\s*;""").find(it.readText())?.groupValues?.get(1)
+        }.map { it.split(".").take(2).joinToString(".") }.distinct()
+
+        check(rootPackages.size == 1) {
+            "The sample declares ${rootPackages.size} root packages ($rootPackages). This rule needs one to look for."
+        }
+        val rootPackage = rootPackages.single()
+
+        // Every path in the zip, at both levels: the distribution's own entries and the entries of
+        // the jars inside it. A `.java` file added to the plugin's resources by accident lands in the
+        // second, which is the level a top-level listing cannot see.
+        val paths = mutableListOf<String>()
+        ZipFile(distribution.get().asFile).use { zip ->
+            zip.entries().asSequence().filterNot { it.isDirectory }.forEach { entry ->
+                paths += entry.name
+                if (entry.name.endsWith(".jar")) {
+                    ZipInputStream(zip.getInputStream(entry)).use { jar ->
+                        generateSequence { jar.nextEntry }
+                            .filterNot { it.isDirectory }
+                            .forEach { paths += "${entry.name}!/${it.name}" }
+                    }
+                }
+            }
+        }
+
+        check(paths.isNotEmpty()) { "The distribution is empty. Nothing was checked." }
+
+        val packagePath = rootPackage.replace('.', '/')
+        paths.filter { "/$demoName/" in it || it.startsWith("$demoName/") || packagePath in it }
+            .forEach { violations += "$it is in the distribution, and it is the sample" }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("$demoName/ — ${sources.size} Java sources, root package $rootPackage")
+                appendLine("Not a Gradle subproject: ${includes.joinToString("; ") { it.trim() }}")
+                appendLine("Not in the distribution: ${paths.size} entries read, at both levels of the zip.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "$demoName/ is loose source, opened as its own IDEA project, and never on the " +
+                    "distribution's path:\n" + violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+/**
+ * Fails if either plugin icon is missing from the distribution, or is the wrong sort of image.
+ *
+ * **`pluginIcon_dark.svg` is mandatory here, and the platform documentation calling it optional is
+ * the reason to say so.** The mark is grey bars with two of them recoloured — the substitution drawn
+ * literally — so at 40 px *the distinction is the accent contrast*. One light-tuned file on a dark
+ * IDE collapses into a generic "lines of code" glyph, which is the most crowded shape on the
+ * Marketplace. That is what the two-file rule and the differing-accents rule below are for.
+ *
+ * The geometry the icons are drawn to, since the failure message sends people here: a 40 × 40
+ * viewBox with 2 px of transparent padding, all content inside the middle 36 × 36. Light is
+ * `#6C707E` with a `#7B61FF` accent; dark is `#9DA0A8` with a `#9B84FF` accent.
+ *
+ * Neither may carry text. Best practice forbids a logo that merely repeats the plugin name, and a
+ * `<text>` element is the mechanical half of that rule — the half a check can decide.
+ */
+val assertBothPluginIconsShip by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if either plugin icon is missing from the distribution or is a wordmark."
+
+    val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    val report = layout.buildDirectory.file("reports/trust/plugin-icons.txt")
+    val required = listOf("META-INF/pluginIcon.svg", "META-INF/pluginIcon_dark.svg")
+
+    inputs.file(distribution).withPropertyName("distribution")
+    inputs.property("required", required)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        val icons = mutableMapOf<String, String>()
+        ZipFile(distribution.get().asFile).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory && Regex("""[^/]+/lib/.+\.jar""").matches(it.name) }
+                .forEach { entry ->
+                    ZipInputStream(zip.getInputStream(entry)).use { jar ->
+                        generateSequence { jar.nextEntry }
+                            .filter { it.name in required }
+                            .forEach { icons[it.name] = jar.readBytes().decodeToString() }
+                    }
+                }
+        }
+
+        val violations = mutableListOf<String>()
+
+        required.filterNot { it in icons }.forEach {
+            violations += "$it is not in the distribution"
+        }
+
+        icons.forEach { (name, svg) ->
+            if (!Regex("""viewBox\s*=\s*"0 0 40 40"""").containsMatchIn(svg)) {
+                violations += "$name is not drawn on a 40x40 viewBox"
+            }
+            if (Regex("""<text\b""").containsMatchIn(svg)) {
+                violations += "$name carries text, and a logo may not merely repeat the plugin name"
+            }
+            if (Regex("""<image\b""").containsMatchIn(svg)) {
+                violations += "$name embeds a raster, which does not scale to the sizes the IDE asks for"
+            }
+        }
+
+        if (icons.size == required.size) {
+            val (light, dark) = required.map { icons.getValue(it) }
+
+            // A dark variant that is a copy of the light one is the failure the two-file rule exists
+            // to prevent, and it is the one a file listing cannot see.
+            if (light == dark) {
+                violations += "pluginIcon_dark.svg is byte-identical to pluginIcon.svg, so the dark IDE gets the light mark"
+            }
+
+            fun coloursIn(svg: String) = Regex("""#[0-9A-Fa-f]{6}""").findAll(svg).map { it.value.uppercase() }.toSet()
+            val shared = coloursIn(light) intersect coloursIn(dark)
+            if (shared.isNotEmpty()) {
+                violations += "the two icons share the colours $shared; at 40 px the distinction is the contrast"
+            }
+        }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Icons in the distribution: ${icons.keys.sorted().joinToString(", ")}")
+                icons.toSortedMap().forEach { (name, svg) ->
+                    val colours = Regex("""#[0-9A-Fa-f]{6}""").findAll(svg).map { it.value }.distinct().toList()
+                    appendLine("  $name — ${svg.toByteArray().size} bytes, colours ${colours.joinToString(", ")}")
+                }
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "The Marketplace mark is a 40x40 SVG pair, and the dark variant is mandatory rather " +
+                    "than optional:\n" + violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(assertTheDemoIsNotShipped)
+    dependsOn(assertBothPluginIconsShip)
+}
+
 // ---------------------------------------------------------------------------------------------
 // The corpus sweep
 //
