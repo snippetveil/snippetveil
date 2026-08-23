@@ -214,10 +214,15 @@ val assertTheSweepIsNeverRunInCi by tasks.registering {
 
     doLast {
         // Every line that hands work to the Gradle wrapper — a `run:` step, or a line inside a
-        // block one. The wrapper rather than the word "gradle", which appears in prose in both
-        // files: a rule that read a comment would fail the build over a sentence, and noise is what
-        // teaches people to suppress a check.
-        val gradleInvocation = Regex("""^.*\./gradlew\b.*$""", RegexOption.MULTILINE)
+        // block one. Two narrowings, and both are load-bearing rather than tidiness:
+        //
+        // The wrapper rather than the word "gradle", which appears in prose throughout both files.
+        // And **not a comment line**, because both files discuss `./gradlew` invocations in their
+        // own prose and CONTRIBUTING.md prints the sweep's command line for a human to copy. A rule
+        // that read comments would fail this build over a sentence somebody quoted, and noise is
+        // what teaches people to suppress a check — and it would let the coverage assertion below
+        // be satisfied by prose alone, which is the worse half.
+        val gradleInvocation = Regex("""^(?!\s*#).*\./gradlew\b.*$""", RegexOption.MULTILINE)
 
         /**
          * Every Gradle invocation in one file's text that names something [forbidden], and the
@@ -251,6 +256,18 @@ val assertTheSweepIsNeverRunInCi by tasks.registering {
             check(violationsIn("fixture", clean.replace("check -P", "$name -P")).isNotEmpty()) {
                 "The rule failed to flag a workflow that runs `$name`. The sweep is not being guarded."
             }
+        }
+
+        // A comment is prose, not an invocation — in both directions. It must not be flagged, and it
+        // must not be counted towards the coverage assertion below, or a file whose only mention of
+        // Gradle is a sentence would read as a file that was checked.
+        val commented = "      # run: ./gradlew ${forbidden.first()} -PsweepProject=/somewhere\n"
+
+        check(violationsIn("fixture", commented).isEmpty()) {
+            "The rule flagged a comment. Quoting the sweep's command line would fail this build."
+        }
+        check(inspect("fixture", commented).second == 0) {
+            "The rule counted a comment as a Gradle invocation, so its own coverage check can pass on prose."
         }
 
         val files = workflows.asFile.listFiles().orEmpty()

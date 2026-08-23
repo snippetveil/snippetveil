@@ -150,9 +150,18 @@ class SweepReportTest {
         assertTrue("no project-owned name survived" !in rendered.render().lowercase()) { rendered.render() }
     }
 
+    /**
+     * *Nothing threw* is coverage, so it is stated rather than left to the absence of a section — an
+     * earlier version of this test asserted the phrase was absent entirely, and passed only because
+     * the fixture it used took the no-findings early return. What must be absent is the **section**,
+     * which is the part that would have a reader looking for a file to open.
+     */
     @Test
-    fun `a sweep with no throws says nothing about them`() {
-        assertTrue("could not be swept" !in report(findings = emptyList()).render().lowercase())
+    fun `a sweep with no throws reports none rather than omitting the count`() {
+        val rendered = report(findings = listOf(fileWith("Ledger.java", "MerchantLedger"))).render()
+
+        assertTrue("Files that could not be swept : 0" in rendered) { rendered }
+        assertTrue("The anonymiser threw on these" !in rendered) { rendered }
     }
 
     private fun report(findings: List<FileFindings>, failures: List<SweepFailure> = emptyList()) = SweepReport(

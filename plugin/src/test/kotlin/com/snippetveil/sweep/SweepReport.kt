@@ -19,9 +19,11 @@ import java.nio.file.Path
  * @param filesSwept how many Java files were anonymized
  * @param universe how the project-owned name set was arrived at — the check's own coverage, which is
  *   reported rather than assumed for the same reason the trust checks report theirs
- * @param findings one entry per file swept, in the order they were swept. Files with nothing to
- *   triage are dropped by [render] rather than by the caller, so that [filesSwept] and the rows can
- *   never disagree about what was looked at.
+ * @param findings the files that have something to triage, in the order they were swept — never one
+ *   entry per file. A codebase of thousands is thousands of empty rows otherwise, and what was
+ *   *looked at* is [filesSwept], which is carried separately precisely so that the two numbers
+ *   cannot be read off one another. [render] filters again on the way out, which is belt and braces
+ *   rather than the rule: a caller that handed over an empty entry gets the same report.
  * @param failures the files the anonymiser threw on. **A throw is a conclusion, not an outage** —
  *   it is the shape nobody thought of, arriving as a stack trace instead of as a surviving name —
  *   so it is reported beside the findings rather than ending the run. A codebase of thousands of
@@ -77,9 +79,11 @@ internal class SweepReport(
             return@buildString
         }
 
-        appendLine("Files with findings      : ${triage.size}")
-        appendLine("Distinct names surviving : ${triage.sumOf { it.survivors.size }}")
-
+        appendLine("Files with findings           : ${triage.size}")
+        appendLine("Distinct names surviving      : ${triage.sumOf { it.survivors.size }}")
+        // Printed even when it is zero. It is coverage rather than a finding — *nothing threw* is
+        // something a reader needs told, and a line that appears only on the bad day is one whose
+        // absence says nothing at all.
         appendLine("Files that could not be swept : ${failures.size}")
         appendLine()
         appendLine("Every row below is a SUSPECT, not a verdict. The oracle is blunt on purpose: it")

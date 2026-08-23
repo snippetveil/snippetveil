@@ -113,7 +113,7 @@ internal class LeakOracle private constructor(private val projectOwned: Set<Stri
             fun proves(complaint: String, held: Boolean) {
                 asserted++
                 check(held) { "The leak oracle $complaint. It cannot be trusted to report anything." }
-                }
+            }
 
             proves(
                 "failed to flag a project-owned name sitting verbatim in the output",

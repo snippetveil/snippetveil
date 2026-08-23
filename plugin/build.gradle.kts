@@ -429,6 +429,17 @@ tasks.named("check") {
 // configures `test` by name and every `TestIdeTask` by type, and nothing else.
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * **The sweep's test class, spelled once.**
+ *
+ * Two filters read it and they mean opposite things: `corpusSweep` includes it, and `test` excludes
+ * it so that the merge gate never runs it. Two string literals would let a rename break the second
+ * silently — the sweep would quietly rejoin `check` — which is the same argument the root build
+ * makes for sharing the task name, and it is `assertTheSweepIsExcludedFromTheMergeGate` below that
+ * stops this string from going stale.
+ */
+val corpusSweepClass = "com.snippetveil.sweep.CorpusSweep"
+
 /** The target codebase. **Absent means skipped**, so public CI cannot demand it. */
 val sweepProject = providers.gradleProperty("sweepProject")
 
@@ -461,7 +472,7 @@ intellijPlatformTesting {
             testClassesDirs += sourceSets["test"].output.classesDirs
             classpath += sourceSets["test"].runtimeClasspath
             useJUnitPlatform()
-            filter { includeTestsMatching("com.snippetveil.sweep.CorpusSweep") }
+            filter { includeTestsMatching(corpusSweepClass) }
 
             // Where the report may not go, handed in rather than guessed at by the process.
             systemProperty("snippetveil.sweep.repository", repository)
@@ -508,5 +519,49 @@ tasks.test {
     // the test source set, so without an exclusion `check` would run it — where it would skip, and
     // teach everyone reading the build that it is a test that happens to be skipped. It is not a
     // test. See `assertTheSweepIsNeverRunInCi` in the root build for the other half.
-    filter { excludeTestsMatching("com.snippetveil.sweep.CorpusSweep") }
+    filter { excludeTestsMatching(corpusSweepClass) }
+}
+
+/**
+ * Fails if the class both filters above name is not the class that is actually there.
+ *
+ * **The exclusion above is the one rule in this build that goes quiet rather than red when it stops
+ * being true.** A filter that matches nothing excludes nothing, and Gradle says so about neither —
+ * so a renamed or moved sweep class would rejoin `check` with every build still green, which is the
+ * failure mode every other check here is written against.
+ *
+ * Sharing one `val` between the two filters is half the answer: it keeps them agreeing with each
+ * other. This is the other half, and it is the half that keeps them agreeing with the source.
+ */
+val assertTheSweepIsExcludedFromTheMergeGate by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the corpus sweep class the test filters name is not the one in the source tree."
+
+    // Read out of the script here, so that the action below closes over plain values: an action
+    // that reached back to a script-level property would carry a reference to the build script
+    // itself, which the configuration cache cannot serialize.
+    val named = corpusSweepClass
+    val simpleName = named.substringAfterLast('.')
+    val source = layout.projectDirectory.file("src/test/kotlin/${named.replace('.', '/')}.kt")
+    val declaration = Regex("""(?m)^\s*class\s+$simpleName\b""")
+
+    inputs.file(source).withPropertyName("source")
+    inputs.property("corpusSweepClass", named)
+
+    doLast {
+        val file = source.asFile
+        check(file.isFile) {
+            "`$named` is what `test` excludes and `corpusSweep` includes, but $file does not exist. " +
+                "A filter that matches nothing excludes nothing, so the sweep would be back in the " +
+                "merge gate with the build still green."
+        }
+        check(declaration.containsMatchIn(file.readText())) {
+            "$file exists but declares no `class $simpleName`, so the filters naming `$named` match " +
+                "nothing and the sweep is back in the merge gate."
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(assertTheSweepIsExcludedFromTheMergeGate)
 }

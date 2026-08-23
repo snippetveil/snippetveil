@@ -107,10 +107,22 @@ class CorpusSweep : BareTestFixtureTestCase() {
         val report = sweepReportPath(
             reportDirectory = Paths.get(System.getProperty(REPORT_DIRECTORY_PROPERTY) ?: defaultReportDirectory()),
             fileName = "snippetveil-sweep-${LocalDateTime.now().format(STAMP)}.txt",
-            forbidden = buildMap {
-                System.getProperty(REPOSITORY_PROPERTY)?.let { put("the SnippetVeil repository", Paths.get(it)) }
-                put("the swept project", targetPath)
-            },
+            forbidden = mapOf(
+                // **Required, not optional.** An absent property used to mean the repository was
+                // simply not among the trees the report had to stay out of — which is a fail-open
+                // on the one rule that matters most here, and it opens on exactly the route this
+                // class documents above: somebody running it straight from the IDE, where no Gradle
+                // task is there to set it. Absent now refuses.
+                "the SnippetVeil repository" to Paths.get(
+                    System.getProperty(REPOSITORY_PROPERTY)
+                        ?: error(
+                            "-D$REPOSITORY_PROPERTY was not set, so this run does not know which tree " +
+                                "the report has to stay out of. The `corpusSweep` Gradle task sets it; " +
+                                "set it by hand to run this class directly."
+                        ),
+                ),
+                "the swept project" to targetPath,
+            ),
         )
 
         say("Opening $targetPath …")
@@ -166,22 +178,26 @@ class CorpusSweep : BareTestFixtureTestCase() {
             // as a stack trace instead of as a surviving name — and losing a whole sweep of a real
             // codebase to one PSI edge case would make this an instrument nobody finishes running.
             // Recorded and carried on with; the ledger is untouched, because a throw commits nothing.
-            val text = try {
-                smartly(project) {
+            //
+            // **The scan is inside this too, not only the anonymisation.** Everything the loop does
+            // to one file is in here, so that whatever a file can do to this instrument costs that
+            // file and no other. A guard drawn tighter than the unit of work is a guard with an
+            // outage on the other side of it.
+            try {
+                val text = smartly(project) {
                     val psi = PsiManager.getInstance(project).findFile(file) as? PsiJavaFile ?: return@smartly null
                     // No selection at all is the whole file, which is what the ticket asks for and
                     // what the production path already means by an empty range list.
                     val result = anonymize(JavaPlanBuilder.build(SnippetRequest(project, psi, emptyList())), settings, ledger)
                     ledger += result.delta
                     result.text
-                }
+                } ?: return@forEachIndexed
+
+                val survivors = oracle.survivorsIn(text)
+                if (survivors.isNotEmpty()) findings += FileFindings(where, survivors)
             } catch (failure: Throwable) {
                 failures += SweepFailure(where, "${failure::class.java.name}: ${failure.message}")
-                return@forEachIndexed
-            } ?: return@forEachIndexed
-
-            val survivors = oracle.survivorsIn(text)
-            if (survivors.isNotEmpty()) findings += FileFindings(where, survivors)
+            }
         }
 
         // Counts only. The names are the leak, and the console is the easiest thing in the world to
@@ -343,6 +359,9 @@ class CorpusSweep : BareTestFixtureTestCase() {
          * This repository's root, handed in by the Gradle task rather than worked out here — a
          * process that guessed at where it was running from could guess the report into the tree it
          * is supposed to stay out of.
+         *
+         * **Required.** See the refusal where it is read: a missing value cannot mean *no tree to
+         * avoid*, because that is the fail-open this whole rule exists to close.
          */
         const val REPOSITORY_PROPERTY = "snippetveil.sweep.repository"
 
