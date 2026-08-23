@@ -36,8 +36,10 @@
         the IDE could not resolve can be released, or comments kept, for that one copy. Neither
         choice is remembered: a persistent setting here may only ever anonymize more.</p>
         <p><b>De-anonymize Clipboard</b> is the way back: paste the AI's reply, run it from
-        <b>Tools &gt; SnippetVeil</b>, and the placeholders become the real names again, on the
-        clipboard. It matches only the exact placeholder strings this plugin minted, case-sensitively
+        <b>Tools &gt; SnippetVeil</b> or from <b>SnippetVeil</b> in any editor's right-click menu,
+        and the placeholders become the real names again, on the clipboard. It is offered on every
+        file type, because a reply gets pasted into a scratch buffer or a Markdown file rather than
+        into <code>.java</code>. It matches only the exact placeholder strings this plugin minted, case-sensitively
         and on word boundaries, so a word the model invented is left exactly as written rather than
         guessed at — and the balloon says how many were restored and how many were not, split into
         placeholders this project has forgotten and placeholders it never issued.</p>
@@ -61,11 +63,7 @@
         <action id="SnippetVeil.CopyAnonymized"
                 class="com.snippetveil.plugin.CopyAnonymizedAction"
                 text="Copy Anonymized"
-                description="Copy the selection with project-owned names replaced by placeholders">
-            <!-- Flat in the editor popup, not a submenu, directly after the Copy/Paste Special
-                 group: it is a copy, and it belongs where the other copies are. -->
-            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Copy.Paste.Special"/>
-        </action>
+                description="Copy the selection with project-owned names replaced by placeholders"/>
 
         <!-- The same invocation, stopped at a dialog. Two actions rather than one that always asks:
              preview-first taxes the common case to protect against a risk that does not exist on
@@ -75,22 +73,40 @@
         <action id="SnippetVeil.AnonymizeWithPreview"
                 class="com.snippetveil.plugin.AnonymizeWithPreviewAction"
                 text="Anonymize with Preview&#8230;"
-                description="Show the anonymized selection and its mapping before copying it">
-            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="SnippetVeil.CopyAnonymized"/>
-        </action>
+                description="Show the anonymized selection and its mapping before copying it"/>
 
-        <!-- The other direction, and **no editor-popup entry**. It is invoked after pasting a
-             reply — into a scratch buffer, a Markdown file or a commit message — so gating it to
-             Java files would make it actively wrong, and leaving it ungated in the popup would put
-             an item that reads no source into every popup in the IDE. Tools is where a
-             clipboard-to-clipboard command belongs. -->
+        <!-- The other direction. It reads no source at all, so unlike the two above it is offered
+             on every file type — a reply gets pasted into a scratch buffer, a Markdown file or a
+             commit message, and a Java gate here would make the item wrong on the file the user
+             actually has open. -->
         <action id="SnippetVeil.DeanonymizeClipboard"
                 class="com.snippetveil.plugin.DeanonymizeClipboardAction"
                 text="De-anonymize Clipboard"
                 description="Replace SnippetVeil placeholders in the clipboard with the real names"/>
 
-        <group id="SnippetVeil.ToolsMenu" text="SnippetVeil" popup="true">
+        <!-- **One group, two homes.** The same submenu is added to the Tools menu and to the editor
+             popup, so the two placements cannot drift into two different menus: an action added
+             here appears in both, in the same order, with the same gating, because it is the same
+             group rather than a copy of one.
+
+             **A submenu in the editor popup rather than flat items.** The earlier arrangement put
+             the two anonymizing actions directly in the popup, on the reasoning that a copy belongs
+             where the other copies are. That reasoning does not survive a third item: `Copy
+             Anonymized` and `Anonymize with Preview…` are gated to Java files and this one is not,
+             so flat placement would put a SnippetVeil item in every editor popup in the IDE —
+             Markdown, JSON, scratch buffers, everything. One named submenu costs the anonymizing
+             actions a hover and keeps the global context menu the size it was.
+
+             The group is never empty where it is shown: `De-anonymize Clipboard` needs only a
+             project, and an editor popup implies one. -->
+        <group id="SnippetVeil.Menu" text="SnippetVeil" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
+
+            <!-- Anchored after the Copy/Paste Special group, which is where the anonymizing actions
+                 sat when they were flat: the submenu keeps their place in the menu even though it
+                 no longer keeps their level. -->
+            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Copy.Paste.Special"/>
+
             <reference ref="SnippetVeil.CopyAnonymized"/>
             <reference ref="SnippetVeil.AnonymizeWithPreview"/>
             <reference ref="SnippetVeil.DeanonymizeClipboard"/>

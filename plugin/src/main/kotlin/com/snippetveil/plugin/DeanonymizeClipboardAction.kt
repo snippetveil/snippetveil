@@ -18,17 +18,27 @@ import java.awt.datatransfer.StringSelection
  * Clipboard in, clipboard out, with a balloon: **symmetric with `Copy Anonymized`**, and no dialog
  * on the happy path, so the two directions are one shape to learn rather than two.
  *
- * ### `Tools > SnippetVeil` only, and available on every file
+ * ### Two entry points, one action, and no file-type gate
  *
- * There is no editor-popup entry, and that is the opposite decision from the one anonymization
- * makes, from the same premise. This is invoked **after** pasting a reply — into a scratch buffer,
- * a Markdown file, a commit message, or nothing at all — so a `.java` gate would make it actively
- * wrong, and no gate at all in the editor popup would put an item that reads no source into every
- * popup in the IDE.
+ * It is in the `SnippetVeil` submenu, which is a single group registered into **both** the Tools
+ * menu and the editor popup — so the two routes are the same item rather than two registrations
+ * that can drift apart. The Tools entry is the canonical one and the only one that works with no
+ * editor open at all, which is where a reply pasted into a commit message or an external editor
+ * leaves you.
  *
- * The Java-file gate is scoped to anonymization for a reason that does not reach here: it exists
- * because *anything SnippetVeil cannot anonymize it does not offer*, and this reads no source at
- * all. A reply is text.
+ * **Ungated, unlike the two anonymizing actions beside it.** This is invoked *after* pasting a
+ * reply — into a scratch buffer, a Markdown file, a commit message — so a `.java` gate would make
+ * the item wrong on the file the user actually has open. The Java gate is scoped to anonymization
+ * for a reason that does not reach here: it exists because *anything SnippetVeil cannot anonymize
+ * it does not offer*, and this reads no source at all. A reply is text.
+ *
+ * That asymmetry is also why the editor entry is a **submenu** rather than a flat item. Flat, an
+ * ungated SnippetVeil item would appear in every editor popup in the IDE; under one named submenu
+ * it costs a hover and leaves the global context menu the size it was.
+ *
+ * **It is still clipboard to clipboard from either route.** The editor it is invoked from is not
+ * read and not written — the caret, the selection and the file type are all irrelevant to what this
+ * does, and the only thing the editor contributes is a place to right-click.
  *
  * ### `DumbAware`, which is also the opposite of the other two
  *

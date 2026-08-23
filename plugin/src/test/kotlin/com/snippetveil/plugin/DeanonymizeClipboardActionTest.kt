@@ -1,6 +1,9 @@
 package com.snippetveil.plugin
 
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.actionSystem.ActionGroup
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.table.JBTable
@@ -179,6 +182,61 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
         val presentation = invokeDeanonymize(FakeClipboard("nothing of ours"))
 
         assertTrue("the action is not offered outside Java files", presentation.isEnabledAndVisible)
+    }
+
+    /**
+     * **The submenu in a Markdown editor: the reversal is offered and the anonymizing actions are
+     * not.**
+     *
+     * This is the arrangement's whole point, and neither half of it is provable from the registration
+     * alone. `plugin.xml` puts all three in one group, so *which* of them a user actually sees is
+     * decided by three `update` methods — and the case that matters is the file type the reversal
+     * exists for and the other two refuse.
+     *
+     * Over an explicit context rather than the editor component's own, so that what is under test is
+     * the gating rather than what a light fixture happens to publish into a `DataContext`.
+     */
+    fun `test the submenu in a Markdown editor offers the reversal and not the anonymizers`() {
+        myFixture.configureByText("reply.md", "The AI said something about `method1`.")
+
+        val offered = offeredInSubmenu()
+
+        assertTrue("the reversal is not offered outside Java", "SnippetVeil.DeanonymizeClipboard" in offered)
+        assertFalse("Copy Anonymized was offered on a Markdown file", "SnippetVeil.CopyAnonymized" in offered)
+        assertFalse("the preview was offered on a Markdown file", "SnippetVeil.AnonymizeWithPreview" in offered)
+    }
+
+    /** And in a Java editor all three are offered, which is what stops the check above being vacuous. */
+    fun `test the submenu in a Java editor offers all three`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(LEDGER, SNIPPET)
+
+        assertEquals(
+            listOf("SnippetVeil.CopyAnonymized", "SnippetVeil.AnonymizeWithPreview", "SnippetVeil.DeanonymizeClipboard"),
+            offeredInSubmenu(),
+        )
+    }
+
+    /**
+     * The ids of the submenu's children whose own `update` leaves them enabled and visible, against
+     * the file currently open in the fixture.
+     */
+    private fun offeredInSubmenu(): List<String> {
+        val manager = ActionManager.getInstance()
+        val menu = manager.getAction("SnippetVeil.Menu") as ActionGroup
+        val context = SimpleDataContext.builder()
+            .add(CommonDataKeys.PROJECT, project)
+            .add(CommonDataKeys.EDITOR, myFixture.editor)
+            .add(CommonDataKeys.PSI_FILE, myFixture.file)
+            .build()
+
+        return menu.getChildren(null)
+            .filter { child ->
+                val event = TestActionEvent.createTestEvent(child, context)
+                child.update(event)
+                event.presentation.isEnabledAndVisible
+            }
+            .mapNotNull { manager.getId(it) }
     }
 
     /** And with no editor open at all, which is where a reply pasted into a commit message leaves the IDE. */
