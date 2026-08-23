@@ -40,9 +40,10 @@ internal object MappingReset {
      *
      *  - **Existing anonymized snippets become undecodable.** This is the consequence, and it is the
      *    first line because it is the whole decision.
-     *  - **Numbering starts again.** It is the mechanism behind the first line and it is the part a
-     *    reader can otherwise talk themselves out of — *surely `Type1` still means what it meant* —
-     *    and after a reset it does not.
+     *  - **Nothing is reused.** It is the half a reader will assume the other way round, and the
+     *    assumption is the dangerous one: *surely `Type1` still means what it meant.* It does not,
+     *    and it will not come to mean something else either — the counter is not rewound, so an old
+     *    placeholder decodes to nothing rather than to a new name. See [PlaceholderLedger.clear].
      *  - **The prefixes stay.** The one thing that is *not* destroyed, said out loud, because a user
      *    who has curated a prefix list would otherwise have to guess, and guessing wrong in the
      *    cautious direction means never pressing the button they wanted.
@@ -50,8 +51,8 @@ internal object MappingReset {
     const val MESSAGE: String =
         "Existing anonymized snippets become undecodable. A reply that comes back holding " +
             "Type1 can no longer be turned back into the name it stood for, here or anywhere else.\n\n" +
-            "This project's placeholders start again from 1, so the same placeholder will later stand " +
-            "for a different name.\n\n" +
+            "No placeholder is ever handed out twice, so those names decode to nothing rather than " +
+            "to the wrong thing.\n\n" +
             "The internal-library prefixes on this page are kept."
 
     /**

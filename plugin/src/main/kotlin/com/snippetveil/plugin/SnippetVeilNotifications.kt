@@ -105,9 +105,10 @@ internal object SnippetVeilNotifications {
      *
      * **`Open settings` rather than a link to documentation**, because the page it opens is where
      * the two questions a new user actually has get answered — where the mapping is kept, and how to
-     * put a keyboard shortcut on the action they were just told about. A documentation link would
-     * also be a web page opened by a plugin that promises not to fetch one; the action here reaches
-     * nothing outside the IDE.
+     * put a keyboard shortcut on the action they were just told about. It also keeps the one balloon
+     * a user did not ask for entirely inside the IDE, which is the same instinct that refuses a
+     * post-install page: at install time, *we* chose the moment. A link the user clicks later is a
+     * different thing, and the settings page carries one to the threat model for that reason.
      */
     fun installed(project: Project) {
         group().createNotification(

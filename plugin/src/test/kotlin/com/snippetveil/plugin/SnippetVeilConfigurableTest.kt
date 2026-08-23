@@ -43,7 +43,7 @@ class SnippetVeilConfigurableTest : JavaSnippetTestCase() {
 
         assertEquals("tools", registered.parentId)
         assertEquals("SnippetVeil", registered.displayName)
-        assertEquals(ID, registered.id)
+        assertEquals(SETTINGS_PAGE_ID, registered.id)
 
         assertEmpty(Configurable.APPLICATION_CONFIGURABLE.extensionList.filter { it.isSnippetVeil() })
     }
@@ -163,10 +163,12 @@ class SnippetVeilConfigurableTest : JavaSnippetTestCase() {
      * sole affordance is the button you should not press is worse than no number.
      */
     fun `test nothing on the page counts orphans`() {
-        assertFalse(
-            "the page mentions orphans, which are non-actionable by construction",
-            "orphan" in open().text().lowercase(),
-        )
+        val shown = open().text().lowercase()
+
+        // A negative assertion over a reader that returned nothing would pass over an empty page, so
+        // the reader is held to something it must find before it is asked what it must not.
+        assertTrue("the page's text was not read at all, so the assertion below means nothing", "placeholder" in shown)
+        assertFalse("the page mentions orphans, which are non-actionable by construction", "orphan" in shown)
     }
 
     /**

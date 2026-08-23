@@ -19,16 +19,38 @@ import com.snippetveil.core.MintedName
  */
 class MappingResetTest : JavaSnippetTestCase() {
 
-    /** The mapping is gone, entries and counter together — a project that has never been pasted from. */
+    /** Every name this project has been handed is gone, which is what the confirmation promised. */
     fun `test reset clears this project's mapping`() {
         val ledger = PlaceholderLedger.getInstance()
         ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment")), nextNumber = 8))
 
         MappingReset.reset(project)
 
-        val snapshot = ledger.snapshotOf(project)
-        assertEmpty(snapshot.placeholders.entries.toList())
-        assertEquals("the counter is part of the mapping and goes with it", 1, snapshot.nextNumber)
+        assertEmpty(ledger.snapshotOf(project).placeholders.entries.toList())
+        assertNull("a cleared name still decodes", ledger.snapshotOf(project).originalOf("Type1"))
+    }
+
+    /**
+     * **And the counter does not go back with them**, which is the half a reset must not get wrong.
+     *
+     * The invariant the whole design rests on is that no two symbols in a project's history ever
+     * render to the same placeholder. Rewinding here would hand `Type1` to something else next week,
+     * and a reply pasted from an old conversation would then decode to a **plausible wrong name** —
+     * the failure class this product refuses, arriving days later and invisibly. Cleared names decode
+     * to *nothing*, which is a visible gap; that is the whole difference, and it is one integer.
+     */
+    fun `test reset does not rewind the counter, so no placeholder is ever handed out twice`() {
+        val ledger = PlaceholderLedger.getInstance()
+        ledger.commit(project, LedgerDelta(mapOf("class:com.acme.Payment" to MintedName("Type1", "Payment")), nextNumber = 8))
+
+        MappingReset.reset(project)
+
+        assertEquals("a number already handed out came back into circulation", 8, ledger.snapshotOf(project).nextNumber)
+        assertEquals(
+            "the counter did not survive being written out and read back",
+            8,
+            PlaceholderLedger().also { it.loadState(asWrittenAndReadBack(ledger.state)) }.snapshotOf(project).nextNumber,
+        )
     }
 
     /**
@@ -91,8 +113,9 @@ class MappingResetTest : JavaSnippetTestCase() {
 
         MappingReset.reset(project)
 
-        assertEquals(1, ledger.state.projects.size)
-        assertEquals("some-other-project.deadbeef", ledger.state.projects.single().project)
+        val theirEntry = ledger.state.projects.single { it.project == "some-other-project.deadbeef" }
+        assertEquals(40, theirEntry.nextNumber)
+        assertEquals(listOf("Type39"), theirEntry.placeholders.map { it.placeholder })
     }
 
     /**
@@ -111,6 +134,10 @@ class MappingResetTest : JavaSnippetTestCase() {
         val message = shown.single()
         assertTrue("the consequence is not stated: $message", "undecodable" in message)
         assertTrue("what survives the reset is not stated: $message", "prefixes" in message)
+        assertTrue(
+            "the message says numbering restarts, which the store no longer does: $message",
+            "handed out twice" in message,
+        )
     }
 
     /** Cancel means nothing happened, which is the only reading a destructive confirmation may have. */

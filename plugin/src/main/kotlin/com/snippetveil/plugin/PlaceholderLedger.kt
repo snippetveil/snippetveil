@@ -192,26 +192,37 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
     }
 
     /**
-     * **Forgets everything [project] has been handed — the one operation that is not append-only.**
+     * **Forgets every name [project] has been handed — the one operation that is not append-only.**
      *
-     * Nothing else here deletes a row, and the reason pruning is forbidden applies to every
-     * automatic version of this: a number that comes back into circulation makes an old placeholder
-     * stand for a new symbol, and a reply decoded against it comes back with a *plausible wrong
-     * name*. This is that, deliberately — which is why it exists only behind
-     * [MappingReset]'s confirmation, and why the confirmation states the consequence rather than
-     * asking whether the user is sure. The counter goes with the rows: what is left is a project
-     * that has never been pasted from, and the numbers it hands out next are the numbers of a
-     * mapping nothing outstanding can be read against.
+     * Nothing else here deletes a row. What the user is buying is that the vocabulary stops being on
+     * the disk, and what they are told they are paying is that outstanding snippets stop decoding;
+     * both are true of the rows, which is why the rows go.
      *
-     * **Only this project's entries.** The component is application-level and the data is
-     * partitioned, so a reset that took the whole bean would silently destroy the mapping of every
-     * other project on the machine.
+     * **The counter stays where it stood, and that is not a leftover.** The invariant the whole
+     * design rests on is that no two symbols in a project's history ever render to the same
+     * placeholder — a number that comes back into circulation makes an old `Type1` stand for a new
+     * symbol, and then a reply pasted from last week's conversation decodes to a **plausible wrong
+     * name**, which is the one failure this product refuses outright. Restarting at 1 would
+     * manufacture exactly that, days later and invisibly. Keeping the counter costs a larger number
+     * on the next paste and keeps nothing of the vocabulary: it is one integer, and it names nobody.
+     * The ticket asked for the mapping to be cleared and said nothing about the counter; this is the
+     * reading that does not contradict the mapping's own rule.
+     *
+     * **Only this project's entry.** The component is application-level and the data is partitioned,
+     * so a reset that took the whole bean would silently destroy the mapping of every other project
+     * on the machine.
      */
     @Synchronized
     fun clear(project: Project) {
         val current = state
+        val emptied = ProjectEntry().also {
+            it.project = project.locationHash
+            it.nextNumber = snapshotOf(current, project).nextNumber
+        }
+
         state = State().also {
-            it.projects = current.projects.filterTo(mutableListOf()) { other -> other.project != project.locationHash }
+            it.projects = current.projects.filterTo(mutableListOf()) { other -> other.project != emptied.project }
+            it.projects += emptied
         }
     }
 

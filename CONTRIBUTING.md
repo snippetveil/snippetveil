@@ -244,7 +244,11 @@ and fails if the word appears on it.
 `Copy Anonymized` and — the accepted cost, stated rather than discovered — not reachable from Find
 Action. It is the single place the append-only rule ends: it clears this project's mapping and the
 sidecar, and **leaves the org-prefix configuration intact**, which is a structural fact rather than a
-special case because the three are separate components. Its confirmation states the consequence —
+special case because the three are separate components. **The counter is not rewound**, and that is
+not a leftover: rewinding would hand an old placeholder to a new symbol, so a reply pasted from last
+week's conversation would decode to a *plausible wrong name* — the failure class this product refuses
+— where a cleared row decodes to nothing, which is a visible gap. It is one integer and it names
+nobody. Its confirmation states the consequence —
 *existing anonymized snippets become undecodable* — rather than asking whether the user is sure,
 because the effect is invisible until a reply fails to decode days later. `MappingResetTest` holds
 each half, including the text the platform is actually shown.

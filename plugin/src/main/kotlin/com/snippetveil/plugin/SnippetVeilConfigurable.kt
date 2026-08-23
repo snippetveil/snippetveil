@@ -84,7 +84,7 @@ internal class SnippetVeilConfigurable(private val project: Project) : Searchabl
     /** The file, in full, and selectable so that a sceptic can paste it into a terminal. */
     private val location = JBLabel().also { it.setCopyable(true) }
 
-    override fun getId(): String = ID
+    override fun getId(): String = SETTINGS_PAGE_ID
 
     override fun getDisplayName(): String = "SnippetVeil"
 
@@ -162,8 +162,16 @@ internal class SnippetVeilConfigurable(private val project: Project) : Searchabl
         )
     }
 
+    /**
+     * The toolbar's `+`: the model's own insertion, and then the caret in the cell the user is about
+     * to type into.
+     *
+     * **The row is added by [PrefixTableModel.addRow] rather than here**, so the toolbar and every
+     * other caller insert one and the same row — this method owns only what a keyboard user would
+     * otherwise have to do by hand, and that choreography is the part no test drives.
+     */
     private fun addPrefix() {
-        prefixes.add(PrefixRow("", projectCode = true))
+        prefixes.addRow()
         val row = prefixes.rowCount - 1
         table.setRowSelectionInterval(row, row)
         table.editCellAt(row, PREFIX)
@@ -230,7 +238,14 @@ private class PrefixTableModel : AbstractTableModel(), EditableModel {
         fireTableDataChanged()
     }
 
-    override fun addRow() = add(PrefixRow("", projectCode = true))
+    /**
+     * A blank row, treated as project code until it is told otherwise — the commoner of the two
+     * reasons to add one, and the direction the heuristic cannot reach on its own.
+     */
+    override fun addRow() {
+        rows = rows + PrefixRow("", projectCode = true)
+        fireTableRowsInserted(rows.size - 1, rows.size - 1)
+    }
 
     override fun removeRow(index: Int) {
         rows = rows.filterIndexed { at, _ -> at != index }
@@ -241,11 +256,6 @@ private class PrefixTableModel : AbstractTableModel(), EditableModel {
     override fun exchangeRows(oldIndex: Int, newIndex: Int) = Unit
 
     override fun canExchangeRows(oldIndex: Int, newIndex: Int): Boolean = false
-
-    fun add(row: PrefixRow) {
-        rows = rows + row
-        fireTableRowsInserted(rows.size - 1, rows.size - 1)
-    }
 
     override fun getRowCount(): Int = rows.size
 
@@ -271,7 +281,7 @@ private class PrefixTableModel : AbstractTableModel(), EditableModel {
 }
 
 /** The page's own id, which is what `Open settings` and Find Action resolve. */
-internal const val ID = "com.snippetveil.settings"
+internal const val SETTINGS_PAGE_ID = "com.snippetveil.settings"
 
 /**
  * The action `Configure shortcut…` selects. Pinned by `SnippetVeilConfigurableTest` against the ids
