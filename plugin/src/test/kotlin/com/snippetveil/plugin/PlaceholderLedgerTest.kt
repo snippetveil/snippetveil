@@ -136,6 +136,22 @@ class PlaceholderLedgerTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **The path the settings page shows is the file this component is written to.**
+     *
+     * Showing the location is the cheapest support for auditability there is — a sceptic checks the
+     * four properties above by reading one line — and it is worth exactly nothing if the line names a
+     * file the platform is not using. Both halves are checked against the `@State` itself rather than
+     * against a second spelling of it: the file name, and the directory a bare name on an
+     * application-level component resolves in.
+     */
+    fun `test the path shown on the settings page is the file the platform writes`() {
+        val storage = PlaceholderLedger::class.java.getAnnotation(State::class.java).storages.single()
+
+        assertEquals(storage.value, PlaceholderLedger.storagePath().fileName.toString())
+        assertEquals(Path.of(PathManager.getOptionsPath()), PlaceholderLedger.storagePath().parent)
+    }
+
+    /**
      * **Plaintext, deliberately** — greppable and auditable, for a product whose pitch is *audit me*.
      * Encryption is declined because the file holds names already sitting in plaintext `.java` files
      * on the same disk, and a compromised local machine is out of the threat model; the genuine risks

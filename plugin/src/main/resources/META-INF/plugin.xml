@@ -42,6 +42,15 @@
         recent-history window has forgotten the locals, parameters and string literals it held. No
         action anywhere exports the whole stored mapping, and no action puts a mapping on the
         clipboard.</p>
+        <p><b>Settings &gt; Tools &gt; SnippetVeil</b> holds the one setting that is remembered &#8212; whether
+        libraries under this project's root package count as project code, and the package prefixes
+        that correct it &#8212; together with the number of placeholders stored for the project and the
+        full path of the file they are stored in, so that where the mapping lives can be checked
+        rather than taken on trust. <b>Reset Mappings&#8230;</b> is there and nowhere else: it clears the
+        mapping and the recent-history window, after a confirmation that says what that costs, and
+        leaves the prefixes alone. No keyboard shortcut is bound by default, because every
+        combination worth having is already taken in one keymap or another; the page links to the
+        Keymap dialog with the action selected.</p>
         <p><b>De-anonymize Clipboard</b> is the way back: paste the AI's reply, run it from
         <b>Tools &gt; SnippetVeil</b> or from <b>SnippetVeil</b> in any editor's right-click menu,
         and the placeholders become the real names again, on the clipboard. It is offered on every
@@ -59,6 +68,24 @@
         <!-- A group of SnippetVeil's own, so that a user who does not want these balloons can turn
              off exactly these and nothing else. -->
         <notificationGroup id="SnippetVeil" displayType="BALLOON"/>
+
+        <!-- **projectConfigurable, not applicationConfigurable**, because the one setting the page
+             edits is inherently per-repository: a different employer means a different group id, and
+             a single global page would offer to write one project's vocabulary into the next one's
+             analysis. Under Tools, which is where this plugin's menu already is. -->
+        <projectConfigurable
+            id="com.snippetveil.settings"
+            parentId="tools"
+            displayName="SnippetVeil"
+            instance="com.snippetveil.plugin.SnippetVeilConfigurable"/>
+
+        <!-- The one time the plugin speaks without being asked. The surface is deliberately
+             invisible — no toolbar button, no tool window, no default shortcut, no menu entry
+             outside a Java editor — and together those make install-and-never-notice the realistic
+             failure mode. One balloon, on the first project opened after installing, shown once
+             ever; a post-install web page is refused outright, since a plugin selling "no network
+             connections" cannot open one on day one. -->
+        <postStartupActivity implementation="com.snippetveil.plugin.FirstRunAnnouncement"/>
     </extensions>
 
     <actions>

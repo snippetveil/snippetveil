@@ -216,6 +216,10 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
         // otherwise hand to whatever ran next.
         PlaceholderSidecar.getInstance(project).loadState(PlaceholderSidecar.State())
 
+        // And the first-run record, which is application-level and says *once ever*: without this,
+        // the first test in this JVM to ask for it would be the only one that could ever see it.
+        FirstRunNotice.getInstance().loadState(FirstRunNotice.State())
+
         project.messageBus.connect(testRootDisposable).subscribe(
             Notifications.TOPIC,
             object : Notifications {

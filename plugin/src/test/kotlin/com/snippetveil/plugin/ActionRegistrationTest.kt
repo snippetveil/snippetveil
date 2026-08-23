@@ -98,6 +98,12 @@ class ActionRegistrationTest : BasePlatformTestCase() {
      * it out of git and out of cloud sync. That is refused, and a refusal nothing checks is a
      * refusal that lasts until the next contributor reaches for the obvious placement.
      *
+     * It carries a second refusal for the same reason. **`Reset Mappings…` is a button on the
+     * settings page and not an action**: *explicit* is better served by a button standing next to the
+     * numbers a person needs in order to decide than by a menu item one row from `Copy Anonymized`,
+     * and the accepted cost — not reachable from Find Action — was taken deliberately. An id
+     * acquired here is how that would be undone.
+     *
      * Asserted over every id in the namespace rather than over the submenu's children, because an
      * action registered outside the submenu is exactly the shape that would slip past a check on the
      * submenu.
