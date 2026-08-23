@@ -35,6 +35,13 @@
         mapping table before anything reaches the clipboard, and it is the only place where a name
         the IDE could not resolve can be released, or comments kept, for that one copy. Neither
         choice is remembered: a persistent setting here may only ever anonymize more.</p>
+        <p>The preview, and the read-only re-open behind the copy balloon's <b>Show mapping</b>, are
+        also the only place <b>Export Mapping&#8230;</b> is offered. It writes <em>that one
+        invocation's</em> placeholder table to a CSV file you choose &#8212; placeholder, original
+        and kind, in first-occurrence order &#8212; so that a conversation stays decodable after the
+        recent-history window has forgotten the locals, parameters and string literals it held. No
+        action anywhere exports the whole stored mapping, and no action puts a mapping on the
+        clipboard.</p>
         <p><b>De-anonymize Clipboard</b> is the way back: paste the AI's reply, run it from
         <b>Tools &gt; SnippetVeil</b> or from <b>SnippetVeil</b> in any editor's right-click menu,
         and the placeholders become the real names again, on the clipboard. It is offered on every

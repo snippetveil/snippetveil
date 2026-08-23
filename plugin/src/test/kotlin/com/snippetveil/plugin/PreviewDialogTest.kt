@@ -1,6 +1,5 @@
 package com.snippetveil.plugin
 
-import com.intellij.openapi.util.Disposer
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.components.JBLabel
 import com.snippetveil.core.AnonymizationSettings
@@ -358,21 +357,6 @@ class PreviewDialogTest : JavaSnippetTestCase() {
         }
     }
 
-    /** An analysis of the fixture, against an empty ledger, with nothing reduced. */
-    private fun analysisOf(source: String): Analysis = Analysis.of(
-        planFor("Ledger.java", source),
-        AnonymizationSettings.DEFAULTS,
-        LedgerSnapshot.EMPTY,
-    )
-
-    private fun withDialog(dialog: PreviewDialog, assertions: (PreviewDialog) -> Unit) {
-        try {
-            assertions(dialog)
-        } finally {
-            Disposer.dispose(dialog.disposable)
-        }
-    }
-
     private fun codeIn(component: Container): EditorTextField = descendantsOf(component).filterIsInstance<EditorTextField>().single()
 
     /**
@@ -390,11 +374,6 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             .map { it.text }
             .filterNot { it == stripOf(dialog.analysis) }
 
-    private fun tableIn(component: Container): JTable = descendantsOf(component).filterIsInstance<JTable>().single()
-
-    private fun descendantsOf(component: Container): List<java.awt.Component> =
-        component.components.flatMap { listOf(it) + if (it is Container) descendantsOf(it) else emptyList() }
-
     private fun checkBoxesIn(component: Container): List<JCheckBox> =
         component.components.flatMap {
             when (it) {
@@ -404,5 +383,3 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             }
         }
 }
-
-private const val PRESERVE_COLUMN = 3

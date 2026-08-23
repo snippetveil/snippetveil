@@ -216,6 +216,40 @@ It gets the treatment the mapping refuses, and each half of that follows from on
 through the project's own storage manager and checks where that lands — and the window itself is a
 value type in `:core`, held over generated sequences of invocations by `SidecarHorizonTest`.
 
+### The one file that leaves both stores
+
+`Export Mapping…` writes a placeholder table to a file the user picks, which is a mapping going
+somewhere neither of the locations above argued for — very likely `~/Downloads`, outside the
+storage location chosen so carefully to keep the mapping out of git and out of cloud sync. So what
+it may write is bounded to the thing that made it necessary.
+
+**It exports the current invocation and nothing else, and there is no surface where it could mean
+anything else.** It is a button on the preview dialog and on the read-only re-open behind the copy
+balloon, and there is deliberately **no Tools-menu entry**: a menu item has no invocation in front
+of it, so the only thing it could mean is *dump the whole stored mapping* — the complete plaintext
+domain glossary of the codebase, in one file, in `~/Downloads`. That is refused twice over. It is an
+audit-trail feature in a different hat, and auditability was explicitly refused as an objective; and
+the stored mapping is a **reversal key**, which is worth exporting for exactly one snippet.
+
+**Why an export exists at all**, given that the mapping already survives restarts: the sidecar is
+bounded, and locals, parameters, type parameters, anonymous-class members and **every string
+literal** live there and nowhere else — a literal has no qualified key, so it is never written into
+the durable mapping. Once an invocation falls past the horizon, that half of its table is gone
+permanently and no later reversal recovers it. The file is the only way to keep a specific
+conversation decodable past that point.
+
+**And the related refusal, recorded so that it is not re-proposed.** *"Copy Anonymized + Mapping"*
+does not exist and must not be built: it puts the deanonymization key on the same clipboard as the
+anonymized code, and the overwhelmingly likely next keystroke is a paste into the AI chat — which
+hands over everything the plugin just concealed and makes the product theatre. Also rejected: the
+mapping as an appended comment block, and the mapping as a second clipboard-history entry, because
+paste history is obscure and one wrong pick is still a full leak.
+
+Both halves are checked rather than described. `ActionRegistrationTest` pins the four action ids
+this plugin registers, so an export that acquired a menu entry goes red rather than shipping; and
+`ExportMappingTest` asserts that an export leaves the clipboard byte-identical, and that the file it
+wrote reverses the snippet the way `De-anonymize Clipboard` does.
+
 ### Known limits
 
 This is deliberate, and it is stated here rather than left for a reader to discover, because a trust

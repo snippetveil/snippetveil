@@ -87,6 +87,28 @@ class ActionRegistrationTest : BasePlatformTestCase() {
         )
     }
 
+    /**
+     * **These four ids are every action this plugin registers** — which is how *"`Export Mapping…` is
+     * reachable from the preview and from nowhere else"* is checked rather than asserted.
+     *
+     * The export is a button on the preview dialog and deliberately not a menu item: a Tools-menu
+     * entry has no invocation in front of it, so the only thing it could mean is *dump the whole
+     * stored mapping* — the complete plaintext domain glossary of the codebase, written wherever a
+     * chooser last pointed and outside the storage location this product chose so carefully to keep
+     * it out of git and out of cloud sync. That is refused, and a refusal nothing checks is a
+     * refusal that lasts until the next contributor reaches for the obvious placement.
+     *
+     * Asserted over every id in the namespace rather than over the submenu's children, because an
+     * action registered outside the submenu is exactly the shape that would slip past a check on the
+     * submenu.
+     */
+    fun `test the plugin registers these actions and no others`() {
+        assertEquals(
+            listOf(ANONYMIZE_WITH_PREVIEW, COPY_ANONYMIZED, DEANONYMIZE, MENU),
+            ActionManager.getInstance().getActionIdList("SnippetVeil").sorted(),
+        )
+    }
+
     /** No default shortcut: every combination worth having is taken, differently, in four keymaps. */
     fun `test no action ships a keyboard shortcut`() {
         val manager = ActionManager.getInstance()
