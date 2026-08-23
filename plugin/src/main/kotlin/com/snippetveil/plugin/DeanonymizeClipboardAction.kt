@@ -88,6 +88,13 @@ class DeanonymizeClipboardAction internal constructor(private val clipboard: Cli
  * clipboard still holds the anonymized reply: unreadable, and nothing has leaked. So the message
  * states the same clipboard fact for the same reason, and the fact it states happens to be reassuring
  * rather than alarming.
+ *
+ * **The two `catch`es are not one `catch` that happens to be written twice, and the balloon is
+ * outside both.** A read that throws and a write that throws are both *the clipboard was not
+ * changed*, which is why they report identically — but the balloon says the reversal **happened**,
+ * and by the time it runs it has. A `try` wide enough to hold it would answer a failing balloon with
+ * *"your clipboard was not changed"*, which would be a lie in the one message that must not contain
+ * one. That is the same rule `deliver` follows on the way out.
  */
 internal fun restoreClipboard(project: Project, clipboard: Clipboard = SystemClipboard) {
     val reply = try {

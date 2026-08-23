@@ -101,13 +101,12 @@ internal object SnippetVeilNotifications {
      * whole text rather than a subtitle under a title, because the title is the part that gets read
      * and the clipboard fact is not a detail.
      */
-    fun failed(project: Project?, failure: Throwable) {
-        LOG.warn("SnippetVeil could not anonymize the selection; the clipboard was left untouched.", failure)
-        group().createNotification(
-            "Anonymization failed — your clipboard was not changed.",
-            NotificationType.ERROR,
-        ).addAction(REPORT).notify(project)
-    }
+    fun failed(project: Project?, failure: Throwable) = report(
+        project,
+        failure,
+        logged = "SnippetVeil could not anonymize the selection; the clipboard was left untouched.",
+        said = "Anonymization failed — your clipboard was not changed.",
+    )
 
     /**
      * **What came back, counted the same way the copy was: every number, every time.**
@@ -120,11 +119,16 @@ internal object SnippetVeilNotifications {
      * **`Show details` is the exception, and it follows the notices' rule rather than the counts'.**
      * A number is a fact worth stating at zero; an action offering to list nothing is a dead end
      * dressed as an offer. So it appears only when there is something in the list.
+     *
+     * The noun agrees with the number, which is not fussiness: *"1 placeholders restored"* reads as a
+     * bug in the tool, and a tool selling carefulness cannot afford to look careless in the one
+     * sentence it says about a thing it just did to the user's clipboard.
      */
     fun deanonymized(project: Project, reversal: Reversal) {
+        val restored = reversal.restored.size
         val balloon = group().createNotification(
             "Clipboard de-anonymized",
-            "${reversal.restored.size} placeholders restored · ${reversal.unrestored.size} not restored",
+            "$restored placeholder${if (restored == 1) "" else "s"} restored · ${reversal.unrestored.size} not restored",
             NotificationType.INFORMATION,
         )
         if (reversal.unrestored.isNotEmpty()) balloon.addAction(showDetails(project, reversal.unrestored))
@@ -167,12 +171,28 @@ internal object SnippetVeilNotifications {
      * keystroke depends on it either way and a message that only stated it when the news was bad
      * would be a message nobody could read at a glance.
      */
-    fun reversalFailed(project: Project?, failure: Throwable) {
-        LOG.warn("SnippetVeil could not de-anonymize the clipboard; it was left untouched.", failure)
-        group().createNotification(
-            "De-anonymization failed — your clipboard was not changed.",
-            NotificationType.ERROR,
-        ).addAction(REPORT).notify(project)
+    fun reversalFailed(project: Project?, failure: Throwable) = report(
+        project,
+        failure,
+        logged = "SnippetVeil could not de-anonymize the clipboard; it was left untouched.",
+        said = "De-anonymization failed — your clipboard was not changed.",
+    )
+
+    /**
+     * **What both failures do, which is the same thing over a different sentence.**
+     *
+     * The mechanism is shared and the *words* are not, which is the right way round: each caller's
+     * message is argued where the caller is, because what makes those two sentences correct is a
+     * different fact about the clipboard in each case. A helper that also chose the words would put
+     * the argument somewhere neither caller could be read against.
+     *
+     * @param logged what goes in the IDE log, where a stack trace is useful
+     * @param said the balloon's whole text — a title and no subtitle, because the title is the part
+     *   that gets read and the clipboard fact is not a detail
+     */
+    private fun report(project: Project?, failure: Throwable, logged: String, said: String) {
+        LOG.warn(logged, failure)
+        group().createNotification(said, NotificationType.ERROR).addAction(REPORT).notify(project)
     }
 
     private fun group(): NotificationGroup =

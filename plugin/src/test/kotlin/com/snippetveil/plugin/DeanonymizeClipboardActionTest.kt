@@ -2,9 +2,13 @@ package com.snippetveil.plugin
 
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.openapi.util.Disposer
+import com.intellij.ui.table.JBTable
+import com.intellij.util.ui.UIUtil
 import com.intellij.testFramework.TestActionEvent
 import com.snippetveil.core.LedgerDelta
 import com.snippetveil.core.deanonymize
+import javax.swing.table.TableModel
 
 /**
  * **The other direction, end to end: a reply in, the project's own names out.**
@@ -68,7 +72,7 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
 
         val balloon = notifications.single()
         assertEquals("Clipboard de-anonymized", balloon.title)
-        assertEquals("1 placeholders restored · 1 not restored", balloon.content)
+        assertEquals("1 placeholder restored · 1 not restored", balloon.content)
         assertEquals(NotificationType.INFORMATION, balloon.type)
     }
 
@@ -95,17 +99,32 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
      */
     fun `test the details list splits what is gone from what was never ours`() {
         // A commit with no rows in it, which is what an invocation of nothing but ephemeral symbols
-        // leaves behind: the counter moved and no name was written down.
+        // leaves behind: the counter moved and no name was written down. So `local4` is a number this
+        // project burnt and cannot name, and `local40` is one it has not reached.
         PlaceholderLedger.getInstance().commit(project, LedgerDelta(emptyMap(), nextNumber = 10))
 
-        invokeDeanonymize(FakeClipboard("local4 and local40"))
+        // Through the dialog the balloon opens rather than through its model, so that what is
+        // asserted is the list a user is actually shown — columns, order and wording included.
+        val rows = tableIn(UnrestoredDialog(project, reversalOf("local4 and local40").unrestored))
 
-        val rows = UnrestoredTableModel(reversalOf("local4 and local40").unrestored)
-        assertEquals("local4", rows.getValueAt(0, 0))
-        assertEquals("beyond the recent-history window", rows.getValueAt(0, 1))
-        assertEquals("local40", rows.getValueAt(1, 0))
-        assertEquals("not from this project", rows.getValueAt(1, 1))
+        assertEquals(listOf("Placeholder", "Why"), (0 until rows.columnCount).map { rows.getColumnName(it) })
+        assertEquals(
+            listOf(
+                listOf("local4", "beyond the recent-history window"),
+                listOf("local40", "not from this project"),
+            ),
+            (0 until rows.rowCount).map { row -> (0 until rows.columnCount).map { rows.getValueAt(row, it) } },
+        )
     }
+
+    /**
+     * The table inside a dialog, reached through the panel the dialog actually builds — so that a
+     * column the layout never adds cannot be asserted as though a user could see it.
+     */
+    private fun tableIn(dialog: UnrestoredDialog): TableModel =
+        Disposer.register(testRootDisposable) { dialog.close(0) }.let {
+            UIUtil.findComponentOfType(dialog.createCenterPanel(), JBTable::class.java)!!.model
+        }
 
     /**
      * **A reply with none of ours in it is left alone, and the balloon says so.**

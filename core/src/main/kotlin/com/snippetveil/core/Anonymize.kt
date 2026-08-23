@@ -112,7 +112,7 @@ fun anonymize(
             // name is checked against the surviving text like any allocated one. A reader holding
             // `getField1` from an AI's reply must be able to map it back to one thing; a split
             // accessor costs them a hop, and an ambiguous one costs them the answer.
-            val derived = accessor.prefix + field.replaceFirstChar(Char::uppercaseChar)
+            val derived = derivedAccessorPlaceholder(accessor.prefix, field)
             if (allocator.isFree(derived)) derived else allocator.next(namespaceOf(symbol))
         }
 
@@ -733,6 +733,19 @@ private class PlaceholderAllocator(start: Int, private val reserved: Set<String>
     /** Whether [name] can stand for one thing in the output — asked of derived names too. */
     fun isFree(name: String): Boolean = name !in reserved
 }
+
+/**
+ * **The placeholder a JavaBeans accessor derives from its field's** — `field1` under `get` is
+ * `getField1`, so that the two names agree the way the source's two names did.
+ *
+ * Spelled once and read from both ends, which is the whole reason it is a function rather than an
+ * expression written where it is needed. [anonymize] mints these and [deanonymize] has to recognise
+ * one, and the two spellings drifting apart would not break a build or fail a test — it would leave
+ * an unreadable word in an AI's reply with a `0 not restored` beside it, which is under-recovery the
+ * user is not even told about.
+ */
+internal fun derivedAccessorPlaceholder(prefix: String, fieldPlaceholder: String): String =
+    prefix + fieldPlaceholder.replaceFirstChar(Char::uppercaseChar)
 
 /** The namespace a reference that failed to resolve falls into. See [namespaceOf]. */
 internal const val UNKNOWN_PREFIX = "Unknown"

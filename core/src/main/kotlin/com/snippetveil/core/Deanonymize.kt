@@ -103,10 +103,14 @@ class Reversal(
 /**
  * One placeholder-shaped word that did not decode, and which of the two things that means.
  *
+ * A value, and compared as one — like [MintedName], and for the reason a test wants: a list of these
+ * asserted against a list of expected ones has to compare what they *say*, or a green assertion over
+ * an empty list is the only one that ever meant anything.
+ *
  * @param placeholder the word as the reply writes it
  * @param reason which side of the counter it fell on. See [UnrestoredReason].
  */
-class Unrestored(val placeholder: String, val reason: UnrestoredReason)
+data class Unrestored(val placeholder: String, val reason: UnrestoredReason)
 
 /**
  * **Why a placeholder did not decode — two facts, not one number.**
@@ -170,8 +174,12 @@ private val WORD = Regex("""[\p{L}\p{N}_$]+""")
  * **What a placeholder looks like** — every namespace this engine mints from, and nothing else.
  *
  * Read off [SymbolRole] rather than written out, so that a role added later cannot leave a namespace
- * this cannot recognise. Longest first, so `Type1` is not read as the type-parameter namespace `T`
- * followed by nothing.
+ * this cannot recognise.
+ *
+ * **Alternation order carries no meaning here**, and that is worth saying because it looks as though
+ * it should: `T` is a prefix of `Type`, so a pattern *searched* through text would have to put the
+ * longer first. This one is only ever matched against a whole token, so `T` followed by `\d+` fails
+ * on `Type1` and the engine backtracks to `Type` regardless of where either sits in the list.
  *
  * **It is not what restores anything** — the table is, and the table is exact. This decides only
  * what an *undecoded* word was, which is the difference between *"3 not restored"* and a silence
@@ -188,8 +196,7 @@ private val MINTED = Regex(
     (SymbolRole.entries.map { it.placeholderPrefix } +
         UNKNOWN_PREFIX +
         LITERAL_PREFIX +
-        AccessorEvidence.PREFIXES.map { it + SymbolRole.FIELD.placeholderPrefix.replaceFirstChar(Char::uppercaseChar) })
+        AccessorEvidence.PREFIXES.map { derivedAccessorPlaceholder(it, SymbolRole.FIELD.placeholderPrefix) })
         .distinct()
-        .sortedByDescending { it.length }
         .joinToString("|", prefix = "(?:", postfix = """)\d+""") { Regex.escape(it) },
 )

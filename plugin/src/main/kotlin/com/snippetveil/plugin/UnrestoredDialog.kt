@@ -12,7 +12,6 @@ import javax.swing.Action
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.table.AbstractTableModel
-import javax.swing.table.TableRowSorter
 
 /**
  * **What did not come back, and which of the two things that means.**
@@ -46,10 +45,11 @@ internal class UnrestoredDialog(project: Project, private val unrestored: List<U
 
     /** Public for the same reason [PreviewDialog.createCenterPanel] is: the rows are assertable. */
     public override fun createCenterPanel(): JComponent {
-        val rows = UnrestoredTableModel(unrestored)
-        val table = JBTable(rows)
+        // No row sorter, deliberately. The rows are already in the order the reply writes them,
+        // which is the order the reader is scanning it in, and a header that re-sorted them would
+        // break the one correspondence this list has to the text on the clipboard.
+        val table = JBTable(UnrestoredTableModel(unrestored))
         table.setShowGrid(false)
-        table.rowSorter = TableRowSorter(rows)
 
         val panel = JPanel(BorderLayout())
         panel.add(
@@ -77,10 +77,13 @@ internal class UnrestoredTableModel(private val unrestored: List<Unrestored>) : 
 
     override fun getValueAt(row: Int, column: Int): String = when (column) {
         PLACEHOLDER -> unrestored[row].placeholder
-        else -> unrestored[row].reason.message
+        REASON -> unrestored[row].reason.message
+        else -> error("there is no column $column in a list of $COLUMNS")
     }
 }
 
 private val COLUMNS = arrayOf("Placeholder", "Why")
 
 private const val PLACEHOLDER = 0
+
+private const val REASON = 1

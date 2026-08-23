@@ -185,6 +185,40 @@ class SymbolKeyingTest : JavaSnippetTestCase() {
         )
     }
 
+    /**
+     * **Every qualified key contains the name it is a key for**, which is the fact the whole *"the
+     * mapping stores nothing new at rest"* argument stands on.
+     *
+     * `PlaceholderLedger` persists the symbol's real name beside its placeholder, so that a reversal
+     * can read a stated fact instead of parsing a key whose spelling belongs to this module. The
+     * justification for that being *free* — CONTRIBUTING says it "puts nothing new at rest" — is that
+     * a qualified key is derived from the fully-qualified name and therefore already spells the name
+     * out: `field:class:com.acme.Payment#merchantRef`.
+     *
+     * **That is a claim about this file's `keyOf`, made in a document and in `:core`, and until here
+     * nothing checked it.** A key format that stopped carrying the simple name — hashed, numbered,
+     * abbreviated — would leave both statements quietly false, and no test in either module would
+     * notice, because neither module can see both ends. It is the same drift the accessor-prefix
+     * check in `JavaPlanBuilderTest` exists for, on the other fact that crosses this seam.
+     *
+     * Asserted over the qualified keys alone, because they are exactly the ones written down. An
+     * anchored key is `local:file@17` and names nothing, which is why its name is not persisted
+     * either.
+     */
+    fun `test every qualified key spells out the name it is a key for`() {
+        assertTheHarnessResolves()
+        val plan = planFor(FIXTURE_PATH, FIXTURE)
+
+        val qualified = plan.symbols().map { it.symbol }.filter { it.keyIsQualified }.distinctBy { it.key }
+
+        assertNotEmpty(qualified)
+        assertEquals(
+            "a qualified key no longer spells out its own name, so the mapping's stored name is not free after all",
+            emptyList<String>(),
+            qualified.filterNot { it.declaredName in it.key }.map { "${it.declaredName} not in ${it.key}" },
+        )
+    }
+
     /** The [ordinal]-th occurrence of [token] in the plan, and the key the walk gave it. */
     private fun SnippetPlan.keyOf(token: String, ordinal: Int): String =
         evidenceOf(token, ordinal).key

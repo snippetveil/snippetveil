@@ -131,7 +131,13 @@ class LedgerSnapshot(
      *
      * Built here rather than at each call site because [deanonymize] asks it once per word of an
      * AI's reply, and a scan over the values per word would be quadratic in a file that grows for
-     * the life of a project. It is well-defined because placeholders are injective across the
+     * the life of a project. **[Sidecar.originalOf] deliberately does not do the same, and the
+     * asymmetry is the difference between the two stores rather than an oversight**: the window is
+     * bounded at ~50 invocations and the mapping is unbounded by design, so a scan is a constant
+     * there and a growing cost here. Adding an index to the sidecar would buy nothing and put a
+     * second copy of the most sensitive table in the product in memory.
+     *
+     * It is well-defined because placeholders are injective across the
      * project's whole history — see [LedgerDelta] — so a value collapsing two rows into one is a
      * thing the counter makes impossible rather than a case to handle.
      *
