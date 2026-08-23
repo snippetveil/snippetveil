@@ -117,9 +117,12 @@ internal class PreviewDialog private constructor(
 
     private val strip = JBLabel(stripOf(analysis))
 
+    /** Built once, however often it is asked for — the panes are the dialog's, not each caller's. */
+    private val center: JComponent by lazy { assemble() }
+
     init {
         title = if (reducible) "Anonymize with Preview" else "Anonymized Snippet"
-        setOKButtonText("Copy Anonymized")
+        if (reducible) setOKButtonText("Copy Anonymized")
         commentsBox.addActionListener { rerender() }
         init()
     }
@@ -145,7 +148,9 @@ internal class PreviewDialog private constructor(
     }
 
     /** Public for the same reason [createActions] is: the absence of the toggles is assertable. */
-    public override fun createCenterPanel(): JComponent {
+    public override fun createCenterPanel(): JComponent = center
+
+    private fun assemble(): JComponent {
         code.setOneLineMode(false)
         code.addSettingsProvider { editor ->
             editor.setVerticalScrollbarVisible(true)
@@ -296,7 +301,7 @@ internal class MappingTableModel(
     override fun getColumnName(column: Int): String = COLUMNS[column]
 
     override fun getColumnClass(column: Int): Class<*> =
-        if (column == PRESERVE) java.lang.Boolean::class.java else String::class.java
+        if (column == PRESERVE) Boolean::class.javaObjectType else String::class.java
 
     override fun getValueAt(row: Int, column: Int): Any? {
         val name = showing[row]

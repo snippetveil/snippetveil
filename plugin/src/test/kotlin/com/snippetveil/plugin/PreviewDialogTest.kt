@@ -249,6 +249,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             val panel = dialog.createCenterPanel()
             val table = tableIn(panel)
             val unknown = (0 until table.rowCount).single { table.getValueAt(it, 2) == "Unknown" }
+            val before = PlaceholderLedger.getInstance().snapshotOf(project)
 
             table.setValueAt(true, unknown, PRESERVE_COLUMN)
 
@@ -262,6 +263,10 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             table.setValueAt(false, unknown, PRESERVE_COLUMN)
             assertFalse("un-ticking did not put the placeholder back: " + dialog.analysis.result.text,
                 "MissingType" in dialog.analysis.result.text)
+
+            val after = PlaceholderLedger.getInstance().snapshotOf(project)
+            assertEquals("a tick named a symbol", before.placeholders, after.placeholders)
+            assertEquals("a tick burnt a number", before.nextNumber, after.nextNumber)
         }
     }
 

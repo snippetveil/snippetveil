@@ -168,6 +168,35 @@ class MappedNamesTest {
     }
 
     /**
+     * **Two symbols forced to share a placeholder are one row, not two rows saying the same thing.**
+     *
+     * An override and its root are distinct symbols with distinct keys, and Java requires them to
+     * share a name — so they share a placeholder, and the table has one thing to say about them. It
+     * is why a row is filed under what it renders as rather than under whose key it came from; see
+     * [ForcedSharingTest] for the rule that puts them together in the first place.
+     */
+    @Test
+    fun `two symbols that share a placeholder are one row`() {
+        val root = symbol("name", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, key = "method:class:com.acme.Named#name")
+        val overriding = symbol(
+            "name",
+            SymbolRole.METHOD,
+            SymbolOrigin.IN_CONTENT,
+            key = "method:class:com.acme.Payment#name",
+            overrideRoots = listOf(OverrideRoot(root.key, SymbolOrigin.IN_CONTENT)),
+        )
+        val plan = planPlacing(
+            "interface Named { String name(); }\nclass Payment implements Named { public String name() { return null; } }",
+            at(0, root),
+            at(1, overriding),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals(listOf("method1"), result.names.map { it.placeholder })
+    }
+
+    /**
      * A row for a symbol carries the key a preserve override is expressed in — which is what lets
      * the dialog hand one back through [AnonymizationSettings.preservedUnknowns] without the table
      * having to be joined to a second list to find it.
