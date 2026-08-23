@@ -786,7 +786,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         invokeCopyAnonymized()
 
         assertEquals("String.valueOf(1);", clipboard())
-        assertEquals("0 names replaced · 0 unknown · 2 preserved · 0 comments stripped", notifications.single().content)
+        assertEquals("0 names replaced · 0 unknown · 2 preserved", notifications.single().content)
     }
 
     /**
@@ -868,10 +868,13 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
-     * **The strip is reported, because a stripped comment is invisible in the output.** The text
-     * that comes back is clean, compiles and reads as ordinary code, and the AI answers accurately
-     * about a snippet the defect has been lifted out of — that is the quietest failure in the design,
-     * and the response to it is disclosure at the point of use.
+     * **The strip is reported, split by parse verdict, because a stripped comment is invisible in the
+     * output.** The text that comes back is clean, compiles and reads as ordinary code, and the AI
+     * answers accurately about a snippet the defect has been lifted out of — that is the quietest
+     * failure in the design, and the response to it is disclosure at the point of use.
+     *
+     * *`2 comments stripped`* is not actionable and the split is: the keep-comments tick is already
+     * sitting in the preview, so this sentence plus that tick closes the loop.
      *
      * On the balloon rather than only in the preview: `Copy Anonymized` has no preview, so a
      * disclosure the dialog carried alone would never fire for the people who never open it.
@@ -893,7 +896,66 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 
         invokeCopyAnonymized()
 
-        assertEquals("2 names replaced · 0 unknown · 2 preserved · 2 comments stripped", notifications.single().content)
+        assertEquals(
+            "2 names replaced · 0 unknown · 2 preserved<br>2 comments stripped, 1 of them commented-out code",
+            notifications.single().content,
+        )
+    }
+
+    /**
+     * **The other notice, on the same surface and for the same reason.** A destroyed name coincidence
+     * is invisible in the output — injectivity is load-bearing, so a parameter shadowing a field comes
+     * out as two placeholders and nothing says they ever agreed — and *"the parameter shadows the
+     * field"* is exactly the finding an AI would otherwise have made.
+     *
+     * **Real names never leave the machine**: the notice is written entirely in placeholders, which
+     * is what lets it ride the balloon at all.
+     */
+    fun `test the balloon discloses a destroyed name coincidence`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>int balance;
+
+                void settle(int balance) {
+                    this.balance = balance;
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        val balloon = notifications.single()
+        assertEquals(
+            "3 names replaced · 0 unknown · 0 preserved<br>field1 and param3 were the same name",
+            balloon.content,
+        )
+        assertFalse("the balloon leaked the name it is about: " + balloon.content, "balance" in balloon.content)
+
+        // And nothing was injected into what was copied. A machine comment saying *"these two share a
+        // name"* is a loud prompt: the model would very likely report shadowing as *the* finding
+        // whatever the real defect is, which is a confident false positive manufactured on purpose.
+        assertFalse("the disclosure reached the clipboard: " + clipboard(), "same name" in clipboard())
+    }
+
+    /**
+     * **A clean snippet says nothing.** The notices follow the opposite rule from the counts beside
+     * them: a count that appeared only when it fired would make its absence unreadable, and a notice
+     * that fired every time is one nobody reads on the invocation where it matters.
+     */
+    fun `test a snippet with neither loss carries no notice at all`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            "class Ledger { <selection>void settle(int amount) { audit(amount); }</selection> void audit(int owed) {} }",
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals("3 names replaced · 0 unknown · 0 preserved", notifications.single().content)
     }
 
     /** The balloon states mechanism and makes no claim about what it means. */
@@ -908,7 +970,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
 
         val balloon = notifications.single()
         assertEquals("Anonymized snippet copied", balloon.title)
-        assertEquals("2 names replaced · 0 unknown · 2 preserved · 0 comments stripped", balloon.content)
+        assertEquals("2 names replaced · 0 unknown · 2 preserved", balloon.content)
         assertEquals(NotificationType.INFORMATION, balloon.type)
     }
 
@@ -971,7 +1033,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         // quality risk and never a privacy one — a warning here would train the user to read our
         // alarm as "this might have leaked", which is exactly backwards.
         val balloon = notifications.single()
-        assertEquals("2 names replaced · 3 unknown · 0 preserved · 0 comments stripped", balloon.content)
+        assertEquals("2 names replaced · 3 unknown · 0 preserved", balloon.content)
         assertEquals(NotificationType.INFORMATION, balloon.type)
     }
 
@@ -993,7 +1055,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         // One name, one placeholder, both occurrences — unresolved names are keyed on what they are
         // written as, which is all there is to key them on.
         assertEquals("Unknown1 method2(Unknown1 param3) { return param3; }", clipboard())
-        assertEquals("2 names replaced · 1 unknown · 0 preserved · 0 comments stripped", notifications.single().content)
+        assertEquals("2 names replaced · 1 unknown · 0 preserved", notifications.single().content)
     }
 
     /**

@@ -15,7 +15,9 @@ import com.intellij.util.ui.JBUI
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.MappedKind
 import com.snippetveil.core.MappedName
+import com.snippetveil.core.fidelityNotices
 import java.awt.BorderLayout
+import java.awt.Component
 import javax.swing.Action
 import javax.swing.BoxLayout
 import javax.swing.JComponent
@@ -117,6 +119,20 @@ internal class PreviewDialog private constructor(
 
     private val strip = JBLabel(stripOf(analysis))
 
+    /**
+     * **What the output gives no sign of** — one label per notice, and none at all on a snippet with
+     * neither loss.
+     *
+     * Rebuilt rather than shown and hidden, because a notice is a sentence and there is no honest
+     * empty state for one: a blank line where a disclosure would go is the noise the conditional
+     * rule exists to avoid. It sits directly above the keep-comments tick, which is what the comment
+     * notice is answered with.
+     */
+    private val notices = JPanel().also {
+        it.layout = BoxLayout(it, BoxLayout.Y_AXIS)
+        it.alignmentX = Component.LEFT_ALIGNMENT
+    }
+
     /** Built once, however often it is asked for — the panes are the dialog's, not each caller's. */
     private val center: JComponent by lazy { assemble() }
 
@@ -188,8 +204,26 @@ internal class PreviewDialog private constructor(
         footer.layout = BoxLayout(footer, BoxLayout.Y_AXIS)
         footer.border = JBUI.Borders.emptyTop(8)
         footer.add(strip)
+        footer.add(notices)
         if (reducible) footer.add(commentsBox)
+        showNotices()
         return footer
+    }
+
+    /**
+     * The notices for whatever is currently rendered. Called as the footer is built and again on
+     * every re-render, because both reductions the dialog offers can close a notice: keeping
+     * comments empties the strip count, and preserving an unresolved name takes a placeholder out of
+     * the output — and a disclosure that outlived the loss it discloses is a false statement about
+     * the text in the pane beside it.
+     */
+    private fun showNotices() {
+        notices.removeAll()
+        for (notice in analysis.result.fidelityNotices()) {
+            notices.add(JBLabel(notice).also { it.alignmentX = Component.LEFT_ALIGNMENT })
+        }
+        notices.revalidate()
+        notices.repaint()
     }
 
     /**
@@ -203,12 +237,13 @@ internal class PreviewDialog private constructor(
         rerender()
     }
 
-    /** Both panes and the strip, from one more call to a pure function. Nothing else moves. */
+    /** Both panes, the strip and the notices, from one more call to a pure function. Nothing else moves. */
     private fun rerender() {
         analysis = analysis.rendered(settings = settingsNow())
         code.text = analysis.result.text
         rows.showing = analysis.result.names
         strip.text = stripOf(analysis)
+        showNotices()
     }
 
     private fun settingsNow(): AnonymizationSettings = AnonymizationSettings(
@@ -252,20 +287,26 @@ internal object PreviewDialogs : Previews {
 /**
  * **The counts, and one conditional clause.**
  *
- * `14 renamed · 3 unknown · 22 preserved · 2 comments stripped` — every number every time, including
- * the zeroes, because a number that appeared only when it fired would make its absence unreadable.
- * Preserved JDK and third-party symbols are here rather than in the table: their preservation is
- * deliberate and a declared non-goal, so each would be a row the user can do nothing about.
+ * `14 renamed · 3 unknown · 22 preserved` — every number every time, including the zeroes, because a
+ * number that appeared only when it fired would make its absence unreadable. Preserved JDK and
+ * third-party symbols are here rather than in the table: their preservation is deliberate and a
+ * declared non-goal, so each would be a row the user can do nothing about.
  *
- * *Selection expanded to whole tokens* is the exception, and it is conditional in the other
- * direction: always-on it is noise, and conditional it is information. It fires only when snapping
- * actually moved an end of the selection — the copy then contains text the user did not select, and
- * the pane beside this line is where they can see what.
+ * **The strip count is no longer one of them.** It became the comment fidelity notice, which
+ * carries the same number and the split that makes it actionable — and a footer that said it twice
+ * would read as a bug. The notices sit on their own lines below this one and follow the opposite
+ * rule: nothing at all when the loss did not happen.
+ *
+ * *Selection expanded to whole tokens* is the exception among the counts, and it is conditional in
+ * the other direction: always-on it is noise, and conditional it is information. It fires only when
+ * snapping actually moved an end of the selection — the copy then contains text the user did not
+ * select, and the pane beside this line is where they can see what. It stays a clause of this line
+ * rather than a third notice because it is a fact about how the snippet was *cut*, which the pane
+ * beside it shows in full; the notices are about what is missing from that pane.
  */
 internal fun stripOf(analysis: Analysis): String {
     val counts = analysis.result.counts
-    val strip = "${counts.replaced} renamed · ${counts.unknown} unknown · ${counts.preserved} preserved" +
-        " · ${analysis.result.comments.stripped} comments stripped"
+    val strip = "${counts.replaced} renamed · ${counts.unknown} unknown · ${counts.preserved} preserved"
     return if (analysis.plan.selectionExpanded) "$strip · selection expanded to whole tokens" else strip
 }
 

@@ -102,9 +102,9 @@ class AnonymizeWithPreviewActionTest : JavaSnippetTestCase() {
         awaitBackgroundWork()
 
         assertEquals("// reconcile against the merchant ledger\n    void method1() {}", clipboard())
-        assertTrue(
+        assertFalse(
             "the balloon claims a comment was stripped: " + notifications.single().content,
-            notifications.single().content.contains("0 comments stripped"),
+            notifications.single().content.contains("comment"),
         )
     }
 
