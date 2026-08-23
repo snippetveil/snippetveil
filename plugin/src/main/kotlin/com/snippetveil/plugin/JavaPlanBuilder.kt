@@ -624,12 +624,21 @@ internal object JavaPlanBuilder : PlanBuilder {
      *
      * **Two of the five forced-sharing rules live here rather than in the engine, and that is not an
      * exception to the rule that judgments do not cross this seam** — neither is a judgment. A
-     * constructor's identifier *is* its class's name and a record accessor's identifier *is* its
-     * component's, in Java's grammar, so reporting anything else would be reporting the wrong
-     * symbol. What the engine then does with two occurrences of one symbol is the engine's business,
-     * and it does the same thing it does for any other two.
+     * constructor's identifier *is* its class's name, a record accessor's identifier *is* its
+     * component's, and so is a compact constructor's implicit parameter, in Java's grammar — so
+     * reporting anything else would be reporting the wrong symbol. What the engine then does with
+     * two occurrences of one symbol is the engine's business, and it does the same thing it does for
+     * any other two.
+     *
+     * Three branches for two rules, because rule 5 arrives on more than one face. They read 5, 4, 5
+     * rather than in order, and **the order is forced rather than chosen**: a parameter is not a
+     * `PsiMethod`, so the `declaration !is PsiMethod` line would return it untouched if it came
+     * first.
      */
     private fun declaredSymbolOf(declaration: PsiElement): PsiElement = when {
+        // Rule 5 again, on a fourth face of the same symbol. See [compactConstructorComponentOf].
+        declaration is PsiParameter -> compactConstructorComponentOf(declaration) ?: declaration
+
         declaration !is PsiMethod -> declaration
 
         // Rule 4 — a constructor's identifier is its class's name.
@@ -642,6 +651,60 @@ internal object JavaPlanBuilder : PlanBuilder {
         // than as rule 3's `getField1()` — records carry no `get` prefix, so the derivation that
         // keeps a Lombok accessor coherent would be actively wrong here.
         else -> JavaPsiRecordUtil.getRecordComponentForAccessor(declaration) ?: declaration
+    }
+
+    /**
+     * The record component [parameter] *is*, when it is a **compact** constructor's implicit
+     * parameter — and `null` for every other parameter in Java, which is nearly all of them.
+     *
+     * **A fourth face of rule 5's one symbol, not a sixth forced-sharing rule.** A compact
+     * constructor declares no parameter list; the JLS gives it one, named after the components. So
+     * `merchantRef` in `Payment { if (merchantRef == null) … }` names the component in exactly the
+     * way the accessor's identifier does, and reporting a parameter of its own emitted `param3`
+     * inside a record that declares no such thing — a name the reader has to account for and the
+     * output cannot explain, which is the *plausible* artifact rather than the obvious one.
+     *
+     * **The cut is compact versus explicit, and it is load-bearing.** An *explicit* canonical
+     * constructor's parameter names are the author's to choose — nothing forces `Payment(String ref)`
+     * to say `merchantRef` — so its parameters are ordinary independent symbols and must keep
+     * renaming freely. Sharing them with the component would force an agreement Java does not, which
+     * is the mirror-image error. Hence [JavaPsiRecordUtil.isCompactConstructor] as a gate rather than
+     * as a shortcut, and hence that it is asked of the parameter's own declaration scope.
+     *
+     * **The component is then found by name, and inside a compact constructor that is identity
+     * rather than resemblance**: the parameters are implicit, so *named after the components* is
+     * what they are, not something they happen to be. The same lookup by name is what
+     * [JavaPsiRecordUtil.getComponentForCanonicalConstructorParameter] does — it cannot be called
+     * here, because it reaches the record class with [PsiTreeUtil.getParentOfType] and a compact
+     * constructor's parameter is a light element whose `parent` is `null`, so it answers `null` for
+     * exactly the shape this exists for. It is also no substitute for the gate: it asks nothing about
+     * canonicality, and would match an explicit constructor's parameter — or any method parameter in
+     * a record — that happened to be spelled like a component.
+     *
+     * **The exact identity link exists and is deliberately not used.** The platform synthesizes these
+     * parameters from the components, and `LightCompactConstructorParameter` keeps the very
+     * component it was made from — reachable as `LightRecordMember.getRecordComponent()`. It lives in
+     * `com.intellij.psi.impl.light`, which nothing else in this plugin reaches into, and the name
+     * lookup answers identically on every shape Java can spell. The one input that could part them
+     * is red code declaring two components of one name, and there the two are already one symbol to
+     * this walk: [keyOf] keys a component by its class and its name, so they shared a placeholder
+     * before this function existed and still do.
+     *
+     * **The lookup is total by construction, and the caller's `?:` is not a described behaviour.** A
+     * compact constructor with a parameter matching no component is not a shape source can produce,
+     * valid or red. The fallback is there because this walk may neither throw nor drop an occurrence
+     * — a name that reached neither would be copied through verbatim, which is the one failure this
+     * action exists to prevent — and a placeholder of its own is the safe direction. It is
+     * deliberately not asserted anywhere: a test would have to fake a PSI shape Java has no spelling
+     * for.
+     *
+     * Identity rather than policy, like the two faces above it. Nothing in `:core` decides anything
+     * new, because the engine already renders two occurrences of one symbol identically.
+     */
+    private fun compactConstructorComponentOf(parameter: PsiParameter): PsiRecordComponent? {
+        val constructor = parameter.declarationScope as? PsiMethod ?: return null
+        if (!JavaPsiRecordUtil.isCompactConstructor(constructor)) return null
+        return constructor.containingClass?.recordComponents?.firstOrNull { it.name == parameter.name }
     }
 
     /**
