@@ -5,6 +5,7 @@ out/
 *.iml
 local.properties
 .intellijPlatform/
+.kotlin/
 
 # jqwik writes a failure database next to the module it runs in.
 .jqwik-database

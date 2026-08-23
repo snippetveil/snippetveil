@@ -224,6 +224,7 @@ fun anonymize(
         text = text.toString(),
         names = names.values.toList(),
         unknowns = unknowns,
+        flattened = flattenedNamesIn(names.values),
         counts = countsOf(namedSymbols, ::isReplaced, unknowns.size),
         comments = CommentCounts(
             prose = stripped.count { it.verdict == CommentVerdict.PROSE },

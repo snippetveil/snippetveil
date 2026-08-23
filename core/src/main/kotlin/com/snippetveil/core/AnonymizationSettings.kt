@@ -217,6 +217,8 @@ fun LedgerSnapshot.isStill(latest: LedgerSnapshot): Boolean = nextNumber == late
  * @param counts the distinct names in the snippet, partitioned by what became of them
  * @param comments what the strip removed, split by parse verdict
  * @param unknowns every name that failed to resolve, in document order of first occurrence
+ * @param flattened every source name two or more of this snippet's renamed symbols shared, in
+ *   first-occurrence order. See [FlattenedName], and [fidelityNotices] for what is said about it.
  * @param delta what to commit, if the caller gets as far as committing
  */
 class AnonymizationResult(
@@ -225,6 +227,7 @@ class AnonymizationResult(
     val counts: NameCounts,
     val comments: CommentCounts,
     val unknowns: List<UnknownName>,
+    val flattened: List<FlattenedName>,
     val delta: LedgerDelta,
 ) {
 

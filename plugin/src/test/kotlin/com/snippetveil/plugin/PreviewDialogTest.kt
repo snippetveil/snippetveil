@@ -2,6 +2,7 @@ package com.snippetveil.plugin
 
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.EditorTextField
+import com.intellij.ui.components.JBLabel
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.MappedKind
@@ -146,7 +147,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             """.trimIndent(),
         )
 
-        assertEquals("2 renamed · 1 unknown · 0 preserved · 1 comments stripped", stripOf(whole))
+        assertEquals("2 renamed · 1 unknown · 0 preserved", stripOf(whole))
 
         val cut = analysisOf(
             """
@@ -159,7 +160,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
         )
 
         assertEquals(
-            "1 renamed · 0 unknown · 0 preserved · 0 comments stripped · selection expanded to whole tokens",
+            "1 renamed · 0 unknown · 0 preserved · selection expanded to whole tokens",
             stripOf(cut),
         )
     }
@@ -228,7 +229,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
 
             assertTrue("the comment did not come back into the render", "reconcile" in dialog.analysis.result.text)
             assertTrue("the code pane still shows the old render", "reconcile" in codeIn(panel).text)
-            assertEquals("1 renamed · 0 unknown · 0 preserved · 0 comments stripped", stripOf(dialog.analysis))
+            assertEquals("1 renamed · 0 unknown · 0 preserved", stripOf(dialog.analysis))
 
             val after = PlaceholderLedger.getInstance().snapshotOf(project)
             assertEquals("a toggle named a symbol", before.placeholders, after.placeholders)
@@ -270,6 +271,93 @@ class PreviewDialogTest : JavaSnippetTestCase() {
         }
     }
 
+    /**
+     * **Both notices ride the preview as well as the balloon, and neither shows when its loss did not
+     * happen.** They sit below the counts and directly above the tick that answers the comment one,
+     * which is the whole of what makes the disclosure actionable rather than only honest.
+     */
+    fun `test the preview discloses both losses and says nothing about the ones that did not happen`() {
+        assertTheHarnessResolves()
+        val both = analysisOf(
+            """
+            class Ledger {
+                <selection>int balance;
+
+                void settle(int balance) {
+                    // this.total = 1;
+                    this.balance = balance;
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        withDialog(PreviewDialog.forCopy(project, both)) { dialog ->
+            assertEquals(
+                listOf(
+                    "field1 and param3 were the same name",
+                    "1 comment stripped, and it was commented-out code",
+                ),
+                noticesIn(dialog.createCenterPanel()),
+            )
+        }
+
+        val clean = analysisOf("class Ledger { <selection>void settle(int amount) {}</selection> }")
+
+        withDialog(PreviewDialog.forCopy(project, clean)) { dialog ->
+            assertEmpty(noticesIn(dialog.createCenterPanel()))
+        }
+    }
+
+    /**
+     * **A reduction closes the notice it answers.** Keeping comments is what the comment notice is
+     * *for*, so the tick has to take the sentence away with the loss — a disclosure that outlived the
+     * loss it discloses would be a false statement about the text in the pane beside it.
+     */
+    fun `test keeping comments takes the comment notice away with the strip`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf(
+            """
+            class Ledger {
+                <selection>// reconcile against the merchant ledger
+                void settle() {}</selection>
+            }
+            """.trimIndent(),
+        )
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val panel = dialog.createCenterPanel()
+            assertEquals(listOf("1 comment stripped"), noticesIn(panel))
+
+            checkBoxesIn(panel).single().doClick()
+
+            assertEmpty(noticesIn(panel))
+        }
+    }
+
+    /**
+     * The read-only re-open carries them too. It is the balloon's `Show mapping`, and what it shows
+     * is the invocation that left — the notices describe that same text, and nothing about them is a
+     * reduction the way back could offer.
+     */
+    fun `test the read-only re-open carries the notices`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf(
+            """
+            class Ledger {
+                <selection>// this.total = 1;
+                void settle() {}</selection>
+            }
+            """.trimIndent(),
+        )
+
+        withDialog(PreviewDialog.forReview(project, analysis)) { dialog ->
+            assertEquals(
+                listOf("1 comment stripped, and it was commented-out code"),
+                noticesIn(dialog.createCenterPanel()),
+            )
+        }
+    }
+
     /** An analysis of the fixture, against an empty ledger, with nothing reduced. */
     private fun analysisOf(source: String): Analysis = Analysis.of(
         planFor("Ledger.java", source),
@@ -286,6 +374,17 @@ class PreviewDialogTest : JavaSnippetTestCase() {
     }
 
     private fun codeIn(component: Container): EditorTextField = descendantsOf(component).filterIsInstance<EditorTextField>().single()
+
+    /**
+     * The notices as a reader sees them — every label in the footer that is not the counts strip.
+     * Read off the rendered components rather than off the analysis, because *"the preview carries
+     * them"* is a claim about what is on screen.
+     */
+    private fun noticesIn(component: Container): List<String> =
+        descendantsOf(component)
+            .filterIsInstance<JBLabel>()
+            .map { it.text }
+            .filterNot { " renamed · " in it }
 
     private fun tableIn(component: Container): JTable = descendantsOf(component).filterIsInstance<JTable>().single()
 
