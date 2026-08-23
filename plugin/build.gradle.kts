@@ -91,11 +91,131 @@ kotlin {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// The listing copy
+//
+// **The Marketplace `<description>` and the README opening are the same strings, not two texts
+// saying the same thing.** The reasoning is drift: two differently-worded statements of the same
+// claim invite *which one is true*, and on a plugin whose entire moat is trust that question is
+// more expensive than the tailoring it buys.
+//
+// README.md is the one copy. The block between its two `listing copy` markers is rendered to HTML
+// here and patched into the descriptor, so the descriptor cannot be edited into a second version of
+// itself — `plugin.xml` carries no `<description>` at all. `assertTheListingCopyIsTheReadme` below
+// reads the description back out of the built distribution and asserts it is still that block.
+//
+// Consequence, by construction rather than discipline: **the Approval Guidelines now govern the
+// README too** — no third-party brand references, no marketing adjectives, no unverifiable claims,
+// English first, HTTPS links only. The strictest surface wins automatically.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The markers README.md fences the shared block with. Spelled once and read by both the renderer
+ * below and the assertion at the bottom of this file, because a rename that touched only one of
+ * them would leave a check reading an empty block — and a check that cannot fail is worse than no
+ * check, since it reads as a guarantee.
+ */
+val listingCopyStart = "<!-- listing copy -->"
+val listingCopyEnd = "<!-- listing copy end -->"
+
+/**
+ * The shared block, as Markdown.
+ *
+ * Read through `providers.fileContents` rather than with `File.readText`, so that Gradle records
+ * README.md as an input of the *configuration* and an edit to the copy re-patches the descriptor
+ * instead of hitting a stale configuration cache.
+ */
+val listingCopyMarkdown: String = run {
+    val readme = providers.fileContents(layout.settingsDirectory.file("README.md")).asText.get()
+    val start = readme.indexOf(listingCopyStart)
+    val end = readme.indexOf(listingCopyEnd)
+    check(start >= 0 && end > start) {
+        "README.md must fence the listing copy between `$listingCopyStart` and `$listingCopyEnd`."
+    }
+    readme.substring(start + listingCopyStart.length, end).trim()
+}
+
+/**
+ * Renders the shared block to the HTML the Marketplace shows.
+ *
+ * **Deliberately tiny, and deliberately fail-closed.** It knows the four constructs the block is
+ * written in — paragraph, `###` heading, `-` list, and the `**bold**` / `*italic*` / `` `code` ``
+ * spans — and throws on anything else rather than passing it through as literal text. A renderer
+ * that shrugged at an unknown construct would ship a stray asterisk to every IDE that shows the
+ * listing, and the listing is the one surface nobody reviews after the first upload.
+ *
+ * A Markdown library would be a build dependency to avoid one screenful of code, on a build whose
+ * dependencies are themselves part of the claim.
+ */
+fun markdownToHtml(markdown: String): String {
+    fun inline(text: String): String {
+        val rendered = text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace(Regex("""`([^`]+)`"""), "<code>$1</code>")
+            .replace(Regex("""\*\*([^*]+)\*\*"""), "<b>$1</b>")
+            .replace(Regex("""\*([^*]+)\*"""), "<i>$1</i>")
+
+        val unconsumed = Regex("""[`*_\[\]]""").find(rendered)
+        check(unconsumed == null) {
+            "The listing copy uses a construct this renderer does not know, at " +
+                "'${rendered.substring(maxOf(0, unconsumed!!.range.first - 30), unconsumed.range.last + 1)}'. " +
+                "Teach the renderer or change the copy; do not let it ship as literal text."
+        }
+        return rendered
+    }
+
+    return markdown.trim().split(Regex("""\n[ \t]*\n""")).joinToString("\n") { block ->
+        val lines = block.trim().lines()
+        when {
+            lines.first().startsWith("### ") -> {
+                check(lines.size == 1) { "A heading is one line; this one is ${lines.size}: $block" }
+                "<h3>${inline(lines.first().removePrefix("### "))}</h3>"
+            }
+
+            lines.first().startsWith("- ") -> {
+                val items = mutableListOf<StringBuilder>()
+                lines.forEach { line ->
+                    if (line.startsWith("- ")) {
+                        items += StringBuilder(line.removePrefix("- "))
+                    } else {
+                        // A wrapped continuation of the item above. Indentation is what says so, and
+                        // an unindented line here means the block is not the list it looked like.
+                        check(line.startsWith("  ")) { "A list item's continuation must be indented: $line" }
+                        items.last().append(' ').append(line.trim())
+                    }
+                }
+                items.joinToString("\n", "<ul>\n", "\n</ul>") { "<li>${inline(it.toString())}</li>" }
+            }
+
+            else -> {
+                // Nothing that looks like another construct may reach the paragraph branch: a `>`
+                // quote or a numbered list rendered as a run-on paragraph is exactly the silent
+                // pass-through this renderer exists to refuse.
+                lines.forEach { line ->
+                    check(!Regex("""^([#>|]|\d+\.|- )""").containsMatchIn(line)) {
+                        "The listing copy uses a block construct this renderer does not know: $line"
+                    }
+                }
+                "<p>${inline(lines.joinToString(" ") { it.trim() })}</p>"
+            }
+        }
+    }
+}
+
+/** The descriptor's `<description>`, and the only place it is produced. */
+val listingCopyHtml: String = markdownToHtml(listingCopyMarkdown)
+
 intellijPlatform {
     // The distribution is SnippetVeil, not "plugin" — the subproject name must not name the product.
     projectName = "SnippetVeil"
 
     pluginConfiguration {
+        // Generated from README.md; see the listing-copy section above. Assigning it here is what
+        // makes `plugin.xml` free to carry no `<description>` of its own.
+        description = listingCopyHtml
+
         ideaVersion {
             sinceBuild = "241"
 
@@ -414,6 +534,249 @@ tasks.named("check") {
     // and a pull request actually run. Without it, the one check that covers bundled code would be
     // the one check nobody runs before pushing.
     dependsOn(scanDistributionForBannedReferences)
+}
+
+
+/**
+ * Fails if the description in the built distribution is not the listing-copy block in README.md,
+ * word for word — and if that block breaks one of the Approval Guidelines it is now under.
+ *
+ * **The identity is generated, so this check exists to catch the generator being bypassed**, not to
+ * re-verify an assignment two lines apart. The failure it is written against is the ordinary one: a
+ * `<description>` put back into `plugin.xml` and the patch quietly unwired, leaving a listing that
+ * reads differently from the README while both look authoritative. So it reads the description out
+ * of the zip that gets uploaded, the same input `scanDistributionForBannedReferences` reads, and
+ * compares it against README.md by a *second, independent* derivation: tags stripped on one side,
+ * Markdown markers stripped on the other, both reduced to a stream of words. A renderer that
+ * silently dropped a bullet fails here too.
+ *
+ * The three guideline rules it can actually decide are checked on the same text, because this is
+ * where the shipped description is already open: no banned phrase, no third-party brand, and
+ * HTTPS-only links. `assertNoBannedPhraseAppearsOnAnySurface` in the root build covers the phrase
+ * ban across every other surface; the rest of the guidelines are judgement, and a check that guessed
+ * at them would be the kind of noise that teaches people to suppress a check.
+ */
+val assertTheListingCopyIsTheReadme by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the shipped description is not the listing-copy block in README.md."
+
+    val distribution = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    val readme = layout.settingsDirectory.file("README.md")
+    val report = layout.buildDirectory.file("reports/trust/listing-copy.txt")
+
+    // Bound here rather than read inside the action: a task action that reaches back into the script
+    // for a top-level property drags the script into the configuration cache with it.
+    val startMarker = listingCopyStart
+    val endMarker = listingCopyEnd
+
+    /**
+     * The headings the block carries, in the order it carries them.
+     *
+     * **This is the fold rule, asserted.** The value proposition and *How it works* are above both
+     * negative lists; the negative lists ship full, in this order, below them. Every alternative
+     * ordering silently re-cuts a closed decision, so the order is pinned rather than left to
+     * whoever next edits the copy.
+     */
+    val headings = listOf(
+        "How it works",
+        "No network",
+        "What SnippetVeil does not hide",
+        "What it does not preserve",
+        "Non-goals",
+        "Source",
+    )
+
+    /**
+     * Names this copy would plausibly reach for and may not use.
+     *
+     * **Not a trademark database, and it does not pretend to be one.** The guideline is "no
+     * third-party brand references"; what is checkable is a short list of the names a sentence about
+     * pasting Java into an AI chat would actually be tempted by — the assistants, and the editors
+     * that are not the one this plugin ships to. IDEA, Android Studio and the JetBrains Marketplace
+     * are the host platform rather than a third party, and are absent for that reason.
+     */
+    val thirdPartyBrands = listOf(
+        "ChatGPT", "OpenAI", "Claude", "Anthropic", "Copilot", "Gemini", "Bard", "Llama",
+        "Cursor", "VS Code", "Visual Studio", "Eclipse", "NetBeans", "Vim",
+        "Spring", "Lombok", "Hibernate", "Jackson", "Guava",
+    )
+
+    // The listing is the one surface the phrase ban exists for, so it is checked here as well as in
+    // the root build's sweep over the repository — on the shipped bytes rather than on a file that
+    // is asserted, elsewhere, to be the same as them.
+    val bannedPhrases = listOf(
+        "safe to paste", "paste with confidence", "untraceable", "cannot be traced back to your company",
+        "provably", "guaranteed", "sanitized", "obfuscate",
+    )
+
+    inputs.file(distribution).withPropertyName("distribution")
+    inputs.file(readme).withPropertyName("readme")
+    inputs.property("headings", headings)
+    inputs.property("thirdPartyBrands", thirdPartyBrands)
+    inputs.property("bannedPhrases", bannedPhrases)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        /**
+         * Every word of an HTML fragment, tags and entities resolved away.
+         *
+         * **A block tag is whitespace and an inline tag is not**, and the distinction is
+         * load-bearing rather than tidiness: `<b>Copy Anonymized</b>.` is one word ending in a full
+         * stop, exactly as `**Copy Anonymized**.` is on the Markdown side. Collapsing every tag to a
+         * space would put the stop in a word of its own and report a drift on copy that had not
+         * moved — and a check that cries wolf is a check people learn to re-run until it is green.
+         *
+         * A tag this rule cannot classify throws, rather than being guessed at in either direction.
+         */
+        fun wordsOfHtml(html: String): List<String> {
+            val text = html
+                .replace(Regex("""</?(p|h[1-6]|ul|ol|li|br|blockquote|pre)\b[^>]*>"""), " ")
+                .replace(Regex("""</?(b|i|em|strong|code|a|u|span)\b[^>]*>"""), "")
+            check("<" !in text.replace("&lt;", "")) {
+                "The description uses an HTML tag this check cannot classify as block or inline: " +
+                    Regex("""<[^>]+>""").find(text)?.value
+            }
+            return text
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .split(Regex("""\s+"""))
+                .filter { it.isNotBlank() }
+        }
+
+        /** Every word of a Markdown fragment, markers stripped away. */
+        fun wordsOfMarkdown(markdown: String): List<String> =
+            markdown.replace(Regex("""(?m)^###\s+"""), "")
+                .replace(Regex("""(?m)^-\s+"""), "")
+                .replace(Regex("""[*`]"""), "")
+                .split(Regex("""\s+"""))
+                .filter { it.isNotBlank() }
+
+        // Both derivations prove they can agree, and prove they can disagree, before either is
+        // pointed at the real thing. A comparison whose red path is never exercised decays into a
+        // check that always passes.
+        val sampleHtml = "<p>One <b>two</b>. &amp; <code>three</code></p><ul><li>four</li></ul>"
+        val sampleMarkdown = "One **two**. & `three`\n\n- four"
+        val sampleWords = listOf("One", "two.", "&", "three", "four")
+
+        check(wordsOfHtml(sampleHtml) == sampleWords) {
+            "The HTML side read ${wordsOfHtml(sampleHtml)} out of a fragment whose words are $sampleWords."
+        }
+        check(wordsOfMarkdown(sampleMarkdown) == sampleWords) {
+            "The Markdown side read ${wordsOfMarkdown(sampleMarkdown)} out of a block whose words are $sampleWords."
+        }
+        check(wordsOfHtml(sampleHtml.replace("four", "five")) != wordsOfMarkdown(sampleMarkdown)) {
+            "The comparison called two different texts equal. It is checking nothing."
+        }
+
+        val readmeText = readme.asFile.readText()
+        val start = readmeText.indexOf(startMarker)
+        val end = readmeText.indexOf(endMarker)
+        check(start >= 0 && end > start) {
+            "README.md must fence the listing copy between `$startMarker` and `$endMarker`."
+        }
+        val block = readmeText.substring(start + startMarker.length, end).trim()
+        check(block.isNotEmpty()) { "The listing-copy block in README.md is empty. Nothing was checked." }
+
+        // The descriptor as it ships: inside the plugin jar, inside the zip that gets uploaded.
+        val descriptors = mutableMapOf<String, String>()
+        ZipFile(distribution.get().asFile).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory && Regex("""[^/]+/lib/.+\.jar""").matches(it.name) }
+                .forEach { entry ->
+                    ZipInputStream(zip.getInputStream(entry)).use { jar ->
+                        generateSequence { jar.nextEntry }
+                            .filter { it.name == "META-INF/plugin.xml" }
+                            .forEach { descriptors["${entry.name}!/${it.name}"] = jar.readBytes().decodeToString() }
+                    }
+                }
+        }
+
+        check(descriptors.size == 1) {
+            "The distribution has ${descriptors.size} plugin descriptors: ${descriptors.keys}. " +
+                "Exactly one of them is the listing, and this check cannot tell which."
+        }
+        val (where, descriptor) = descriptors.entries.single()
+
+        val shipped = Regex("""<description><!\[CDATA\[(.*?)]]></description>""", RegexOption.DOT_MATCHES_ALL)
+            .find(descriptor)?.groupValues?.get(1)
+            ?: throw GradleException("$where carries no <description>. The listing copy is not being patched in.")
+
+        val shippedWords = wordsOfHtml(shipped)
+        val readmeWords = wordsOfMarkdown(block)
+
+        if (shippedWords != readmeWords) {
+            val at = shippedWords.zip(readmeWords).indexOfFirst { (a, b) -> a != b }
+                .let { if (it >= 0) it else minOf(shippedWords.size, readmeWords.size) }
+            throw GradleException(
+                "The Marketplace description and the README opening are the same strings, or they are " +
+                    "two texts inviting the question of which one is true. They have drifted, at word " +
+                    "${at + 1}:\n" +
+                    "  shipped: ${shippedWords.drop(maxOf(0, at - 6)).take(12).joinToString(" ")}\n" +
+                    "  README:  ${readmeWords.drop(maxOf(0, at - 6)).take(12).joinToString(" ")}\n" +
+                    "README.md is the one copy; $where is generated from it."
+            )
+        }
+
+        val violations = mutableListOf<String>()
+
+        val shippedHeadings = Regex("""<h3>(.*?)</h3>""").findAll(shipped).map { it.groupValues[1] }.toList()
+        if (shippedHeadings != headings) {
+            violations += "the headings are $shippedHeadings, and the fold rule pins them to $headings"
+        }
+
+        // The value proposition is above the fold by being first: the negative lists follow it,
+        // full and verbatim, and nothing is allowed to overtake it.
+        if (!shipped.trimStart().startsWith("<p>")) {
+            violations += "the description does not open with the value proposition"
+        }
+
+        // The Marketplace rejects a description shorter than this, and a listing that reached the
+        // floor by accident would mean the copy had collapsed to a sentence.
+        val text = wordsOfHtml(shipped).joinToString(" ")
+        if (text.length < 40) violations += "the description is ${text.length} characters; 40 is the floor"
+
+        Regex("""\bhttp://\S+""").findAll(shipped).forEach {
+            violations += "${it.value} is not HTTPS"
+        }
+
+        bannedPhrases.filter { it in text.lowercase() }.forEach {
+            violations += "\"$it\" is banned from every surface: it is a claim about an adversary's " +
+                "capability, and the copy states the mechanism rather than the category"
+        }
+
+        thirdPartyBrands.filter { Regex("""\b${Regex.escape(it)}\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) }
+            .forEach { violations += "\"$it\" is a third-party brand reference" }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("$where — description: ${shippedWords.size} words, ${text.length} characters")
+                appendLine("Identical, word for word, to the listing-copy block in README.md.")
+                appendLine()
+                appendLine("Headings, in order:")
+                shippedHeadings.forEach { appendLine("  $it") }
+                appendLine()
+                appendLine("Checked for: ${bannedPhrases.size} banned phrases, ${thirdPartyBrands.size} third-party brands, HTTPS-only links.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "The shipped description breaks the Approval Guidelines the README is now under:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(assertTheListingCopyIsTheReadme)
+}
+
+// An upload must not start while the listing is unverified, for the reason the banned-reference
+// scan gets the same edge: `publishPlugin` reaches `buildPlugin` without passing through `check`.
+tasks.named("publishPlugin") {
+    dependsOn(assertTheListingCopyIsTheReadme)
 }
 
 // ---------------------------------------------------------------------------------------------

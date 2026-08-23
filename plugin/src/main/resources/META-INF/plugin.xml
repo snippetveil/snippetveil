@@ -8,58 +8,16 @@
          together with the domain, and both must resolve before the first Marketplace upload. -->
     <vendor email="hello@snippetveil.com" url="https://snippetveil.com">Fyodor Skorozhenko</vendor>
 
-    <!-- Required: the Plugin Verifier rejects a descriptor without one. This states what the build
-         currently is, and nothing about behaviour that does not exist yet. The canonical listing
-         copy, used verbatim here and in the README, arrives with snippetveil/snippetveil#18. -->
-    <description><![CDATA[
-        <p>SnippetVeil is an IntelliJ IDEA plugin for anonymizing a Java snippet before it is pasted
-        into an AI chat.</p>
-        <p>This build is a pre-release: <b>Copy Anonymized</b> replaces the names of project-owned
-        types, methods, fields, parameters, locals and annotation attributes with role-preserving
-        placeholders, and leaves JDK and third-party names untouched. A library sitting under the
-        analysed file's own root package is treated as the company's own code and anonymized too, so
-        that a shared internal artifact does not leak its domain vocabulary just because it arrives
-        as a jar; the prefixes that decide this are stored per project and never synced. Package
-        names are replaced one segment at a time — <code>com.acme.billing</code> becomes <code>com.pkg1.pkg2</code> — so
-        that two classes in the same package still read as being in the same package, and imports of
-        renamed types are rewritten in place rather than dropped. A project method that overrides a
-        JDK or library one keeps its real name — renaming it would stop it overriding, and the
-        snippet would read as broken rather than as anonymized. A name the IDE cannot resolve is
-        replaced as well, from an <code>Unknown</code> namespace of its own — so incomplete or
-        not-yet-compiling code is covered rather than copied through. String literals are replaced
-        as well, unless every part of one resolves to a symbol — a class name written in a string
-        renames with the class. <b>Comments and javadoc are stripped</b>, and the balloon says how
-        many were removed: prose is where a snippet's domain vocabulary actually lives, and renaming
-        symbols does nothing to it.</p>
-        <p><b>Anonymize with Preview&#8230;</b> shows the text that is about to be copied beside its
-        mapping table before anything reaches the clipboard, and it is the only place where a name
-        the IDE could not resolve can be released, or comments kept, for that one copy. Neither
-        choice is remembered: a persistent setting here may only ever anonymize more.</p>
-        <p>The preview, and the read-only re-open behind the copy balloon's <b>Show mapping</b>, are
-        also the only place <b>Export Mapping&#8230;</b> is offered. It writes <em>that one
-        invocation's</em> placeholder table to a CSV file you choose &#8212; placeholder, original
-        and kind, in first-occurrence order &#8212; so that a conversation stays decodable after the
-        recent-history window has forgotten the locals, parameters and string literals it held. No
-        action anywhere exports the whole stored mapping, and no action puts a mapping on the
-        clipboard.</p>
-        <p><b>Settings &gt; Tools &gt; SnippetVeil</b> holds the one setting that is remembered &#8212; whether
-        libraries under this project's root package count as project code, and the package prefixes
-        that correct it &#8212; together with the number of placeholders stored for the project and the
-        full path of the file they are stored in, so that where the mapping lives can be checked
-        rather than taken on trust. <b>Reset Mappings&#8230;</b> is there and nowhere else: it clears the
-        mapping and the recent-history window, after a confirmation that says what that costs, and
-        leaves the prefixes alone. No keyboard shortcut is bound by default, because every
-        combination worth having is already taken in one keymap or another; the page links to the
-        Keymap dialog with the action selected.</p>
-        <p><b>De-anonymize Clipboard</b> is the way back: paste the AI's reply, run it from
-        <b>Tools &gt; SnippetVeil</b> or from <b>SnippetVeil</b> in any editor's right-click menu,
-        and the placeholders become the real names again, on the clipboard. It is offered on every
-        file type, because a reply gets pasted into a scratch buffer or a Markdown file rather than
-        into <code>.java</code>. It matches only the exact placeholder strings this plugin minted, case-sensitively
-        and on word boundaries, so a word the model invented is left exactly as written rather than
-        guessed at — and the balloon says how many were restored and how many were not, split into
-        placeholders this project has forgotten and placeholders it never issued.</p>
-    ]]></description>
+    <!-- **There is no `<description>` here, and that is the mechanism rather than an omission.**
+         The descriptor's description is patched in from the listing-copy block in README.md by
+         `plugin/build.gradle.kts`, so the Marketplace listing and the README are the same strings
+         rather than two texts making the same claim. A `<description>` written here would be
+         overwritten by the patch, which is the failure worth designing out: a second copy that
+         looks authoritative, reads differently, and ships neither. `assertTheListingCopyIsTheReadme`
+         fails the build if the description in the built distribution ever stops being that block.
+
+         The Plugin Verifier rejects a descriptor without a description; what it verifies is the
+         patched one. -->
 
     <!-- The bundled Java plugin: IDEA Community/Ultimate and Android Studio, nowhere else. -->
     <depends>com.intellij.java</depends>
