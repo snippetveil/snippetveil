@@ -65,18 +65,30 @@ internal object JavaPlanBuilder : PlanBuilder {
 
     override fun build(request: SnippetRequest): SnippetPlan {
         val file = request.file
-        val fragments = fragmentsOf(file, request.selections)
+        val snapped = request.selections.map { TextRange(snapStart(file, it.startOffset), snapEnd(file, it.endOffset)) }
+        val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
         val occurrences = (symbolsIn(request.project, file, fragments) + literalsAndCommentsIn(request.project, file, fragments))
             .sortedBy { it.start }
 
-        return SnippetPlan(text, occurrences, rootPackageOf(file))
+        return SnippetPlan(
+            text,
+            occurrences,
+            rootPackageOf(file),
+            // A range moved iff the two lists differ, which is the claim itself rather than a
+            // proxy for it. Snapping is the only thing between them, and the whole-file case
+            // reaches neither list: no selection was cut, so nothing was extended.
+            selectionExpanded = snapped != request.selections,
+        )
     }
 
     /**
-     * The ranges actually analysed: the selection snapped outward to whole-token boundaries, or the
-     * whole file when there is no selection.
+     * The ranges actually analysed: the snapped selection, merged where two of them now touch, or
+     * the whole file when there is no selection at all.
+     *
+     * Snapping itself happens in [build] rather than here, because whether it *moved* anything is a
+     * fact the preview discloses and this is the last place both ends of the comparison exist.
      *
      * **Snapping closes the last fail-open leak, and it is safe rather than merely convenient.** A
      * selection cutting mid-identifier would otherwise emit raw domain text — `chantReference = x;`
@@ -89,9 +101,8 @@ internal object JavaPlanBuilder : PlanBuilder {
      * placeholder into half a name; and dropping the fragment, which silently deletes characters the
      * user selected and reads as a bug.
      */
-    private fun fragmentsOf(file: PsiFile, selections: List<TextRange>): List<Fragment> {
-        val snapped = selections
-            .map { TextRange(snapStart(file, it.startOffset), snapEnd(file, it.endOffset)) }
+    private fun fragmentsOf(file: PsiFile, snapped: List<TextRange>): List<Fragment> {
+        val ranges = snapped
             .ifEmpty { listOf(TextRange(0, file.textLength)) }
             .sortedBy { it.startOffset }
 
@@ -99,7 +110,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         // would otherwise insert a newline into the middle of a token boundary that snapping just
         // widened.
         val merged = mutableListOf<TextRange>()
-        for (range in snapped) {
+        for (range in ranges) {
             val previous = merged.lastOrNull()
             if (previous != null && range.startOffset <= previous.endOffset) {
                 merged[merged.lastIndex] = previous.union(range)

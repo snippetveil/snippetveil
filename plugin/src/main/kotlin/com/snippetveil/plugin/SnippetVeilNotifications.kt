@@ -7,8 +7,6 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.snippetveil.core.CommentCounts
-import com.snippetveil.core.NameCounts
 
 /**
  * The two things SnippetVeil ever says out loud.
@@ -50,14 +48,31 @@ internal object SnippetVeilNotifications {
      * which is precisely the inversion this product cannot afford. It is a displayable measure of
      * how much of the snippet the IDE could not vouch for, and that is all it claims to be.
      */
-    fun copied(project: Project, counts: NameCounts, comments: CommentCounts) {
+    fun copied(project: Project, analysis: Analysis) {
+        val counts = analysis.result.counts
         group().createNotification(
             "Anonymized snippet copied",
             "${counts.replaced} names replaced · ${counts.unknown} unknown · ${counts.preserved} preserved" +
-                " · ${comments.stripped} comments stripped",
+                " · ${analysis.result.comments.stripped} comments stripped",
             NotificationType.INFORMATION,
-        ).notify(project)
+        ).addAction(showMapping(project, analysis)).notify(project)
     }
+
+    /**
+     * **The way back to the table for the invocation that took the fast path**, which is the one the
+     * balloon exists for: `Copy Anonymized` shows no dialog, so this is where the rows are.
+     *
+     * It reopens the preview [read-only][PreviewDialog.forReview] — the same object re-rendered,
+     * not a second code path. Read-only is required rather than a simplification: by the time this
+     * is clickable the delta is committed and the text has already left, so offering a reduction
+     * here would offer to change something that is gone.
+     *
+     * The action holds this invocation for as long as the balloon lives, the original snippet
+     * included. That is not a new exposure: the file it was cut from is open in the editor beside
+     * it, and the mapping it produced is already on disk.
+     */
+    private fun showMapping(project: Project, analysis: Analysis) =
+        NotificationAction.createSimple("Show mapping") { PreviewDialog.forReview(project, analysis).show() }
 
     /**
      * **The sharp edge of the whole design: when this fires, the clipboard is not empty.**

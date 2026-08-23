@@ -101,6 +101,16 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
     }
 
     /**
+     * The preview action, over a stand-in for the dialog — and **without waiting for anything**,
+     * because what there is to wait for differs by case: a confirmed preview raises a balloon and a
+     * cancelled one raises nothing at all. The caller says which.
+     */
+    internal fun invokeWithPreview(plans: PlanBuilder = JavaPlanBuilder, previews: Previews): Presentation {
+        raised.clear()
+        return myFixture.testAction(AnonymizeWithPreviewAction(plans, previews))
+    }
+
+    /**
      * Drains the pooled thread the analysis runs on and the event queue its result comes back
      * through. The action returns before either has happened, so an assertion made without this
      * would be racing a thread it cannot see.
@@ -108,14 +118,27 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
      * A test that invokes the action twice goes through [invokeCopyAnonymized], which drops the
      * earlier balloons so that this wait is about the invocation in hand.
      */
-    protected fun awaitBackgroundWork() {
+    protected fun awaitBackgroundWork() = awaitEvents(
+        "The analysis produced no notification within 60s; nothing came back from the background thread.",
+    ) { notifications.isNotEmpty() }
+
+    /**
+     * Pumps the event queue until [until] holds, because the analysis runs on a background thread and
+     * comes back through `invokeLater`.
+     *
+     * A condition rather than only the balloon: an invocation the user cancelled in the preview
+     * produces no notification at all, and *nothing was said* is exactly what that case has to
+     * assert. Waiting on the balloon there would hang for a minute and then fail for the wrong
+     * reason.
+     */
+    protected fun awaitEvents(complaint: String, until: () -> Boolean) {
         val deadline = System.currentTimeMillis() + 60_000
         while (System.currentTimeMillis() < deadline) {
             PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
-            if (notifications.isNotEmpty()) return
+            if (until()) return
             Thread.sleep(5)
         }
-        fail("The analysis produced no notification within 60s; nothing came back from the background thread.")
+        fail(complaint)
     }
 
     /**

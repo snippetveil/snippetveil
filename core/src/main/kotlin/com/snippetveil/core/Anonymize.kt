@@ -122,7 +122,17 @@ fun anonymize(
     // one: the sidecar records it, the preview shows it and the export writes it, and a caller that
     // had to remember to merge a second map would leave the literals out on the day it forgot.
     // Filled in the same document-order pass, so the rows come out in first-occurrence order.
-    val mapping = LinkedHashMap<String, String>()
+    //
+    // Keyed so that one symbol met a dozen times is one row. A preserved unresolved name has no
+    // placeholder to be keyed by and stands under its own key, which carries a `:` no placeholder
+    // can.
+    val names = LinkedHashMap<String, MappedName>()
+
+    fun record(symbol: SymbolEvidence, placeholder: String?) {
+        names.getOrPut(placeholder ?: symbol.key) {
+            MappedName(symbol.declaredName, placeholder, kindOf(symbol), symbol.key)
+        }
+    }
 
     // One pass in document order, which is what makes the output read top to bottom: every
     // placeholder is allocated the first time the thing it stands for is written, whether that is
@@ -133,11 +143,17 @@ fun anonymize(
     for (occurrence in surviving) {
         when (occurrence) {
             is SymbolOccurrence -> {
-                namedSymbols += occurrence.symbol
-                if (isReplaced(occurrence.symbol)) {
-                    val placeholder = placeholderFor(occurrence.symbol)
+                val symbol = occurrence.symbol
+                namedSymbols += symbol
+                if (isReplaced(symbol)) {
+                    val placeholder = placeholderFor(symbol)
                     edits += Edit(occurrence.start, occurrence.end, placeholder)
-                    mapping[placeholder] = occurrence.symbol.declaredName
+                    record(symbol, placeholder)
+                } else if (symbol.origin == SymbolOrigin.UNRESOLVED) {
+                    // The one reduction the design authorises, and the row that carries the tick
+                    // which made it. It is a row *because* it was preserved: the tick lives on the
+                    // row, and a row that vanished when ticked could not be unticked.
+                    record(symbol, placeholder = null)
                 }
             }
 
@@ -151,7 +167,11 @@ fun anonymize(
                     // The content as it is written, delimiters excluded — which is what the
                     // replacement went inside, so it is what putting the original back would have to
                     // restore.
-                    mapping[placeholder] = plan.text.substring(occurrence.contentStart, occurrence.contentEnd)
+                    names[placeholder] = MappedName(
+                        original = plan.text.substring(occurrence.contentStart, occurrence.contentEnd),
+                        placeholder = placeholder,
+                        kind = MappedKind.LITERAL,
+                    )
                 }
 
                 is LiteralRewrite.Spliced -> for (reference in rewrite.references) {
@@ -159,7 +179,7 @@ fun anonymize(
                     if (isReplaced(reference.symbol)) {
                         val placeholder = placeholderFor(reference.symbol)
                         edits += Edit(reference.start, reference.end, placeholder)
-                        mapping[placeholder] = reference.symbol.declaredName
+                        record(reference.symbol, placeholder)
                     }
                 }
             }
@@ -200,7 +220,7 @@ fun anonymize(
 
     return AnonymizationResult(
         text = text.toString(),
-        mapping = mapping,
+        names = names.values.toList(),
         unknowns = unknowns,
         counts = countsOf(namedSymbols, ::isReplaced, unknowns.size),
         comments = CommentCounts(
@@ -612,6 +632,29 @@ private fun isTopLevelPackageSegment(symbol: SymbolEvidence): Boolean =
  * builder had to invent. [SymbolRole] stays a statement about Java's grammar, and this is the one
  * place the two part company.
  */
+/**
+ * What a symbol is, as a table reads it. Unresolved outranks the role for the same reason
+ * [namespaceOf] puts it in a namespace of its own: the role of a name nothing resolved is a guess,
+ * and the placeholder does not carry it either.
+ */
+private fun kindOf(symbol: SymbolEvidence): MappedKind =
+    if (symbol.origin == SymbolOrigin.UNRESOLVED) {
+        MappedKind.UNKNOWN
+    } else {
+        when (symbol.role) {
+            SymbolRole.TYPE -> MappedKind.TYPE
+            SymbolRole.TYPE_PARAMETER -> MappedKind.TYPE_PARAMETER
+            SymbolRole.METHOD -> MappedKind.METHOD
+            SymbolRole.FIELD -> MappedKind.FIELD
+            SymbolRole.PARAMETER -> MappedKind.PARAMETER
+            SymbolRole.PACKAGE -> MappedKind.PACKAGE
+            SymbolRole.ANNOTATION -> MappedKind.ANNOTATION
+            SymbolRole.ATTRIBUTE -> MappedKind.ATTRIBUTE
+            SymbolRole.LOCAL -> MappedKind.LOCAL
+            SymbolRole.LABEL -> MappedKind.LABEL
+        }
+    }
+
 private fun namespaceOf(symbol: SymbolEvidence): String =
     if (symbol.origin == SymbolOrigin.UNRESOLVED) UNKNOWN_PREFIX else symbol.role.placeholderPrefix
 

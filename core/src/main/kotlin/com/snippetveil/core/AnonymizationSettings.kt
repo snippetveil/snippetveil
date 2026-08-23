@@ -212,17 +212,8 @@ fun LedgerSnapshot.isStill(latest: LedgerSnapshot): Boolean = nextNumber == late
  * What one invocation produced. Nothing here has been committed anywhere; the caller decides.
  *
  * @param text the anonymized snippet, ready for the clipboard
- * @param mapping placeholder -> what it stands for: a real name, or the text of a literal that was
- *   replaced whole. **Injective**, which is the whole point: a reverse mapping is well-defined only
- *   if no two symbols render to one placeholder, and the AI's reply carries no scope context to
- *   disambiguate with if they did. Two occurrences of the same literal text are two rows standing
- *   for one string, which is that same direction working rather than an exception to it — the reply
- *   is read placeholder-first.
- *
- *   **This is the invocation's complete table, ephemeral symbols and literals included**, and it is
- *   deliberately one table rather than a table and a leftover. It is what [Sidecar] records, and for
- *   a literal it is the only record there will ever be: a literal has no qualified key, so it is
- *   never written into the persistent mapping. In first-occurrence order.
+ * @param names what this invocation did to every name it touched, **in first-occurrence order** —
+ *   the preview's rows, and the source of [mapping]. See [MappedName].
  * @param counts the distinct names in the snippet, partitioned by what became of them
  * @param comments what the strip removed, split by parse verdict
  * @param unknowns every name that failed to resolve, in document order of first occurrence
@@ -230,12 +221,89 @@ fun LedgerSnapshot.isStill(latest: LedgerSnapshot): Boolean = nextNumber == late
  */
 class AnonymizationResult(
     val text: String,
-    val mapping: Map<String, String>,
+    val names: List<MappedName>,
     val counts: NameCounts,
     val comments: CommentCounts,
     val unknowns: List<UnknownName>,
     val delta: LedgerDelta,
+) {
+
+    /**
+     * placeholder -> what it stands for: a real name, or the text of a literal that was replaced
+     * whole. **Injective**, which is the whole point: a reverse mapping is well-defined only if no
+     * two symbols render to one placeholder, and the AI's reply carries no scope context to
+     * disambiguate with if they did. Two occurrences of the same literal text are two rows standing
+     * for one string, which is that same direction working rather than an exception to it — the
+     * reply is read placeholder-first.
+     *
+     * **This is the invocation's complete table, ephemeral symbols and literals included**, and it
+     * is deliberately one table rather than a table and a leftover. It is what [Sidecar] records,
+     * and for a literal it is the only record there will ever be: a literal has no qualified key, so
+     * it is never written into the persistent mapping. In first-occurrence order.
+     *
+     * Derived from [names] rather than carried beside them, so that the table a user reads and the
+     * table a reply is decoded against cannot be two things. A name this invocation **preserved**
+     * has no placeholder and is not here: it stands for itself, and a row mapping a name to itself
+     * would decode a reply that never needed decoding.
+     */
+    val mapping: Map<String, String> =
+        names.mapNotNull { name -> name.placeholder?.let { it to name.original } }.toMap()
+}
+
+/**
+ * One row of the invocation's table: a name, what it became, and what kind of thing it was.
+ *
+ * **Every symbol that received a placeholder is here, `Unknown`s included — and preserved JDK and
+ * third-party symbols are not.** That is the preview's rule rather than a convenience: their
+ * preservation is deliberate and a declared non-goal, so each would be a row the user can do nothing
+ * about, and `String`, `List` and `println` would drown the fourteen rows that matter. They are a
+ * number instead, in [NameCounts.preserved].
+ *
+ * The one row with no placeholder is an **unresolved name this invocation preserved**, which is the
+ * single reduction the design authorises. It stays in the table precisely because it was preserved:
+ * the tick that preserved it is on the row, and a row that vanished when ticked could not be
+ * unticked.
+ *
+ * @param original the name as it is written in the snippet, or a replaced literal's text
+ * @param placeholder what it renders as, or `null` when it was preserved and its own text was
+ *   emitted
+ * @param kind what it is, which is what makes the table readable at a glance and the export
+ *   reversible by hand
+ * @param key the symbol key, or `null` for a literal — which has none, and needs none. It is what a
+ *   per-invocation preserve is expressed in; see [AnonymizationSettings.preservedUnknowns].
+ */
+class MappedName(
+    val original: String,
+    val placeholder: String?,
+    val kind: MappedKind,
+    val key: String? = null,
 )
+
+/**
+ * What a mapped name is, as the preview and the export say it.
+ *
+ * A separate enum from [SymbolRole] rather than a label on it, because the two answer different
+ * questions: a role decides a placeholder's namespace, and a kind is what a human reads in a table.
+ * They part company at exactly the two entries that have no role — a redacted [LITERAL] is not a
+ * symbol at all, and [UNKNOWN] is what an unresolved symbol becomes **whatever its role**, because
+ * the role of a name nothing resolved is a guess and the placeholder does not carry it either.
+ *
+ * @param label the word the table and the export use, capitalised the way Java writes the thing
+ */
+enum class MappedKind(val label: String) {
+    TYPE("Type"),
+    METHOD("method"),
+    FIELD("field"),
+    PARAMETER("param"),
+    LOCAL("local"),
+    PACKAGE("package"),
+    TYPE_PARAMETER("type parameter"),
+    LABEL("label"),
+    ANNOTATION("annotation"),
+    ATTRIBUTE("attribute"),
+    LITERAL("literal"),
+    UNKNOWN("Unknown"),
+}
 
 /**
  * **What the strip removed, split by [CommentVerdict].**

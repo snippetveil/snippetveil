@@ -49,6 +49,61 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **Snapping is reported when it fires, and not otherwise.**
+     *
+     * A selection cutting mid-identifier is extended outward, which is what keeps raw domain text
+     * out of the output — and it also means the copy contains characters the user did not select.
+     * That is a disclosure the preview owes them, and it can only be made here: by the time the
+     * dialog is up, the offsets the comparison needs are gone.
+     *
+     * Conditional in both directions, which is why both are asserted. Always-on it would be noise
+     * on every invocation and therefore unread on the one where it mattered.
+     */
+    fun `test a selection cut mid-identifier reports that it was expanded`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "Ledger.java",
+            """
+            class Ledger {
+                void settle() {
+                    int mer<selection>chantReference</selection> = 0;
+                }
+            }
+            """.trimIndent(),
+        )
+
+        assertTrue("the snapped text is not what was selected: " + plan.text, plan.text.contains("merchantReference"))
+        assertTrue("snapping fired and the plan does not say so", plan.selectionExpanded)
+    }
+
+    /** A selection already on token boundaries is not expanded, and says nothing. */
+    fun `test a selection on token boundaries reports no expansion`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>void settle() {}</selection>
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("void settle() {}", plan.text)
+        assertFalse("nothing was cut, and the plan claims an expansion", plan.selectionExpanded)
+    }
+
+    /**
+     * **The whole file is not an expansion.** There was no selection to cut, so nothing was extended
+     * — and a notice on every unselected copy is exactly the always-on noise the rule rejects.
+     */
+    fun `test the whole file reports no expansion`() {
+        assertTheHarnessResolves()
+        val plan = planFor("Ledger.java", "class Ledger { void settle() {} }")
+
+        assertFalse("the whole file was reported as an expanded selection", plan.selectionExpanded)
+    }
+
+    /**
      * **A member reports the package of the type that declares it**, which is the evidence the
      * prefix rule has to read: `assertNotNull` is not a name Java qualifies, and a rule that could
      * only reach types would rename an internal library's classes while leaving its method and field
