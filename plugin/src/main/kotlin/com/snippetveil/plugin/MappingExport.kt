@@ -15,6 +15,12 @@ import com.snippetveil.core.mappingCsv
  *
  * A cancelled chooser is not a failure and says nothing. The user closed a dialog; a balloon
  * announcing that would be the tool reporting its own no-op.
+ *
+ * **No arm for `ProcessCanceledException`, unlike the analysis this feature hangs off.** That arm
+ * exists in [startAnonymizing] because a read action is cancelled routinely by a concurrent write,
+ * and reporting a keystroke as an error would be wrong. Nothing here runs under an indicator or in a
+ * read action: the chooser is modal, the write is a write, and a cancel arrives as `null` rather than
+ * as a throw. [restoreClipboard] catches the same way for the same reason.
  */
 internal fun exportMapping(project: Project, analysis: Analysis, files: MappingFiles = SavedMappingFiles) {
     val saved = try {
@@ -63,6 +69,12 @@ internal object SavedMappingFiles : MappingFiles {
             .save(null as VirtualFile?, DEFAULT_NAME)
             ?: return false
 
+        // UTF-8, and **no byte-order mark, deliberately.** A BOM is the one thing that would make
+        // older Excel on Windows read a non-ASCII literal correctly, and it puts a zero-width
+        // character in front of `Placeholder` for every other reader there is — including the eye,
+        // which sees a header that no longer matches the column it names. The cost of refusing it is
+        // a display problem in one program over a file whose bytes are right; the cost of writing it
+        // is a wrong first field everywhere else.
         chosen.file.writeText(csv)
         return true
     }

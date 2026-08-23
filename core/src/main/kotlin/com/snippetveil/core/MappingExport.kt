@@ -37,6 +37,10 @@ package com.snippetveil.core
  * conforming, which includes every `grep` and every eye scanning the file, still gets the rows right
  * when the record separator is the one thing a field's own newline is not.
  *
+ * **The rows are [AnonymizationResult.mapping]'s entries with the kind beside them**, in that map's
+ * own order, and that is worth stating because a surface elsewhere asks whether that map is empty in
+ * order to decide whether this file is worth offering. The two read one fact.
+ *
  * **A preserved unresolved name is not a row.** It has no placeholder: it was emitted under its own
  * name, so a row for it would map a name to itself, and it would be the one line in this file that
  * printed a real name in the placeholder column.

@@ -14,6 +14,8 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
+import com.snippetveil.core.AnonymizationSettings
+import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.SymbolOccurrence
 import java.io.File
@@ -171,6 +173,20 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
         val file = myFixture.configureByText(path.substringAfterLast('/'), text)
         return JavaPlanBuilder.build(SnippetRequest(project, file, selectedRangesOf(myFixture.editor)))
     }
+
+    /**
+     * An analysis of [source], against an empty ledger and with nothing reduced — the plan the
+     * production walk builds, run through the real engine.
+     *
+     * Here rather than in each test that wants one, because it is the opening state every surface
+     * over an invocation is asserted against, and two copies of it are two files that can drift on
+     * what *"nothing reduced"* means.
+     */
+    internal fun analysisOf(source: String, path: String = "Ledger.java"): Analysis = Analysis.of(
+        planFor(path, source),
+        AnonymizationSettings.DEFAULTS,
+        LedgerSnapshot.EMPTY,
+    )
 
     /**
      * Every balloon the most recent invocation raised, in order — the action's only observable side

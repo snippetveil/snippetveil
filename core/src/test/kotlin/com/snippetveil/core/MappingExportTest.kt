@@ -73,13 +73,11 @@ class MappingExportTest {
     }
 
     /**
-     * **A text block carries raw quotes and raw newlines, and both come back out of the file
-     * unchanged.**
+     * **A text block carries raw quotes and raw newlines, and both go into the file as content.**
      *
-     * Asserted through a reader written the other way round rather than against a string this test
-     * spelled out: *properly quoted* means a conforming parser recovers the value, and a writer
-     * checked only against expectations its own author wrote can agree with itself while agreeing
-     * with nothing else.
+     * The quote is doubled, the newline is left exactly as the user wrote it, and the whole field is
+     * wrapped — so the only `\r\n` in the file is still the one that ends the record, which is what
+     * a reader that is not conforming has to go on.
      */
     @Test
     fun `a text block's newlines and quotes survive the file`() {
@@ -92,11 +90,9 @@ class MappingExportTest {
         )
 
         assertEquals(
-            listOf(
-                listOf("Placeholder", "Original", "Kind"),
-                listOf("str1", query, "literal"),
-            ),
-            readCsv(result.mappingCsv()),
+            "Placeholder,Original,Kind\r\n" +
+                "str1,\"    SELECT * FROM \"\"merchants\"\", ledgers\n    \",literal\r\n",
+            result.mappingCsv(),
         )
     }
 
@@ -123,40 +119,4 @@ class MappingExportTest {
         assertEquals("MissingType", result.names.single { it.placeholder == null }.original)
         assertEquals("Placeholder,Original,Kind\r\nType1,Ledger,Type\r\n", result.mappingCsv())
     }
-}
-
-/**
- * A CSV reader, to RFC 4180 — the independent half of the quoting assertions above.
- *
- * Deliberately naive about everything the writer is not asked to produce: it reads what a
- * conforming reader reads and nothing more, so a file this recovers is one a spreadsheet recovers.
- */
-private fun readCsv(csv: String): List<List<String>> {
-    val records = mutableListOf<List<String>>()
-    val fields = mutableListOf<String>()
-    val field = StringBuilder()
-    var quoted = false
-    var at = 0
-
-    while (at < csv.length) {
-        val char = csv[at]
-        when {
-            quoted && char == '"' && csv.getOrNull(at + 1) == '"' -> { field.append('"'); at++ }
-            char == '"' -> quoted = !quoted
-            quoted -> field.append(char)
-            char == ',' -> { fields += field.toString(); field.clear() }
-            char == '\r' && csv.getOrNull(at + 1) == '\n' -> {
-                fields += field.toString()
-                field.clear()
-                records += fields.toList()
-                fields.clear()
-                at++
-            }
-            else -> field.append(char)
-        }
-        at++
-    }
-
-    check(field.isEmpty() && fields.isEmpty()) { "the file ended mid-record: `$csv`" }
-    return records
 }

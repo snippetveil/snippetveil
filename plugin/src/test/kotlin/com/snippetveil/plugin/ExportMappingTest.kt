@@ -3,14 +3,11 @@ package com.snippetveil.plugin
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.snippetveil.core.AnonymizationSettings
-import com.snippetveil.core.LedgerSnapshot
-import java.awt.Component
-import java.awt.Container
+import com.snippetveil.core.LedgerDelta
+import com.snippetveil.core.MintedName
 import java.awt.event.ActionEvent
 import java.io.IOException
 import javax.swing.Action
-import javax.swing.JTable
 
 /**
  * **`Export Mapping…`** — the file that keeps one conversation decodable past the horizon.
@@ -232,6 +229,48 @@ class ExportMappingTest : JavaSnippetTestCase() {
         assertEquals("the file and the product disagree about the same reply", clipboard(), byHand(rows, anonymized))
     }
 
+    /**
+     * **The one window the reduction surface has, pinned rather than left as a claim in a comment.**
+     *
+     * `deliver` re-renders against the ledger as it stands at the moment of the copy, so a second
+     * invocation that commits while the dialog is open moves the numbers — and a file exported before
+     * that lands describes placeholders the copy never used.
+     *
+     * The assertion that matters is the last one: **the stale placeholder is not in the copied text
+     * either**, so applying the file to a reply about that text changes nothing. Under-recovery,
+     * never a wrong name, which is the direction everything here errs in. The read-only re-open has
+     * no such window — it holds the invocation that was delivered.
+     */
+    fun `test an export the copy overtook is stale by under-recovery`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText("Ledger.java", "class Ledger { <selection>void settle() {}</selection> }")
+        val files = FakeMappingFiles()
+
+        invokeWithPreview(previews = { project, analysis ->
+            val dialog = PreviewDialog.forCopy(project, analysis, files)
+            try {
+                export(dialog)
+                // Another invocation finishing while the dialog is open, made deterministic rather
+                // than raced — the same interloper `AnonymizeWithPreviewActionTest` uses.
+                PlaceholderLedger.getInstance().commit(
+                    project,
+                    LedgerDelta(mapOf(INTERLOPER to MintedName("method1", "audit")), nextNumber = 2),
+                )
+                dialog.analysis
+            } finally {
+                Disposer.dispose(dialog.disposable)
+            }
+        })
+        awaitBackgroundWork()
+
+        assertEquals("void method2() {}", clipboard())
+        assertEquals("Placeholder,Original,Kind\r\nmethod1,settle,method\r\n", files.written)
+        assertFalse(
+            "the stale placeholder is in the copied text, so the file would decode it to the wrong name",
+            "method1" in clipboard(),
+        )
+    }
+
     /** Clicks the dialog's own `Export Mapping…` button, the way a user reaches it. */
     private fun export(dialog: PreviewDialog) = dialog.createLeftSideActions()
         .single { nameOf(it) == "Export Mapping\u2026" }
@@ -280,29 +319,7 @@ class ExportMappingTest : JavaSnippetTestCase() {
         return records
     }
 
-    private fun tableIn(dialog: PreviewDialog): JTable =
-        descendantsOf(dialog.createCenterPanel()).filterIsInstance<JTable>().single()
-
-    private fun descendantsOf(component: Container): List<Component> =
-        component.components.flatMap { listOf(it) + if (it is Container) descendantsOf(it) else emptyList() }
-
-    private fun withDialog(dialog: PreviewDialog, assertions: (PreviewDialog) -> Unit) {
-        try {
-            assertions(dialog)
-        } finally {
-            Disposer.dispose(dialog.disposable)
-        }
-    }
-
-    /** An analysis of the fixture, against an empty ledger, with nothing reduced. */
-    private fun analysisOf(source: String): Analysis = Analysis.of(
-        planFor("Ledger.java", source),
-        AnonymizationSettings.DEFAULTS,
-        LedgerSnapshot.EMPTY,
-    )
 }
-
-private const val PRESERVE_COLUMN = 3
 
 /**
  * A snippet with a local and a string literal in it — the two halves of a mapping that live in the
@@ -327,6 +344,9 @@ private val ROUND_TRIP = """
 /** What `<selection>` marks, which is what the copy took and therefore what the file must put back. */
 private fun selectionOf(text: String): String =
     text.substringAfter("<selection>").substringBefore("</selection>")
+
+/** A symbol another invocation named while the dialog was open. */
+private const val INTERLOPER = "method:class:com.other.Interloper#run"
 
 /** A snippet whose two names are what every assertion above counts on. */
 private const val SNIPPET = "class Ledger { <selection>void settle(int amount) {}</selection> }"

@@ -88,8 +88,8 @@ class ActionRegistrationTest : BasePlatformTestCase() {
     }
 
     /**
-     * **These four ids are every action this plugin registers — which is how *`Export Mapping…` is
-     * reachable from the preview and from nowhere else`* is checked rather than asserted.**
+     * **These four ids are every action this plugin registers** — which is how *"`Export Mapping…` is
+     * reachable from the preview and from nowhere else"* is checked rather than asserted.
      *
      * The export is a button on the preview dialog and deliberately not a menu item: a Tools-menu
      * entry has no invocation in front of it, so the only thing it could mean is *dump the whole

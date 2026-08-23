@@ -12,6 +12,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
+import com.snippetveil.core.AnonymizationResult
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.MappedKind
 import com.snippetveil.core.MappedName
@@ -298,6 +299,10 @@ internal class PreviewDialog private constructor(
      * the file reverses the snippet. That is the *`Show details`* rule read on this side: a count is
      * worth stating at zero, and an action offering to write nothing is a dead end dressed as an
      * offer.
+     *
+     * It asks [AnonymizationResult.mapping] rather than counting rows of its own, because that map
+     * **is** what the file holds — `mappingCsv` writes its entries with the kind beside them — so
+     * the offer and the file cannot come to disagree about whether there is anything to write.
      */
     private fun exportable(): Boolean = analysis.result.mapping.isNotEmpty()
 
