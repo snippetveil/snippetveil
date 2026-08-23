@@ -277,7 +277,19 @@ private val KINDS = listOf(
     Kind("a local class", "Helper", key = "class:<anchor>", persistable = false),
     Kind("a local class's field", "state", ordinal = 4, key = "field:class:<anchor>#state", persistable = false),
     Kind("a record component", "merchantRef", key = "field:class:com.acme.Payment#merchantRef", persistable = true),
-    Kind("a record accessor", "merchantRef", ordinal = 1, key = "field:class:com.acme.Payment#merchantRef", persistable = true),
+
+    // Rule 5's fourth face. A compact constructor's parameters are implicit and the JLS names them
+    // after the components, so this row is the component's row again — and that it is *the same key*
+    // rather than a key of its own is the whole of the fix: keyed apart, the constructor's body named
+    // a `param` the record declares nowhere.
+    Kind(
+        "a compact constructor's implicit parameter",
+        "merchantRef",
+        ordinal = 1,
+        key = "field:class:com.acme.Payment#merchantRef",
+        persistable = true,
+    ),
+    Kind("a record accessor", "merchantRef", ordinal = 2, key = "field:class:com.acme.Payment#merchantRef", persistable = true),
 
     // The one row where the two columns part company, and the reason they are two columns.
     Kind("an unresolved name", "Missing", key = "unresolved:Missing", persistable = false, survivesAnEdit = true),
@@ -312,6 +324,10 @@ private val FIXTURE = """
     }
 
     record Payment(String merchantRef) {
+        Payment {
+            if (merchantRef == null) throw new IllegalArgumentException();
+        }
+
         static String of(Payment p) { return p.merchantRef(); }
     }
 """.trimIndent()

@@ -394,6 +394,58 @@ class ForcedSharingTest {
         assertTrue("field1()" in result.text, "$RECORDS: the accessor must be the component's placeholder\n${result.text}")
     }
 
+    /**
+     * **The fourth face of that same symbol: a compact constructor's implicit parameters.** A compact
+     * constructor declares no parameter list — the JLS gives it one, named after the components — so
+     * `merchantRef` in the body below *is* the component, and the record's own placeholder is what
+     * has to appear there.
+     *
+     * Keyed apart it produced `param3` inside a record that declares no such thing: not a broken
+     * override but **visibly contradictory output**, which is the prohibited class. A reader — human
+     * or model — asked about the snippet has to account for a name nothing in it introduces, and
+     * compact constructors are the idiomatic way to validate a record, so this is not a corner.
+     *
+     * **This test is green with no engine change, and that is the claim it makes.** The fix is in the
+     * walk, which reports one key for both occurrences; the engine's half is to do with two
+     * occurrences of one symbol what it already does with any other two. Written here so that the
+     * fourth face is stated where the other five are, and so that an engine that later grew a special
+     * case for record parameters would have to fail something.
+     */
+    @Test
+    fun `a compact constructor's body renders the component's placeholder`() {
+        val text = """
+            record Payment(String merchantRef) {
+                Payment {
+                    if (merchantRef == null) throw new IllegalArgumentException();
+                }
+            }
+        """.trimIndent()
+
+        val type = symbol("Payment", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.Payment")
+        val component = symbol(
+            "merchantRef",
+            SymbolRole.FIELD,
+            SymbolOrigin.IN_CONTENT,
+            key = "field:class:com.acme.Payment#merchantRef",
+        )
+        val plan = planPlacing(text, at(0, type), at(0, component), at(1, type), at(1, component))
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        result.assertShared(RECORDS, "merchantRef")
+        assertEquals(
+            """
+            record Type1(String field2) {
+                Type1 {
+                    if (field2 == null) throw new IllegalArgumentException();
+                }
+            }
+            """.trimIndent(),
+            result.text,
+            "$RECORDS: a compact constructor's body names the component, never a parameter of its own",
+        )
+    }
+
     // ------------------------------------------------- Checked, and rejected as non-forcing
 
     /**

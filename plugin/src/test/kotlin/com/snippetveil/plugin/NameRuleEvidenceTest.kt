@@ -274,6 +274,141 @@ class NameRuleEvidenceTest : JavaSnippetTestCase() {
         )
     }
 
+    /**
+     * **The fourth face of that same symbol: a compact constructor's implicit parameters.** A compact
+     * constructor declares no parameter list — the JLS gives it one, named after the components — so
+     * `merchantRef` in the body below *is* the component, in exactly the way a record accessor's
+     * identifier is.
+     *
+     * Reported as a parameter of its own it produced `param3` inside a record that declares no such
+     * thing: a name the output cannot account for, which is the **plausible** artifact this list
+     * exists to prevent rather than a cosmetic one. Compact constructors are the idiomatic way to
+     * validate a record, so this is not a corner.
+     *
+     * It does not open the closed list to six. The word doing the work is *implicit*, and where that
+     * word stops the cut falls — see
+     * [`test an explicit canonical constructor's parameters rename freely`], which is this test's
+     * control and asserts the mirror-image error is not made.
+     */
+    fun `test a compact constructor's implicit parameter is its record component`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "com/acme/Payment.java",
+            """
+            package com.acme;
+
+            <selection>record Payment(String merchantRef) {
+                Payment {
+                    if (merchantRef == null) throw new IllegalArgumentException();
+                }
+            }</selection>
+            """.trimIndent(),
+        )
+
+        val faces = plan.symbols().filter { it.text == "merchantRef" }
+        assertEquals("the fixture must name the component and the constructor's parameter", 2, faces.size)
+        assertEquals(
+            setOf("field:class:com.acme.Payment#merchantRef"),
+            faces.map { it.symbol.key }.toSet(),
+        )
+        assertEquals(setOf(SymbolRole.FIELD), faces.map { it.symbol.role }.toSet())
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+        val placeholder = result.mapping.filterValues { it == "merchantRef" }.keys.single()
+        assertEquals(
+            "forced sharing rule 5: the constructor's body must name the component: " + result.text,
+            2,
+            Regex("""\b""" + Regex.escape(placeholder) + """\b""").findAll(result.text).count(),
+        )
+        assertFalse(
+            "the output names a parameter nothing in it declares: " + result.text,
+            "param" in result.text,
+        )
+    }
+
+    /**
+     * **The control, and the cut is load-bearing.** An *explicit* canonical constructor's parameter
+     * names are the author's to choose — nothing forces `Payment(String ref)` to say `merchantRef` —
+     * so its parameters are ordinary independent symbols and must keep renaming freely. Sharing them
+     * with the component would be forcing an agreement Java does not force, which is the mirror-image
+     * error.
+     *
+     * The fixture writes the parameter with **the component's own name**, which is the shape a rule
+     * keyed on resemblance rather than on implicitness would get wrong — and it is the shape most
+     * explicit canonical constructors are actually written in, so this is the likely input rather
+     * than a contrived one. The `this.merchantRef` assignment is rule 5's third face in the same
+     * fixture: the implicit field shares the component's key while the parameter beside it does not.
+     */
+    fun `test an explicit canonical constructor's parameters rename freely`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "com/acme/Payment.java",
+            """
+            package com.acme;
+
+            <selection>record Payment(String merchantRef) {
+                Payment(String merchantRef) {
+                    this.merchantRef = merchantRef.trim();
+                }
+            }</selection>
+            """.trimIndent(),
+        )
+
+        val faces = plan.symbols().filter { it.text == "merchantRef" }.map { it.symbol }
+        assertEquals("component, parameter, field, parameter", 4, faces.size)
+        val (component, parameter, field, use) = faces
+
+        val componentKey = "field:class:com.acme.Payment#merchantRef"
+        assertEquals(componentKey, component.key)
+        assertEquals("the implicit field is the component", componentKey, field.key)
+        assertEquals("one parameter, named twice", parameter.key, use.key)
+        assertTrue(
+            "an explicit constructor's parameter is an ordinary symbol, and was keyed as " + parameter.key,
+            parameter.key != componentKey,
+        )
+        assertEquals(SymbolRole.PARAMETER, parameter.role)
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+        assertEquals(
+            "forced sharing rule 5 stops at the implicit: the parameter renames freely: " + result.text,
+            2,
+            result.mapping.filterValues { it == "merchantRef" }.size,
+        )
+    }
+
+    /**
+     * **A non-canonical constructor's parameters are untouched.** It has a parameter list of its own
+     * and delegates to the canonical one, so nothing about its names is implied by anything — the
+     * component's name appearing among them is a coincidence the walk must not read as a rule.
+     */
+    fun `test a non-canonical constructor's parameters are unaffected`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "com/acme/Payment.java",
+            """
+            package com.acme;
+
+            <selection>record Payment(String merchantRef) {
+                Payment(String merchantRef, int retries) {
+                    this(merchantRef);
+                }
+            }</selection>
+            """.trimIndent(),
+        )
+
+        val faces = plan.symbols().filter { it.text == "merchantRef" }.map { it.symbol }
+        assertEquals("component, parameter, parameter", 3, faces.size)
+        val (component, parameter, use) = faces
+
+        assertEquals("field:class:com.acme.Payment#merchantRef", component.key)
+        assertEquals("one parameter, named twice", parameter.key, use.key)
+        assertTrue(
+            "a non-canonical constructor's parameter is an ordinary symbol, and was keyed as " + parameter.key,
+            parameter.key != component.key,
+        )
+        assertEquals(SymbolRole.PARAMETER, parameter.role)
+    }
+
     // ------------------------------------------------ Checked, and rejected as non-forcing
 
     /**
