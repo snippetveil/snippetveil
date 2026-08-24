@@ -596,6 +596,33 @@ impression for a plugin whose entire pitch is trust.
 `signPlugin` runs automatically before `publishPlugin` when the key is present, and is skipped when
 it is absent — which is what lets a fork run everything up to the upload.
 
+**And a skip is silent, so it is asserted rather than trusted.** `PublishPluginTask`'s convention
+reads `signPlugin.didWork` and falls back to `buildPlugin`'s archive when it is false:
+
+```kotlin
+signed -> signPluginTaskProvider.flatMap { it.signedArchiveFile }
+else -> buildPluginTaskProvider.flatMap { it.archiveFile }
+```
+
+The fallback is what makes a keyless fork work, and the cost is that **the difference between a
+signed release and an unsigned one is one empty environment variable.** `SignPluginTask`'s `onlyIf`
+treats an empty string as an absent key, so a secret that exists and holds nothing skips signing and
+leaves a green build behind it. That is not hypothetical: it is how v1.0.0's first release run
+behaved, and only the Marketplace's *upload once manually* rule stopped an unsigned upload.
+
+`assertThePluginWasSigned` closes it, reading the bytes rather than the task state. The signed
+archive must exist, must carry the `PK Sig Block 42` block the Marketplace ZIP Signer writes ahead
+of the central directory, and must hold **the same entries at the same sizes** as the archive this
+build produced — the third rule being what stops a leftover `-signed.zip` from an earlier version
+passing the first two.
+
+**It is the one trust check here that cannot run from a clone**, and that is a property of the thing
+being checked rather than a choice: a signature needs a key, and the key is reachable only from the
+environment-gated release job. So it hangs off `publishPlugin` and never off `check` — a `check`
+variant would be vacuous on every machine that has no key, which is every machine but one. Its rules
+are still exercised on every run, against the unsigned archive, which is the fixture that is always
+present.
+
 **The key of record lives in a password manager and in no repository, with the `.pem` and the chain
 backed up.** A changed or revoked certificate makes every user see an install warning, so key loss
 is *recoverable but visible*: the backup is an obligation of the release process rather than a
@@ -647,6 +674,7 @@ exists, holds these four and no others, and carries the reviewer. None of that i
 3. `verifyPlugin` is green: **no `COMPATIBILITY_PROBLEMS`, no `INTERNAL_API_USAGES`**. Both are
    explicit Marketplace approval criteria and both are in the task's default failure levels.
 4. `assertNothingThirdPartyIsShipped` is green.
+4b. `assertThePluginWasSigned` is green — it gates `publishPlugin` and needs no remembering.
 5. Screenshots re-shot from `demo/` if the dialog changed.
 6. `demo/` is excluded from the distribution — `assertTheDemoIsNotShipped`.
 7. **The Marketplace listing has no post-install page.** A plugin selling *no network connections*
@@ -656,6 +684,12 @@ exists, holds these four and no others, and carries the reviewer. None of that i
 
 Steps 1-4 and 6 are `./gradlew check verifyPlugin` on any machine. 5, 7 and 8 are judgement and a
 Marketplace form.
+
+**The first submission cannot go through `publishPlugin`.** A new plugin has to be uploaded once by
+hand, through the Marketplace form, because that upload is what creates the listing and sets the
+licence and repository fields. `publishPlugin` only ever *updates* an existing page — pointed at a
+plugin that does not exist yet it fails with *"Cannot find plugin"*, which is what v1.0.0 did. Every
+release after the first goes through CI.
 
 **Budget about a week for a submission.** Every new plugin *and every update* is reviewed by a
 person. There is no published SLA — escalate after two to four working days — no documented
