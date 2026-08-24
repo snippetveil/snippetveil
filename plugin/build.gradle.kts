@@ -2,6 +2,7 @@ import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.specs.Specs
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.tasks.SignPluginTask
 import org.objectweb.asm.ClassReader
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
@@ -887,6 +888,167 @@ tasks.named("check") {
 // scan gets the same edge: `publishPlugin` reaches `buildPlugin` without passing through `check`.
 tasks.named("publishPlugin") {
     dependsOn(assertTheListingCopyIsTheReadme)
+}
+
+/**
+ * Fails if the archive `publishPlugin` would upload is not signed.
+ *
+ * **`signPlugin` skipping is silent, and `publishPlugin` uploads the unsigned zip when it does.**
+ * That is not a bug in the platform plugin, it is `PublishPluginTask`'s documented convention:
+ *
+ * ```
+ * archiveFile.convention(
+ *     signPluginTaskProvider.map { it.didWork }.flatMap { signed ->
+ *         when {
+ *             signed -> signPluginTaskProvider.flatMap { it.signedArchiveFile }
+ *             else -> buildPluginTaskProvider.flatMap { it.archiveFile }
+ *         }
+ *     }
+ * )
+ * ```
+ *
+ * The fallback exists so that a fork with no key can still run the pipeline, which is worth having.
+ * The cost is that **the difference between a signed release and an unsigned one is one empty
+ * environment variable, and nothing anywhere says which happened.** `SignPluginTask`'s `onlyIf`
+ * treats an empty string as an absent key, so a secret that exists and holds nothing skips signing
+ * and leaves a green build behind it.
+ *
+ * That is not hypothetical here: it is how v1.0.0's first release run behaved, and only the
+ * Marketplace's *"upload the plugin once manually"* rule stopped an unsigned upload. Signing is
+ * **not mandatory** — an unsigned plugin installs, with a warning — which is exactly why nothing
+ * else in the toolchain objects. For a plugin whose pitch is trust, that warning is the product
+ * failing on the one screen where it is being decided.
+ *
+ * So the rule is asserted rather than assumed, and it reads the bytes rather than the task state:
+ *
+ * 1. **The signed archive exists.** If `signPlugin` never ran, it does not.
+ * 2. **It carries the signing block.** `PK Sig Block 42` is the magic the Marketplace ZIP Signer
+ *    writes ahead of the central directory — the same shape as an APK signing block. Its presence
+ *    is a fact about the file, not a claim about a task that may have skipped.
+ * 3. **It is a signature of *this* build.** Signing appends a block and leaves the entries alone, so
+ *    a signed archive's entry names and sizes must equal the unsigned one's. This is what stops a
+ *    leftover `-signed.zip` from a previous version passing the first two rules on a machine that
+ *    did not sign anything today.
+ *
+ * **This is the one trust check in this repository that cannot run from a clone**, and that is a
+ * property of the thing being checked rather than a choice: a signature needs a key, and the key is
+ * deliberately reachable only from the environment-gated release job. So it hangs off
+ * `publishPlugin` alone and never off `check` — a `check` variant would be vacuous on every machine
+ * that has no key, which is every machine except one. Its rules are still exercised on every run,
+ * against the unsigned archive, which is the fixture that is always present.
+ */
+val assertThePluginWasSigned by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the archive publishPlugin would upload is not signed."
+
+    val signedArchive = tasks.named<SignPluginTask>("signPlugin").flatMap { it.signedArchiveFile }
+    val unsignedArchive = tasks.named<Zip>("buildPlugin").flatMap { it.archiveFile }
+    val report = layout.buildDirectory.file("reports/trust/plugin-is-signed.txt")
+
+    // `files` rather than `file`: when nothing has been signed the path resolves and the file does
+    // not exist, and an input that refused to be declared until it did would be an input that
+    // cannot express the very state this task exists to catch.
+    inputs.files(signedArchive).withPropertyName("signedArchive")
+    inputs.file(unsignedArchive).withPropertyName("unsignedArchive")
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        // What the Marketplace ZIP Signer writes ahead of the central directory. Matched as bytes
+        // rather than decoded text, because the block around it is not text.
+        val magic = "PK Sig Block 42".toByteArray(Charsets.US_ASCII)
+
+        fun ByteArray.containsMagic(): Boolean {
+            outer@ for (start in 0..size - magic.size) {
+                for (offset in magic.indices) {
+                    if (this[start + offset] != magic[offset]) continue@outer
+                }
+                return true
+            }
+            return false
+        }
+
+        /** Entry name to size, which signing must leave untouched. */
+        fun entriesOf(file: File): Map<String, Long> =
+            ZipFile(file).use { zip ->
+                zip.entries().asSequence()
+                    .filterNot { it.isDirectory }
+                    .associate { it.name to it.size }
+            }
+
+        val unsigned = unsignedArchive.get().asFile
+        val unsignedEntries = entriesOf(unsigned)
+
+        /** Every reason [candidate] is not a signature of the archive built by this run. */
+        fun violationsIn(candidate: File): List<String> {
+            if (!candidate.exists()) {
+                return listOf(
+                    "${candidate.name} does not exist, so signPlugin did not run. publishPlugin " +
+                        "falls back to the unsigned archive when it skips, which is an unsigned release"
+                )
+            }
+
+            val violations = mutableListOf<String>()
+
+            if (!candidate.readBytes().containsMagic()) {
+                violations += "${candidate.name} carries no signing block"
+            }
+
+            val entries = entriesOf(candidate)
+            if (entries != unsignedEntries) {
+                val differing = (entries.keys + unsignedEntries.keys)
+                    .filter { entries[it] != unsignedEntries[it] }
+                    .sorted()
+                violations += "${candidate.name} is not a signature of this build: it and " +
+                    "${unsigned.name} differ on ${differing.size} entr" +
+                    (if (differing.size == 1) "y" else "ies") +
+                    " (${differing.take(3).joinToString(", ")}${if (differing.size > 3) ", …" else ""})"
+            }
+
+            return violations
+        }
+
+        // The rules prove they can fail before they report that nothing failed, and the fixture is
+        // the one file guaranteed to be present: the archive `buildPlugin` just wrote. It has this
+        // build's entries and no signing block, so it must fail on exactly one rule — which also
+        // pins the entry comparison as the half that passed.
+        val onUnsigned = violationsIn(unsigned)
+        check(onUnsigned.size == 1 && onUnsigned.single().endsWith("carries no signing block")) {
+            "The rules did not flag the unsigned archive on the signing block alone: $onUnsigned"
+        }
+        check(violationsIn(unsigned.resolveSibling("nothing-here.zip")).size == 1) {
+            "The rules failed to flag a signed archive that does not exist."
+        }
+
+        val signed = signedArchive.get().asFile
+        val violations = violationsIn(signed)
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Upload candidate: ${signed.name}")
+                appendLine("Built archive:    ${unsigned.name} (${unsignedEntries.size} entries)")
+                appendLine()
+                appendLine("It must exist, carry the `PK Sig Block 42` signing block, and hold the")
+                appendLine("same entries at the same sizes as the archive this build produced.")
+                appendLine()
+                appendLine("Not checked here: that the certificate is the one of record. That is a")
+                appendLine("fact about a key in a password manager, not about anything in a clone.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "An unsigned plugin installs behind a warning, on the one screen where a plugin " +
+                    "selling trust is being decided:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+// The edge that matters, and the reason this is a task rather than a habit: `publishPlugin` reads
+// `signPlugin.didWork` and quietly uploads the unsigned archive when it is false.
+tasks.named("publishPlugin") {
+    dependsOn(assertThePluginWasSigned)
 }
 
 
