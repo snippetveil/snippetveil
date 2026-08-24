@@ -562,8 +562,206 @@ val assertNoBannedPhraseAppearsOnAnySurface by tasks.registering {
     }
 }
 
+/**
+ * **The four secrets are the plugin's identity, and this is what keeps `build.yml` away from them.**
+ *
+ * They live in a GitHub Environment named `marketplace` rather than in repository secrets, and the
+ * reason is not the obvious one. Fork pull requests never receive secrets, so the naive vector was
+ * already closed. The live one is not: **a compromised third-party action in `build.yml` runs with
+ * access to every *repository* secret and to none of the *environment* ones** — and `build.yml` is
+ * the file that runs on every pull request, against code nobody has merged. Scoping takes the
+ * signing key out of that pipeline's blast radius entirely.
+ *
+ * A scoping like that is a property of a settings page and a YAML key together, which means it is
+ * exactly the kind of thing that is true on the day it is set up and quietly false a year later.
+ * So it is a Gradle task, for the reason the other trust checks are: **a check that exists only in
+ * YAML cannot be run by the person reading the claim.** `./gradlew check` goes red on any machine
+ * the moment a workflow reaches for the key outside the gated job.
+ *
+ * Three rules, and the third is the one that makes the first two sound:
+ *
+ *  1. **Only `release.yml` may name any of the four at all.** Every other workflow — `build.yml`
+ *     first among them — is checked for the name and must not have it.
+ *  2. **A job that names one must declare `environment: marketplace`.** The environment is what
+ *     holds the secrets and what carries the required reviewer; a job without the key gets neither.
+ *  3. **No workflow may reach a secret by anything but its name.** `toJSON(secrets)` and
+ *     `secrets[…]` hand out the whole context, and a name-based scan is only sound while names are
+ *     the only way through. Without this rule the first two are a search that can be stepped around
+ *     in one line.
+ *
+ * What it does not check is the GitHub side: that the environment exists, that it holds these four
+ * and not others, that the reviewer is set. None of that is in the repository and none of it is
+ * checkable from a clone. The half that is written down is the half this reads.
+ */
+val assertOnlyTheGatedJobCanReachTheSigningKey by tasks.registering {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if a workflow outside the environment-gated release job can reach a signing secret."
+
+    val workflows = layout.projectDirectory.dir(".github/workflows")
+    val report = layout.buildDirectory.file("reports/trust/signing-secrets.txt")
+
+    // The plugin's identity: three that sign and one that uploads. Spelled here and read from
+    // `release.yml` by exactly these names — the IntelliJ Platform Gradle plugin's signing and
+    // publishing extensions take them from the environment under these spellings and no others.
+    val secrets = listOf("CERTIFICATE_CHAIN", "PRIVATE_KEY", "PRIVATE_KEY_PASSWORD", "PUBLISH_TOKEN")
+
+    // The Environment the four live in. A job that names a secret must name this.
+    val environment = "marketplace"
+
+    // The one file allowed to name them, because it is the only one whose job is gated.
+    val gatedWorkflow = "release.yml"
+
+    inputs.dir(workflows).withPropertyName("workflows")
+    inputs.property("secrets", secrets)
+    inputs.property("environment", environment)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        // `${{ secrets.NAME }}`, in any of the spacings GitHub accepts.
+        fun namedSecret(secret: String) = Regex("""\$\{\{\s*secrets\.$secret\s*\}\}""")
+
+        // Every way of reaching the secrets context that is not a name. `secrets[...]` indexes it
+        // with an expression, `toJSON(secrets)` serialises the lot into one string, and either one
+        // makes a scan for names blind. Matched on the context word itself rather than on the two
+        // syntaxes, so a third spelling is caught by default instead of being missed by default.
+        val secretsWithoutAName = Regex("""secrets\s*\[|\btoJSON\s*\(\s*secrets\s*\)""")
+
+        // `environment: marketplace`, as a scalar or as the `name:` of a mapping. Both are the same
+        // declaration to GitHub, and a rule that read only one of them would be a rule a rewrite
+        // turns off silently.
+        val declaresEnvironment = Regex(
+            """(?m)^\s*environment:\s*(?:$environment\s*$|\s*$\s*^\s*name:\s*$environment\s*$)"""
+        )
+
+        /** Every violation in one workflow's text, and the number of secret references it read. */
+        fun inspect(name: String, text: String): Pair<List<String>, Int> {
+            val violations = mutableListOf<String>()
+
+            if (secretsWithoutAName.containsMatchIn(text)) {
+                violations += "$name reaches the secrets context without naming a secret, which " +
+                    "is a way past every rule below"
+            }
+
+            val named = secrets.filter { namedSecret(it).containsMatchIn(text) }
+
+            when {
+                named.isEmpty() -> Unit
+
+                name != gatedWorkflow ->
+                    named.forEach {
+                        violations += "$name names $it, and only $gatedWorkflow may: a workflow " +
+                            "that runs on a pull request must have no path to the signing key"
+                    }
+
+                !declaresEnvironment.containsMatchIn(text) ->
+                    violations += "$name names ${named.joinToString(", ")} but declares no " +
+                        "`environment: $environment`, so the secrets are repository-wide and the " +
+                        "required reviewer never runs"
+            }
+
+            return violations to named.size
+        }
+
+        fun violationsIn(name: String, text: String) = inspect(name, text).first
+
+        // The rules prove they can fail before they report that nothing failed. A red path that is
+        // never exercised decays into a check that always passes.
+        val gated = """
+            jobs:
+              release:
+                environment: $environment
+                steps:
+                  - env:
+                      PRIVATE_KEY: ${'$'}{{ secrets.PRIVATE_KEY }}
+        """.trimIndent()
+
+        check(violationsIn(gatedWorkflow, gated).isEmpty()) {
+            "The rules flagged a gated release job that breaks none of them: " +
+                violationsIn(gatedWorkflow, gated)
+        }
+        check(violationsIn(gatedWorkflow, gated.replace("    environment: $environment\n", "")).size == 1) {
+            "The rules failed to flag a job that names a secret with no environment. The gate is not being checked."
+        }
+        check(violationsIn(gatedWorkflow, gated.replace("environment: $environment", "environment:\n      name: $environment")).isEmpty()) {
+            "The rules failed to read `environment:` written as a mapping, which is the same declaration."
+        }
+        check(violationsIn("build.yml", gated).size == 1) {
+            "The rules failed to flag a workflow other than $gatedWorkflow naming a secret."
+        }
+        check(violationsIn(gatedWorkflow, gated + "\n                      ALL: ${'$'}{{ toJSON(secrets) }}").size == 1) {
+            "The rules failed to flag toJSON(secrets), which hands out every secret without naming one."
+        }
+        check(violationsIn(gatedWorkflow, gated + "\n                      ALL: ${'$'}{{ secrets[inputs.which] }}").size == 1) {
+            "The rules failed to flag an indexed secrets lookup, which is a name-based scan's blind spot."
+        }
+        check(inspect(gatedWorkflow, gated).second == 1) {
+            "The rules read no secret out of a fixture that has one. They are not counting coverage."
+        }
+
+        val files = workflows.asFile.listFiles().orEmpty()
+            .filter { it.isFile && (it.name.endsWith(".yml") || it.name.endsWith(".yaml")) }
+            .sortedBy { it.name }
+
+        check(files.isNotEmpty()) { "No workflows were found in ${workflows.asFile}. Nothing was checked." }
+
+        // The gated workflow has to be one of the files actually read. Renaming it without renaming
+        // it here would leave every rule pointed at a file that no longer exists, and the whole
+        // check would pass by finding nothing — which is the one failure a green build hides.
+        check(files.any { it.name == gatedWorkflow }) {
+            "$gatedWorkflow is not in ${workflows.asFile}. These rules are named after a file that is not there."
+        }
+
+        val inspected = files.map { it to inspect(it.name, it.readText()) }
+        val violations = inspected.flatMap { (_, result) -> result.first }
+        val secretsRead = inspected.sumOf { (_, result) -> result.second }
+
+        // A check that read no secret reference is not a pass. `release.yml` passes all four to
+        // `publishPlugin`, so anything short of four means the rules stopped matching the shape the
+        // file is written in rather than that the file stopped naming them.
+        //
+        // **Counted in the gated workflow alone, and asserted after the violations above have had
+        // their say.** A total across every file would move the moment another workflow reached for
+        // a secret — which is precisely the thing being caught — and this coverage assertion would
+        // fire first and report a miscount where the real answer is a violation.
+        val secretsReadInGatedWorkflow = inspected
+            .single { (file, _) -> file.name == gatedWorkflow }
+            .let { (_, result) -> result.second }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Workflows checked: ${files.size}; secret references read: $secretsRead")
+                appendLine("The four: ${secrets.joinToString(", ")}")
+                appendLine()
+                appendLine("Only $gatedWorkflow may name them, its job must declare `environment: $environment`,")
+                appendLine("and no workflow may reach the secrets context without naming a secret.")
+                appendLine()
+                inspected.forEach { (file, result) ->
+                    appendLine(".github/workflows/${file.name} — ${result.second} of the four")
+                }
+                appendLine()
+                appendLine("Not checked here, because none of it is in the repository: that the")
+                appendLine("$environment environment exists, holds these four, and carries a required reviewer.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "The signing key is the plugin's identity, and the pipeline that runs unmerged code " +
+                    "has no path to it:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+
+        check(secretsReadInGatedWorkflow == secrets.size) {
+            "$secretsReadInGatedWorkflow of ${secrets.size} signing secrets were read out of " +
+                "$gatedWorkflow, which passes all four to publishPlugin. The rules read the wrong thing."
+        }
+    }
+}
+
 tasks.named("check") {
     dependsOn(assertWorkflowsAreHardened)
     dependsOn(assertTheSweepIsNeverRunInCi)
     dependsOn(assertNoBannedPhraseAppearsOnAnySurface)
+    dependsOn(assertOnlyTheGatedJobCanReachTheSigningKey)
 }

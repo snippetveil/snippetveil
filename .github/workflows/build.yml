@@ -158,11 +158,23 @@ jobs:
     needs: [build, test, verify]
     runs-on: ubuntu-latest
     permissions:
-      # The only write in either workflow, and it is scoped to the one job that needs it: creating a
-      # release writes to the repository.
+      # The only write in this file, and it is scoped to the one job that needs it: creating a
+      # release writes to the repository. Nothing else here asks for more than `contents: read`.
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # This job reads the release notes out of the changelog, and that is a Gradle task like every
+      # other check here — thin CI over thick Gradle applies to the release text too.
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          validate-wrappers: true
+          cache-provider: basic
 
       # Yesterday's draft is not a release anybody wants to publish by accident, and the tag is
       # never pushed until a draft is published, so replacing it costs nothing.
@@ -186,5 +198,12 @@ jobs:
           gh release list --limit 100 --json tagName,isDraft \
             --jq '.[] | select(.isDraft) | .tagName | select(startswith("v"))' \
             | while read -r tag; do gh release delete "$tag" --yes; done
+
+          # The notes are the `## Unreleased` section of CHANGELOG.md, not a generated list of
+          # commit subjects. They are the text a Marketplace reviewer reads — placeholder change
+          # notes are a documented rejection reason — so they are written by a person, and the
+          # draft shows exactly what would be uploaded rather than something that resembles it.
+          ./gradlew -q getChangelog --unreleased --no-header --no-summary > notes.md
+
           gh release create "v$VERSION" --draft --title "v$VERSION" \
-            --target "$GITHUB_SHA" --generate-notes
+            --target "$GITHUB_SHA" --notes-file notes.md

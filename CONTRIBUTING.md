@@ -473,7 +473,7 @@ a check that exists only in YAML cannot be run by the person reading the claim.
 | Workflow | Fires on | Runs |
 |---|---|---|
 | `build.yml` | push to `main`, and every pull request | `buildPlugin`, `check` at two platform versions, `verifyPlugin`, then a draft GitHub Release |
-| `release.yml` | a GitHub Release being published or pre-released | `check`, `verifyPlugin`, `publishPlugin` — in that order |
+| `release.yml` | a GitHub Release being published or pre-released | `check`, `verifyPlugin`, `signPlugin`, `publishPlugin` — in that order — then a pull request patching `CHANGELOG.md` |
 
 The draft release is the manual-acceptance gate: green `main` cuts a draft, and a human publishing
 it is what fires `release.yml`.
@@ -535,6 +535,131 @@ eye, and these files are read by people deciding whether to trust the build. Wha
 *not* look at is what the permissions actually **are**: "minimal" is a judgement about what a job
 does, and a rule that guessed at it would be the kind of noise that teaches people to suppress a
 check.
+
+## Releasing
+
+### The version is a claim, not a build counter
+
+**Semver, single source of truth in `gradle.properties`, hand-bumped in the pull request that earns
+it.** Nothing derives it from a tag, a run number or a date. A version says what a user can expect
+of an upgrade, and that is a judgement somebody makes rather than a number something increments.
+
+`build.yml` asks Gradle for it rather than grepping the properties file, and drafts `v$VERSION`
+from every green `main`. Once a version is published the tag exists, so the draft step warns and
+exits instead of failing — being red until somebody bumps the version is not a useful way to say
+*bump the version*.
+
+### `CHANGELOG.md`
+
+Maintained under `## Unreleased` as the work lands, by the person landing it. Three things read it,
+and that is the reason it is a real file rather than a habit:
+
+- **The descriptor's `<change-notes>`**, rendered to HTML by `org.jetbrains.changelog`, which means
+  the text ships inside the distribution and is what a user sees in the IDE's plugin panel.
+- **The draft release's notes**, from `getChangelog --unreleased` — not a generated list of commit
+  subjects. The draft therefore shows exactly the text that would be uploaded.
+- **`assertNoRoadmapIsPublished`**, which reads it as one more published surface, under the same
+  rules as the README.
+
+**Placeholder change notes are a documented Marketplace rejection reason**, so this is a
+requirement and not hygiene. It is also why `groups` is empty: an auto-generated `### Fixed` under a
+release that fixed nothing is a placeholder a tool wrote, and a plain list of what actually changed
+is both what a reader wants and what an approver is checking for.
+
+After an upload, `release.yml` runs `patchChangelog` — which closes `## Unreleased` into
+`## [<version>] - <date>` and opens a fresh one — and puts the result up as a **pull request**, not
+a push. A changelog committed by a job nobody reviewed is a changelog on its way to becoming a
+generated file.
+
+### One Marketplace channel, and no `beta`
+
+Two facts gut the case for a second channel at this scale: a non-default channel is **a separate
+repository URL the user has to add to their IDE by hand**, and **every upload is manually reviewed
+anyway** — beta included — so the channel shortens no latency and reaches nobody who has not already
+been told where to look.
+
+**Pre-releases are GitHub Release assets instead.** `build.yml` already uploads the distribution
+zip; a tester installs it with *Install Plugin from Disk*.
+
+The version-suffix → channel derivation stays wired into `publishPlugin` anyway, because the
+alternative to deriving the channel is remembering to set it, and the release that needs one is the
+release where somebody is already doing something unusual. `1.1.0-beta.1` would route to `beta` on
+the day it is wanted; `1.0.0` routes to `default`, and so does every version this project has built.
+
+### Signing, and where the key lives
+
+The plugin is signed with a self-signed RSA-4096 key and its certificate chain; the Marketplace
+counter-signs on the way through. **Signing is not mandatory and is treated as required anyway** —
+an unsigned or revoked-certificate plugin shows the user an install warning, which is a poor first
+impression for a plugin whose entire pitch is trust.
+
+`signPlugin` runs automatically before `publishPlugin` when the key is present, and is skipped when
+it is absent — which is what lets a fork run everything up to the upload.
+
+**The key of record lives in a password manager and in no repository, with the `.pem` and the chain
+backed up.** A changed or revoked certificate makes every user see an install warning, so key loss
+is *recoverable but visible*: the backup is an obligation of the release process rather than a
+personal habit.
+
+### The four secrets, and why they are not repository secrets
+
+`CERTIFICATE_CHAIN`, `PRIVATE_KEY`, `PRIVATE_KEY_PASSWORD` and `PUBLISH_TOKEN` **are the plugin's
+identity**: whoever holds them can sign and publish as SnippetVeil. They live in a GitHub
+**Environment** named `marketplace`, which the release job declares and which carries a **required
+reviewer**.
+
+**The vector this closes is not the obvious one.** Fork pull requests never receive secrets, so that
+one was closed already. The live one is that **a compromised third-party action in `build.yml` runs
+with access to every *repository* secret and to none of the *environment* ones** — and `build.yml`
+is the file that runs on every pull request, against code nobody has merged. Scoping removes the
+crown jewels from that pipeline's blast radius entirely. The required reviewer then adds a second
+deliberate human act before anything is signed, matching the posture the Marketplace's own manual
+review already imposes on the other end.
+
+Required reviewers **are** available for public repositories on a GitHub Free plan; that was
+confirmed against this repository rather than taken from documentation. `can_admins_bypass` is off,
+so the approval is not something an admin can skip. `prevent_self_review` is on the other side: with
+one maintainer it would mean nobody could ever approve.
+
+Half of that arrangement is a settings page, which is exactly the half that is true the day it is
+set up and quietly false a year later. The half that lives in the repository is checked:
+`assertOnlyTheGatedJobCanReachTheSigningKey`, in the root `build.gradle.kts` and wired into `check`,
+enforces three rules.
+
+1. **Only `release.yml` may name any of the four.** Every other workflow is checked for the names
+   and must not have them.
+2. **A job that names one must declare `environment: marketplace`.**
+3. **No workflow may reach a secret by anything but its name.** `toJSON(secrets)` and `secrets[…]`
+   hand out the whole context, and the first two rules are a name-based scan — sound only while
+   names are the only way through. Without the third, they are a search that can be stepped around
+   in one line.
+
+Like the other trust checks it proves it can fail over fixtures before reporting that nothing
+failed, and it asserts its own coverage: `release.yml` must yield all four, so a run that read three
+fails rather than passing quietly. What it cannot check is the GitHub side — that the environment
+exists, holds these four and no others, and carries the reviewer. None of that is in a clone.
+
+### The release checklist
+
+1. Version hand-bumped in `gradle.properties`; `CHANGELOG.md` has real content, no placeholder text,
+   **no roadmap**.
+2. The bytecode scan is green — automatic, it finalizes `buildPlugin`.
+3. `verifyPlugin` is green: **no `COMPATIBILITY_PROBLEMS`, no `INTERNAL_API_USAGES`**. Both are
+   explicit Marketplace approval criteria and both are in the task's default failure levels.
+4. `assertNothingThirdPartyIsShipped` is green.
+5. Screenshots re-shot from `demo/` if the dialog changed.
+6. `demo/` is excluded from the distribution — `assertTheDemoIsNotShipped`.
+7. **The Marketplace listing has no post-install page.** A plugin selling *no network connections*
+   does not open one on day one.
+8. The licence field declares **Apache-2.0 with a resolving source URL**. An OSS licence with no
+   source link is a documented rejection reason.
+
+Steps 1-4 and 6 are `./gradlew check verifyPlugin` on any machine. 5, 7 and 8 are judgement and a
+Marketplace form.
+
+**Budget about a week for a submission.** Every new plugin *and every update* is reviewed by a
+person. There is no published SLA — escalate after two to four working days — no documented
+auto-approval, and approval can be withdrawn.
 
 ## The publication checks
 
