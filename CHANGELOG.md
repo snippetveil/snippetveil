@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## [Unreleased]
+
+## [1.0.0] - 2026-08-24
 
 - Copy Anonymized replaces project-owned names in a Java selection with stable placeholders and
   puts the result on the clipboard.
@@ -14,3 +16,6 @@
   prefix, and a Reset Mappings action.
 - The plugin makes no network calls and starts no subprocesses. `./gradlew check` asserts both
   against the built distribution rather than against the sources.
+
+[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/snippetveil/snippetveil/commits/v1.0.0
