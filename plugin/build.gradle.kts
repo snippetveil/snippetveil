@@ -1,5 +1,6 @@
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.specs.Specs
+import org.jetbrains.changelog.Changelog
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.objectweb.asm.ClassReader
 import java.util.zip.ZipFile
@@ -19,6 +20,7 @@ buildscript {
 plugins {
     id("org.jetbrains.kotlin.jvm")
     id("org.jetbrains.intellij.platform")
+    id("org.jetbrains.changelog")
 }
 
 // The platform to build against, named by `platformProfile` rather than given as a coordinate — so
@@ -223,6 +225,48 @@ fun markdownToHtml(markdown: String): String {
 /** The descriptor's `<description>`, and the only place it is produced. */
 val listingCopyHtml: String = markdownToHtml(listingCopyMarkdown)
 
+/**
+ * The Marketplace channel this version belongs on, taken from its semver pre-release suffix:
+ * `1.0.0` is `default`, `1.1.0-beta.1` would be `beta`.
+ *
+ * A plain `String` computed while the build configures, rather than a `Provider`: the version is a
+ * constant in gradle.properties that a human edits in the pull request that earns it, so there is
+ * nothing here for a provider to defer — and a `project.version` read from inside a provider would
+ * be a `Project` reference at execution time, which the configuration cache refuses.
+ */
+val marketplaceChannel: String =
+    version.toString().substringAfter('-', "").substringBefore('.').ifEmpty { "default" }
+
+// ---------------------------------------------------------------------------------------------
+// The changelog
+//
+// **CHANGELOG.md is at the repository root and the plugin that reads it is applied here**, which
+// looks backwards for about one second. The reason is the same one that puts
+// `assertNoRoadmapIsPublished` in this file: the change notes are a property of the *distribution*,
+// which is `:plugin`'s to build, and the rule that reads them opens the built zip rather than the
+// checked-in descriptor. A changelog applied at the root would put the parser one project away
+// from the only thing that consumes it.
+//
+// Task names are not namespaced by the project they are registered in when Gradle is invoked from
+// the root, so `./gradlew getChangelog --unreleased` and `./gradlew patchChangelog` both work from
+// where a person would type them.
+
+changelog {
+    // The repository root, not this subproject. `layout.settingsDirectory` is the settings file's
+    // directory — the one place that means "the repository" without a `../` in it.
+    path = layout.settingsDirectory.file("CHANGELOG.md").asFile.absolutePath
+
+    // The Marketplace rejects placeholder change notes, and an empty `### Fixed` under a release
+    // that fixed nothing is a placeholder that a generator wrote rather than a person. No groups
+    // means the section is a plain list of what actually changed, which is what a reader wants and
+    // what an approver is checking for.
+    groups = emptyList()
+
+    // Every heading link resolves to a comparison on GitHub, so a reader can go from a line in the
+    // changelog to the commits behind it without being asked to take the line on faith.
+    repositoryUrl = "https://github.com/snippetveil/snippetveil"
+}
+
 intellijPlatform {
     // The distribution is SnippetVeil, not "plugin" — the subproject name must not name the product.
     projectName = "SnippetVeil"
@@ -231,6 +275,28 @@ intellijPlatform {
         // Generated from README.md; see the listing-copy section above. Assigning it here is what
         // makes `plugin.xml` free to carry no `<description>` of its own.
         description = listingCopyHtml
+
+        // The section for the version being built, or `Unreleased` while there is not one yet —
+        // rendered to HTML, which is what the descriptor's `<change-notes>` takes.
+        //
+        // **Read at execution time, through a `provider`.** The changelog is a file on disk that a
+        // release patches, and a value captured while the build was configuring would be the one
+        // from before the patch. `withHeader(false)` drops the `## 1.0.0 - 2026-…` line, because
+        // the Marketplace shows the version beside the notes already and a heading repeating it
+        // reads as boilerplate.
+        //
+        // `assertNoRoadmapIsPublished` reads this back out of the built distribution: whatever
+        // lands here is a published surface and is governed by the same rules as the README.
+        changeNotes = provider {
+            with(changelog) {
+                renderItem(
+                    (getOrNull(project.version.toString()) ?: getUnreleased())
+                        .withHeader(false)
+                        .withEmptySections(false),
+                    Changelog.OutputType.HTML,
+                )
+            }
+        }
 
         ideaVersion {
             sinceBuild = "241"
@@ -245,6 +311,26 @@ intellijPlatform {
         ides {
             recommended()
         }
+    }
+
+    publishing {
+        // **The channel is derived from the version, and v1 ships nothing that derives anything
+        // but `default`.**
+        //
+        // There is one Marketplace channel here, deliberately. A non-default channel is a separate
+        // repository URL the user has to add to their IDE by hand, and every upload is manually
+        // reviewed anyway — beta included — so a `beta` channel shortens no latency and reaches no
+        // audience that has not already been told where to look. It is a distribution mechanism
+        // with nobody on the other end.
+        //
+        // Pre-releases are GitHub Release assets instead: `build.yml` already uploads the
+        // distribution zip, and a tester installs it with *Install Plugin from Disk*.
+        //
+        // These three lines stay anyway, because the alternative to deriving the channel is
+        // remembering to set it — and the release that needs a channel is the one where somebody is
+        // already doing something unusual. `1.1.0-beta.1` routes to `beta` on the day it is wanted,
+        // and no version this project has ever built routes anywhere but `default`.
+        channels = listOf(marketplaceChannel)
     }
 }
 

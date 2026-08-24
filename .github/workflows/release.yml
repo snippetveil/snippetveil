@@ -20,6 +20,23 @@ jobs:
   release:
     name: Publish to JetBrains Marketplace
     runs-on: ubuntu-latest
+
+    # **Where the four secrets live, and the only job in either workflow that can reach them.**
+    #
+    # They are the plugin's identity: whoever holds them can sign and publish as SnippetVeil. Fork
+    # pull requests never receive secrets, so the naive vector was closed already — the live one is
+    # a compromised third-party action in `build.yml`, which would run with every *repository*
+    # secret and none of the *environment* ones. Scoping them here takes the signing key out of the
+    # blast radius of the pipeline that runs unmerged code.
+    #
+    # The environment also carries a required reviewer, so an upload waits on a second deliberate
+    # human act after the release was published — which is the posture the Marketplace's own manual
+    # review already imposes on the other end.
+    #
+    # `:assertOnlyTheGatedJobCanReachTheSigningKey` in the root build fails `check` if this line
+    # goes missing, or if any other workflow starts naming one of the four.
+    environment: marketplace
+
     steps:
       # The tag the release names, not whatever `main` is now.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,3 +85,64 @@ jobs:
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
         run: ./gradlew publishPlugin
+
+  # The changelog moves forward only once the upload happened, and it moves through review like any
+  # other change to the repository.
+  #
+  # A separate job, not a step, for two reasons. It must not sit inside the gated one — a job that
+  # writes to the repository does not belong in the environment that holds the signing key. And it
+  # writes at all, which the job above deliberately does not: `release.yml`'s upload is
+  # authenticated against the Marketplace, and the GitHub token it runs with stays read-only.
+  #
+  # It opens a pull request rather than pushing to `main`, because `main` is protected and because a
+  # commit nobody looked at is exactly the kind that turns a changelog into a generated file.
+  changelog:
+    name: Patch the changelog back
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # `main`, not the tag: the tag is where the release was cut from and `main` is where the
+      # changelog has to end up.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          validate-wrappers: true
+          cache-provider: basic
+
+      # Turns `## Unreleased` into `## <version>` with today's date, and opens a fresh `## Unreleased`
+      # above it. What the section says was written by a person before the release; this only moves
+      # it under the number it shipped as.
+      - name: patchChangelog
+        run: ./gradlew patchChangelog
+
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "::notice::CHANGELOG.md is already patched for $VERSION."
+            exit 0
+          fi
+
+          branch="changelog/$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          # The DCO applies to every commit in this repository, this one included.
+          git commit --signoff -am "Close the changelog on $VERSION"
+          git push --force origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Close the changelog on $VERSION" \
+            --body "\`patchChangelog\` after the $VERSION upload. The notes were written before the release; this moves them under the number they shipped as and opens a fresh \`## Unreleased\`."
