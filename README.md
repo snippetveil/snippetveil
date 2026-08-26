@@ -41,12 +41,12 @@ scanned in every release build, and public from the first commit.
   proprietary value *is* the algorithm, SnippetVeil does nothing for you.
 - **The prompt you type around the snippet.** SnippetVeil anonymizes the code, not the
   sentence above it.
+- **Your stack trace** — it is not anonymized at all.
 
 ### What it does not preserve
 
 - **The text inside your strings** — a string literal in your own code becomes `"str1"`.
 - **Your comments**, by default.
-- **Your stack trace** — it is not anonymized at all.
 
 ### Non-goals
 
