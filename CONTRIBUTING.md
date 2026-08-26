@@ -761,7 +761,9 @@ exercised against a fixture carrying all four before it is pointed at anything r
 Not in the README, not in the listing, not in the change notes. **A live commit history is evidence
 of maintenance; a roadmap is a promise about it** — and a solo hobby v1 that misses a published
 roadmap item wounds precisely the thing this product sells. Status is not a roadmap and stays legal:
-*"the plugin is not yet published"* is a fact about today.
+*"the plugin is published"* is a fact about today, and *"the plugin is not yet published"* was a fact
+about the day before it shipped. Both are things that are true; neither is a promise about what
+happens next.
 
 ### `demo/`, and the screenshots
 

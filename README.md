@@ -66,9 +66,15 @@ Threat model, including the limits of the no-network checks:
 
 An IntelliJ IDEA plugin, for IDEA Community, IDEA Ultimate and Android Studio.
 
-**Status: pre-release.** This repository is public from its first commit, deliberately — a
-continuous commit history is the evidence behind the no-network claim, and it can only be
-accumulated by starting early. The plugin is not yet published to the JetBrains Marketplace.
+**Status: published.**
+[SnippetVeil on the JetBrains Marketplace](https://plugins.jetbrains.com/plugin/33770-snippetveil) —
+**Settings → Plugins → Marketplace**, and search for SnippetVeil. Every release is signed, and the
+distribution zip is attached to the matching
+[GitHub Release](https://github.com/snippetveil/snippetveil/releases) for anyone who would rather
+install it from disk and check the bytes first.
+
+This repository is public from its first commit, deliberately — a continuous commit history is the
+evidence behind the no-network claim, and it can only be accumulated by starting early.
 
 Work in progress is tracked in this repository's [issues](https://github.com/snippetveil/snippetveil/issues).
 
