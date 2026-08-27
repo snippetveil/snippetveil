@@ -96,3 +96,18 @@ part of the build and is not in the distribution — see [demo/README.md](demo/R
 - [CONTRIBUTING.md](CONTRIBUTING.md) — building, the trust checks, the DCO, and the inbound
   dependency policy.
 - [LICENSE](LICENSE) and [NOTICE](NOTICE) — Apache-2.0.
+
+## Support
+
+SnippetVeil is free and Apache-2.0, and anonymizing your code is not something you will be asked to
+pay for.
+
+If it saves you time and you want to fund the maintenance, there is a Sponsor button at the top of
+this repository, and the same link on the
+[Marketplace listing](https://plugins.jetbrains.com/plugin/33770-snippetveil). It is optional and it
+unlocks nothing — no features, no priority, no private builds. The plugin itself never asks: it
+makes no network calls, so it has no idea whether you sponsored it.
+
+Two things help more than money. A bug report carrying the *shape* of the code that broke —
+synthetic, never your real source ([CONTRIBUTING.md](CONTRIBUTING.md)). And a rating on the
+Marketplace, which is one of the few signals this project gets, because it collects no telemetry.
