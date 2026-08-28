@@ -1,6 +1,6 @@
 # The Marketplace screenshots
 
-Five shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
+Six shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
 commit by anyone.
 
 They are committed here rather than living only in the Marketplace listing, for the reason the demo
@@ -9,7 +9,7 @@ that cannot be reproduced cannot be corrected when the dialog it shows moves on.
 
 ## Rules every shot has to meet
 
-- **1280 × 800**, and the same aspect for all five. The Marketplace scales them together; one odd
+- **1280 × 800**, and the same aspect for all six. The Marketplace scales them together; one odd
   shot reads as a mistake in the listing rather than as a difference in the product.
 - **No window chrome.** Capture the IDE's content, not the title bar, the traffic lights or the
   desktop behind them.
@@ -75,7 +75,24 @@ beside the method signature. In shots 1 and 2 the context menu happens to cover 
 it here, and a real person's name in a listing image is the one rule in this file with no judgement
 in it.
 
-### 6. `walkthrough.gif` (optional)
+### 6. `right-click-deanonymize-and-paste.png`
+
+The same popup, with **De-anonymize Clipboard and Paste** highlighted.
+
+**Selection: `LateFeeCalculator.java`, lines 30-59**, as in shots 1 and 2.
+
+A third shot of one menu, which the rule against repetition has to be argued past rather than
+waved at. It earns the slot on the same ground shot 2 does, and more strongly: this is the only item
+in the submenu that **writes into a source file** rather than onto the clipboard, and a reader
+deciding whether to install has to be able to see that the plugin has a row that does that. The
+ellipsis distinction in shot 2 is a smaller difference than this one.
+
+**Last among the stills rather than third, because the set is a round trip.** Shots 1-5 go out —
+select, preview, copy, read the counts — and this is the return leg, the reply coming back into the
+editor. Grouped with the other menu shots it would put three near-identical frames at the front of
+the listing, which is where a reader decides whether to keep looking.
+
+### 7. `walkthrough.gif` (optional)
 
 Roughly ten seconds, no audio: select, **Copy Anonymized**, paste into a scratch buffer, then
 **De-anonymize Clipboard** on a reply pasted back. Same window, same theme, same rules as above.
@@ -96,14 +113,14 @@ screencapture -T 8 -R <x>,<y>,1280,800 docs/screenshots/<name>.png
 sips -z 800 1280 docs/screenshots/<name>.png
 ```
 
-Keep `<x>,<y>` the same for all five so the shots line up, and place the region well inside the
+Keep `<x>,<y>` the same for all six so the shots line up, and place the region well inside the
 editor area rather than against the window's edges.
 
 ## What is here
 
-All five stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each scaled to fit
+All six stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each scaled to fit
 and centred on a ground sampled from its own edge, so the letterboxing is invisible and the set
-reads as one product rather than as five window sizes.
+reads as one product rather than as six window sizes.
 
 `assertBothPluginIconsShip` fails the build if any image other than the two icons reaches the
 distribution. That rule exists because of how these were made: a screenshot has to live somewhere
