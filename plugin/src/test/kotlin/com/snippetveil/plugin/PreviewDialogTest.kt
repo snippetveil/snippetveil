@@ -9,6 +9,7 @@ import com.snippetveil.core.MappedName
 import java.awt.Container
 import javax.swing.JCheckBox
 import javax.swing.JTable
+import javax.swing.table.TableCellRenderer
 import javax.swing.JComponent
 
 /**
@@ -118,6 +119,82 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             (0 until reducible.columnCount).map { reducible.getColumnName(it) },
         )
         assertEquals(listOf("Ledger", "Type1", "Type"), (0 until review.columnCount).map { review.getValueAt(0, it) })
+    }
+
+    /**
+     * **The `Preserve` header says who the column is for, and what an empty one means.**
+     *
+     * On the common snippet — everything resolved — the column renders a header and nothing under
+     * it, which is a truthful signal that reads as a broken dialog to anyone who has not been told
+     * what it is. The two sentences are the telling: the override belongs to unresolved names, and
+     * an empty column is the good case rather than a missing control.
+     *
+     * **No other header carries a tip**, and that half is asserted rather than left to the
+     * implementation: the header's default renderer hands back one component for every column, so a
+     * tip set on it for `Preserve` alone would still be on it when `Original` is drawn.
+     *
+     * And it belongs to the column rather than to the position, which is the other half a shared
+     * renderer gets wrong: the platform hands a header renderer the *view* index, and these columns
+     * can be dragged.
+     */
+    fun `test the Preserve header says who it is for and no other header says anything`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle() {}</selection> }")
+        val tip = "Only names SnippetVeil could not resolve can be preserved. " +
+            "An empty column means every reference resolved."
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val table = tableIn(dialog)
+
+            assertEquals(
+                (0 until table.columnCount).map { if (it == PRESERVE_COLUMN) tip else null },
+                headerTooltipsIn(table),
+            )
+
+            table.moveColumn(PRESERVE_COLUMN, 0)
+
+            assertEquals(
+                (0 until table.columnCount).map { if (it == 0) tip else null },
+                headerTooltipsIn(table),
+            )
+        }
+    }
+
+    /**
+     * **The tip the dialog takes away is its own sentence and nothing else.**
+     *
+     * Every header goes through the same renderer, because the shared component the platform draws
+     * them with is how a tip set for one column ends up on the next. That is a reason to *clear* the
+     * field, and clearing it wholesale would silence whatever the platform had to say about the
+     * other three headers — this ticket editing columns it was not given. What is cleared is the
+     * dialog's own sentence, left behind on a component nobody re-set.
+     *
+     * The stand-in is installed after the dialog is assembled, which is the second claim: the
+     * delegate is asked of the header on every render rather than captured, so the tips a user sees
+     * are the current theme's.
+     */
+    fun `test a header tip that is not ours survives, and Preserve still says its own`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle() {}</selection> }")
+        val tip = "Only names SnippetVeil could not resolve can be preserved. " +
+            "An empty column means every reference resolved."
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val table = tableIn(dialog)
+            // One component for every header, the way the platform's own renderer works — and it
+            // says its piece on each render, which is what tells a live tip apart from a stale one.
+            val shared = JBLabel()
+            table.tableHeader.defaultRenderer = TableCellRenderer { _, value, _, _, _, _ ->
+                shared.also { it.toolTipText = "the whole $value, which did not fit" }
+            }
+
+            assertEquals(
+                (0 until table.columnCount).map {
+                    if (it == PRESERVE_COLUMN) tip else "the whole ${table.getColumnName(it)}, which did not fit"
+                },
+                headerTooltipsIn(table),
+            )
+        }
     }
 
     /**
