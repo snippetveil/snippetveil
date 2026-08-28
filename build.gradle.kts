@@ -4,15 +4,57 @@ plugins {
     base
 }
 
+// ---------------------------------------------------------------------------------------------
+// Why every check in these builds spells its name twice
+//
+// Gradle 9.6 deprecated `val x by tasks.registering { }` and `val x by extra(...)`, and its own
+// deprecation warning says Gradle 10 removes them. `tasks.register("...")` takes the name as a
+// string, so the rewrite turns one name into two: the `val` that every `dependsOn` reads, and the
+// string the task is registered under.
+//
+// That is the duplication `corpusSweepTask` below exists to avoid, so it is worth saying why the
+// answer is the other one here. `corpusSweepTask`'s two spellings would sit in two files, and a
+// drift between them leaves `assertTheSweepIsNeverRunInCi` guarding a task nobody registers — green
+// while checking nothing. A check's `val` and its string are adjacent on one line, and a drift
+// between them is visible in the same glance that reads either of them.
+//
+// It is not free, and the cost is worth writing down rather than tripping over. Rename the `val`
+// and leave the string — which is what an IDE rename does, since it does not touch string
+// literals — and nothing complains: every `dependsOn` reads the `val` and still compiles, and the
+// task keeps the name it was registered under. What is left is a build that calls a check one
+// thing and registers it as another. Change the string alone and the mirror image happens: the
+// task is renamed, `check` still runs it, and the name published as a command a reader can run is
+// quietly no longer the name. CONTRIBUTING.md names eleven of the twelve checks across the two
+// build scripts, and four of those are named again in README.md, THREAT-MODEL.md or a README under
+// `demo/` or `docs/`. The compiler catches neither drift. The line does, and that is all adjacency
+// is being asked to buy.
+//
+// A hand-rolled property delegate would keep one name. It was not taken: it needs a helper copied
+// into both build scripts, or a `buildSrc` that exists only to hold it, and it pays for that by
+// moving the task's name off the line that registers the task.
+//
+// The two `extra` properties are the safer half of the same migration. `extra.set("...", ...)`
+// spells a key that `:plugin` already spells at its `rootProject.extra["..."]` read, and that read
+// throws on a key that is not there — for the sweep's task name while `:plugin` is configured, for
+// the phrase list when `check` realizes the task that reads it. Either way the drift goes red
+// rather than quiet.
+// ---------------------------------------------------------------------------------------------
+
 /**
  * **The corpus sweep's task name, spelled once.**
  *
- * `assertTheSweepIsNeverRunInCi` below guards this string, and `plugin/build.gradle.kts` registers a
- * task under it. They read the same `val` rather than two string literals, because a rename that
- * touched only one of them would leave a check guarding a task that does not exist — and a check
- * that cannot fail is worse than no check, since it reads as a guarantee.
+ * `assertTheSweepIsNeverRunInCi` below guards this string, and `plugin/build.gradle.kts` registers
+ * a task under it. Neither of them spells `corpusSweep`: the check reads this `val`, and `:plugin`
+ * reads it out of the `extra` below. Two literals would be one rename away from leaving a check
+ * guarding a task that does not exist — and a check that cannot fail is worse than no check, since
+ * it reads as a guarantee.
+ *
+ * The `extra` key is a second literal, but not a second spelling of the task name, and it is the
+ * kind that cannot go quiet: `:plugin` looks the value up as `rootProject.extra["corpusSweepTask"]`,
+ * and a key that is not there throws while `:plugin` is configured.
  */
-val corpusSweepTask by extra("corpusSweep")
+val corpusSweepTask = "corpusSweep"
+extra.set("corpusSweepTask", corpusSweepTask)
 
 /**
  * Fails if a GitHub Actions workflow uses an action it has not pinned to a commit SHA, pins one
@@ -28,7 +70,7 @@ val corpusSweepTask by extra("corpusSweep")
  * what a job does, and a rule that guessed at it would be the kind of noise that teaches people to
  * suppress a check. Declaring them is the mechanical half, and it is the half that is checkable.
  */
-val assertWorkflowsAreHardened by tasks.registering {
+val assertWorkflowsAreHardened = tasks.register("assertWorkflowsAreHardened") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if a workflow uses an unpinned action or declares no permissions."
 
@@ -196,7 +238,7 @@ val assertWorkflowsAreHardened by tasks.registering {
  * an omission: the configuration cache means a `whenReady` listener does not run on a cache hit, so
  * a graph assertion written here would be a check that quietly stops checking on the second run.
  */
-val assertTheSweepIsNeverRunInCi by tasks.registering {
+val assertTheSweepIsNeverRunInCi = tasks.register("assertTheSweepIsNeverRunInCi") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if a workflow asks Gradle to run the corpus sweep."
 
@@ -338,7 +380,7 @@ val assertTheSweepIsNeverRunInCi by tasks.registering {
  * against this same list, and two lists that drifted would leave the strictest surface checked
  * against the laxest rule — with both checks green.
  */
-val bannedPhrases by extra(listOf(
+val bannedPhrases = listOf(
     "safe to paste",
     "paste with confidence",
     "untraceable",
@@ -348,7 +390,8 @@ val bannedPhrases by extra(listOf(
     "sanitize", "sanitizes", "sanitized", "sanitizing", "sanitization",
     "sanitise", "sanitises", "sanitised", "sanitising", "sanitisation",
     "obfuscate", "obfuscates", "obfuscated", "obfuscating", "obfuscation",
-))
+)
+extra.set("bannedPhrases", bannedPhrases)
 
 /**
  * Fails if a banned phrase appears in a document in this repository or in a string the plugin shows.
@@ -366,7 +409,7 @@ val bannedPhrases by extra(listOf(
  * What it does not check is the build scripts — this one names every banned phrase in order to ban
  * it — or test sources, which are not a surface anybody reads the product through.
  */
-val assertNoBannedPhraseAppearsOnAnySurface by tasks.registering {
+val assertNoBannedPhraseAppearsOnAnySurface = tasks.register("assertNoBannedPhraseAppearsOnAnySurface") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if a banned marketing phrase appears in a document or a UI string."
 
@@ -593,7 +636,7 @@ val assertNoBannedPhraseAppearsOnAnySurface by tasks.registering {
  * and not others, that the reviewer is set. None of that is in the repository and none of it is
  * checkable from a clone. The half that is written down is the half this reads.
  */
-val assertOnlyTheGatedJobCanReachTheSigningKey by tasks.registering {
+val assertOnlyTheGatedJobCanReachTheSigningKey = tasks.register("assertOnlyTheGatedJobCanReachTheSigningKey") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if a workflow outside the environment-gated release job can reach a signing secret."
 
