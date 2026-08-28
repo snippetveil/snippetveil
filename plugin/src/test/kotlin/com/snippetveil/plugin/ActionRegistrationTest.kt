@@ -24,7 +24,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
  * four years apart, which is the point of testing it at all.
  *
  * **One group with two parents is the thing under test.** The Tools menu and the editor popup show
- * the same submenu, so the assertion that matters is not *both contain these three items* — two
+ * the same submenu, so the assertion that matters is not *both contain these four items* — two
  * copies of a group would satisfy that and then drift — but *both contain the same group*.
  */
 class ActionRegistrationTest : BasePlatformTestCase() {
@@ -33,8 +33,8 @@ class ActionRegistrationTest : BasePlatformTestCase() {
      * The submenu is one group, and it is in both menus.
      *
      * Asserted by identity rather than by contents: two separately-registered groups holding the
-     * same three references would pass a contents check on the day it was written and diverge the
-     * first time somebody added a fourth action to one of them.
+     * same references would pass a contents check on the day it was written and diverge the first
+     * time somebody added an action to one of them.
      */
     fun `test one SnippetVeil group is registered into both the Tools menu and the editor popup`() {
         val manager = ActionManager.getInstance()
@@ -53,12 +53,16 @@ class ActionRegistrationTest : BasePlatformTestCase() {
     }
 
     /**
-     * **All three items, in the order the workflow runs in**: anonymize, anonymize with a look
-     * first, and the way back.
+     * **All four items, in the order the workflow runs in**: anonymize, anonymize with a look first,
+     * and the two ways back — the reversal, then the reversal that also lands it.
+     *
+     * The pasting variant sits directly after the reversal rather than at the end for a reason the
+     * order carries on its own: they are one operation with two destinations, and a row between them
+     * would read as a fourth stage of the workflow instead of a second delivery of the third.
      */
-    fun `test the submenu holds the three actions in workflow order`() {
+    fun `test the submenu holds the four actions in workflow order`() {
         assertEquals(
-            listOf(COPY_ANONYMIZED, ANONYMIZE_WITH_PREVIEW, DEANONYMIZE),
+            listOf(COPY_ANONYMIZED, ANONYMIZE_WITH_PREVIEW, DEANONYMIZE, DEANONYMIZE_AND_PASTE),
             childIdsOf(MENU),
         )
 
@@ -66,6 +70,7 @@ class ActionRegistrationTest : BasePlatformTestCase() {
         assertEquals("Copy Anonymized", manager.getAction(COPY_ANONYMIZED).templatePresentation.text)
         assertEquals("Anonymize with Preview\u2026", manager.getAction(ANONYMIZE_WITH_PREVIEW).templatePresentation.text)
         assertEquals("De-anonymize Clipboard", manager.getAction(DEANONYMIZE).templatePresentation.text)
+        assertEquals("De-anonymize Clipboard and Paste", manager.getAction(DEANONYMIZE_AND_PASTE).templatePresentation.text)
     }
 
     /**
@@ -73,9 +78,10 @@ class ActionRegistrationTest : BasePlatformTestCase() {
      * placement decision a contents check would miss.
      *
      * The submenu exists precisely so that an ungated item — `De-anonymize Clipboard` is offered on
-     * every file type — does not appear in every editor popup in the IDE. A later `add-to-group`
-     * that put any of the three back at the top level would undo that silently, because the menu
-     * would still *work*; it would just be bigger everywhere.
+     * every file type, and `De-anonymize Clipboard and Paste` on every writable one — does not
+     * appear in every editor popup in the IDE. A later `add-to-group` that put any of the four back
+     * at the top level would undo that silently, because the menu would still *work*; it would just
+     * be bigger everywhere.
      */
     fun `test no SnippetVeil action sits flat in the editor popup`() {
         val popup = childIdsOf(IdeActions.GROUP_EDITOR_POPUP)
@@ -88,7 +94,7 @@ class ActionRegistrationTest : BasePlatformTestCase() {
     }
 
     /**
-     * **These four ids are every action this plugin registers** — which is how *"`Export Mapping…` is
+     * **These five ids are every action this plugin registers** — which is how *"`Export Mapping…` is
      * reachable from the preview and from nowhere else"* is checked rather than asserted.
      *
      * The export is a button on the preview dialog and deliberately not a menu item: a Tools-menu
@@ -110,7 +116,7 @@ class ActionRegistrationTest : BasePlatformTestCase() {
      */
     fun `test the plugin registers these actions and no others`() {
         assertEquals(
-            listOf(ANONYMIZE_WITH_PREVIEW, COPY_ANONYMIZED, DEANONYMIZE, MENU),
+            listOf(ANONYMIZE_WITH_PREVIEW, COPY_ANONYMIZED, DEANONYMIZE, DEANONYMIZE_AND_PASTE, MENU),
             ActionManager.getInstance().getActionIdList("SnippetVeil").sorted(),
         )
     }
@@ -121,6 +127,10 @@ class ActionRegistrationTest : BasePlatformTestCase() {
         assertEmpty(manager.getAction(COPY_ANONYMIZED).shortcutSet.shortcuts)
         assertEmpty(manager.getAction(ANONYMIZE_WITH_PREVIEW).shortcutSet.shortcuts)
         assertEmpty(manager.getAction(DEANONYMIZE).shortcutSet.shortcuts)
+
+        // The one most likely to acquire one: a single-gesture paste is exactly the item somebody
+        // reaches for a binding on, and the decision not to ship one is not reopened by a new row.
+        assertEmpty(manager.getAction(DEANONYMIZE_AND_PASTE).shortcutSet.shortcuts)
     }
 
     private fun childIdsOf(groupId: String): List<String> {
@@ -142,3 +152,5 @@ private const val COPY_ANONYMIZED = "SnippetVeil.CopyAnonymized"
 private const val ANONYMIZE_WITH_PREVIEW = "SnippetVeil.AnonymizeWithPreview"
 
 private const val DEANONYMIZE = "SnippetVeil.DeanonymizeClipboard"
+
+private const val DEANONYMIZE_AND_PASTE = "SnippetVeil.DeanonymizeClipboardAndPaste"

@@ -191,6 +191,14 @@ private val WORD = Regex("""[\p{L}\p{N}_$]+""")
  * fourth, its placeholders would still *restore* — the table is exact and knows nothing about shape
  * — and would merely go uncounted when they fell past the horizon. Under-recovery, never a wrong
  * name, which is the direction everything here errs in.
+ *
+ * **Something now depends on that count being exhaustive, which it did not when this was written.**
+ * `De-anonymize Clipboard and Paste` refuses to write anything it did not restore in full, and asks
+ * [Reversal.unrestored] to decide — so a word that goes uncounted there is not a gap a reader can
+ * see but a placeholder written silently into source. The tolerance argued above was priced against
+ * a clipboard the user reads before it lands anywhere. Adding a namespace without adding it here is
+ * therefore no longer a cosmetic omission, and the derivation from [SymbolRole] is what keeps it
+ * from being possible by accident.
  */
 private val MINTED = Regex(
     (SymbolRole.entries.map { it.placeholderPrefix } +
