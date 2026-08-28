@@ -15,10 +15,14 @@ import com.snippetveil.core.fidelityNotices
  * Everything SnippetVeil ever says out loud.
  *
  * All of them are balloons in a group of their own, so that a user who does not want them can turn
- * off exactly these and nothing else. Two are about a copy leaving, two are about a reply coming
- * back, one is about a mapping written to a file, and each of the three directions says its own
- * failure — because what a failure leaves behind differs by direction, and that is the half of the
- * message a user acts on.
+ * off exactly these and nothing else. Two are about a copy leaving, five are about a reply coming
+ * back, one is about a mapping written to a file, and **each way of failing says its own failure** —
+ * because what a failure leaves behind differs by direction, and that is the half of the message a
+ * user acts on.
+ *
+ * There are four failures rather than three because the pasting reversal fails in two places that
+ * leave different things behind: a clipboard it could not read has written nothing, and an insert
+ * that threw may have written some of it. See [pasteFailed] and [insertFailed].
  *
  * [installed] is the exception to the shape of every other one here: it reports no operation,
  * because there has not been one yet.
@@ -198,15 +202,13 @@ internal object SnippetVeilNotifications {
      * A number is a fact worth stating at zero; an action offering to list nothing is a dead end
      * dressed as an offer. So it appears only when there is something in the list.
      *
-     * The noun agrees with the number, which is not fussiness: *"1 placeholders restored"* reads as a
-     * bug in the tool, and a tool selling carefulness cannot afford to look careless in the one
-     * sentence it says about a thing it just did to the user's clipboard.
+     * The noun agrees with the number, for the reason argued on [placeholders].
      */
     fun deanonymized(project: Project, reversal: Reversal) {
         val restored = reversal.restored.size
         val balloon = group().createNotification(
             "Clipboard de-anonymized",
-            "$restored placeholder${if (restored == 1) "" else "s"} restored · ${reversal.unrestored.size} not restored",
+            "${placeholders(restored)} restored · ${reversal.unrestored.size} not restored",
             NotificationType.INFORMATION,
         )
         if (reversal.unrestored.isNotEmpty()) balloon.addAction(showDetails(project, reversal.unrestored))
@@ -238,6 +240,111 @@ internal object SnippetVeilNotifications {
             NotificationType.INFORMATION,
         ).notify(project)
     }
+
+    /**
+     * **What came back and where it went — and then the clipboard fact, which is the second half.**
+     *
+     * The sibling's balloon carries *not restored* even at zero, because a number that appeared only
+     * when it fired would make its absence unreadable. **That number cannot appear here at all**: this
+     * action refuses to paste anything it did not fully restore, so *"0 not restored"* would be a
+     * constant printed as though it were a measurement, and the first user to see a non-zero one
+     * would be looking at a bug.
+     *
+     * What takes its place is the fact this action's next keystroke actually depends on. The
+     * clipboard still holds the anonymized reply — deliberately, so the user can keep quoting it into
+     * the chat — and a user who has just watched their real names appear in a file will otherwise
+     * assume a `Ctrl+V` now pastes the same thing. It does not.
+     *
+     * The noun agrees with the number, for the reason argued on [placeholders].
+     */
+    fun pasted(project: Project, reversal: Reversal) {
+        val restored = reversal.restored.size
+        group().createNotification(
+            "Reply pasted, de-anonymized",
+            "${placeholders(restored)} restored · clipboard unchanged",
+            NotificationType.INFORMATION,
+        ).notify(project)
+    }
+
+    /**
+     * **The sibling's [nothingToRestore], over a document instead of a clipboard** — and the sharper
+     * of the two.
+     *
+     * There, a reply with none of ours in it is left on the clipboard and the user reads it before it
+     * lands anywhere. Here the equivalent no-op would write unrestored placeholders into a file,
+     * where they compile as identifiers and read as names somebody chose. So the message states the
+     * refusal rather than only the finding: *nothing was pasted* is the part the user acts on.
+     */
+    fun nothingToPaste(project: Project) {
+        group().createNotification(
+            "No SnippetVeil placeholders found — nothing was pasted.",
+            NotificationType.INFORMATION,
+        ).notify(project)
+    }
+
+    /**
+     * **A reversal that came back incomplete, refused rather than pasted** — and the one balloon in
+     * this product at warning level.
+     *
+     * The level is the decision. Everywhere else a warning would be read as *"this might have
+     * leaked"*, which is why the unknown count is styled as information; **nothing here is
+     * leak-adjacent, and the thing that makes this different is that the user asked for something and
+     * did not get it.** Twelve of fifteen restored is the case that most looks like success from the
+     * outside, so the one balloon reporting a refusal is the one balloon that cannot afford to be
+     * skimmed as a receipt.
+     *
+     * The second line is what makes the refusal cheap: the reply is still on the clipboard, so
+     * `De-anonymize Clipboard` and a `Ctrl+V` remain available to a user who has read the details and
+     * wants the text anyway. `Show details` is the same list the sibling offers, and it is what tells
+     * *the name is gone* from *this was never ours* — which here also tells the user whether trying
+     * again is worth anything.
+     */
+    fun pasteRefused(project: Project, reversal: Reversal) {
+        val missing = reversal.unrestored.size
+        group().createNotification(
+            "Nothing pasted — ${placeholders(missing)} did not restore.",
+            "The clipboard still holds the anonymized reply.",
+            NotificationType.WARNING,
+        ).addAction(showDetails(project, reversal.unrestored)).notify(project)
+    }
+
+    /**
+     * **A clipboard the paste could not read, which is the failure that happens before anything.**
+     *
+     * [failed] and [reversalFailed] each state one clipboard fact, because the clipboard is the only
+     * thing their invocation could have changed. This one is expected by its name to have changed a
+     * document too, so a message stating either fact alone would leave the user checking the other
+     * by hand — and here both facts are certain: the read threw before the write was reached, and
+     * this action never writes the clipboard at all.
+     */
+    fun pasteFailed(project: Project?, failure: Throwable) = report(
+        project,
+        failure,
+        logged = "SnippetVeil could not read the clipboard to paste it; the document and the clipboard were left untouched.",
+        said = "Paste failed — nothing was inserted and your clipboard was not changed.",
+    )
+
+    /**
+     * **The same paste, failing on the other side of the write — where *nothing was inserted* stops
+     * being a claim this code can make.**
+     *
+     * A write command groups undo; it is not a transaction. The insert runs once per caret, so a
+     * replacement can land and the throw arrive after it, which leaves text in the document that
+     * [pasteFailed]'s wording would deny. **So this one does not deny it.** It says the reply *may*
+     * be partly inserted — the same restraint [exportFailed] shows about a file that may have been
+     * written partway, and for the same reason: a message that must not contain a lie may not state
+     * the one thing this code cannot check.
+     *
+     * The clipboard clause survives unchanged, because that fact is true by construction rather than
+     * by inspection. And the undo the user needs is one step, which is what makes *may* an actionable
+     * word here rather than an alarming one.
+     */
+    fun insertFailed(project: Project?, failure: Throwable) = report(
+        project,
+        failure,
+        logged = "SnippetVeil could not insert the de-anonymized reply; the document may have been written partway.",
+        said = "Paste failed — the reply may be partly inserted. Your clipboard was not changed.",
+    )
 
     /**
      * **The mirror of [failed], and the safe half of it.**
@@ -272,6 +379,16 @@ internal object SnippetVeilNotifications {
         LOG.warn(logged, failure)
         group().createNotification(said, NotificationType.ERROR).addAction(REPORT).notify(project)
     }
+
+    /**
+     * *"1 placeholder"*, *"2 placeholders"* — the noun agreeing with the number.
+     *
+     * Not fussiness, and shared rather than repeated for exactly that reason: *"1 placeholders
+     * restored"* reads as a bug in the tool, and a tool selling carefulness cannot afford to look
+     * careless in the sentences it says about what it just did. Three balloons count placeholders,
+     * and three copies of the conditional is three chances for one of them to lose it.
+     */
+    private fun placeholders(count: Int): String = "$count placeholder${if (count == 1) "" else "s"}"
 
     private fun group(): NotificationGroup =
         NotificationGroupManager.getInstance().getNotificationGroup(GROUP)

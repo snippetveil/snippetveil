@@ -114,11 +114,7 @@ internal fun restoreClipboard(project: Project, clipboard: Clipboard = SystemCli
         return
     }
 
-    val reversal = deanonymize(
-        reply.orEmpty(),
-        PlaceholderSidecar.getInstance(project).window(),
-        PlaceholderLedger.getInstance().snapshotOf(project),
-    )
+    val reversal = reversalFor(project, reply.orEmpty())
 
     if (!reversal.found) {
         SnippetVeilNotifications.nothingToRestore(project)
@@ -133,6 +129,23 @@ internal fun restoreClipboard(project: Project, clipboard: Clipboard = SystemCli
     }
     SnippetVeilNotifications.deanonymized(project, reversal)
 }
+
+/**
+ * **What this project's two stores make of [text]** — the one question both reversing actions ask,
+ * asked in one place.
+ *
+ * Extracted when the second caller arrived rather than in advance. The duplicate was three lines
+ * and looked harmless, but what it duplicated was *which stores a reversal consults and in what
+ * order* — so a third store, or a change to the sidecar's horizon, would have been a two-site edit
+ * where missing one site produces two actions that disagree about the same reply. The rest of the
+ * two flows stays duplicated on purpose: they differ in what they do with the answer, and that is
+ * the part worth reading twice.
+ */
+internal fun reversalFor(project: Project, text: String): Reversal = deanonymize(
+    text,
+    PlaceholderSidecar.getInstance(project).window(),
+    PlaceholderLedger.getInstance().snapshotOf(project),
+)
 
 /**
  * The clipboard, or whatever a test puts in its place.

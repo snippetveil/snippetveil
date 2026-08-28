@@ -121,6 +121,24 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
     }
 
     /**
+     * **De-anonymize Clipboard and Paste**, over the same stand-in, and without waiting for anything
+     * for the reason [invokeDeanonymize] does not: the reversal is map lookups and the insert is one
+     * write command, both on the EDT before `testAction` returns.
+     *
+     * It goes through `testAction` rather than calling `actionPerformed` directly **because the gate
+     * is half the behaviour here**. This action is the one in the submenu that can be disabled, and
+     * a helper that skipped `update` would let a test assert an insert the IDE would never have
+     * performed.
+     *
+     * @return the presentation `update` produced, which is what *greyed out without a writable
+     *   editor* is asserted on
+     */
+    internal fun invokeDeanonymizeAndPaste(clipboard: Clipboard): Presentation {
+        raised.clear()
+        return myFixture.testAction(DeanonymizeClipboardAndPasteAction(clipboard))
+    }
+
+    /**
      * The preview action, over a stand-in for the dialog — and **without waiting for anything**,
      * because what there is to wait for differs by case: a confirmed preview raises a balloon and a
      * cancelled one raises nothing at all. The caller says which.
@@ -193,6 +211,15 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
      * effect. See [invokeCopyAnonymized] for why an earlier invocation's are not kept.
      */
     protected val notifications: List<Notification> get() = raised
+
+    /**
+     * Drops the balloons raised so far, which the `invoke…` helpers do for their own callers.
+     *
+     * Exposed for the tests that drive a function directly rather than through an action — the
+     * insert-failure arm is only reachable that way, because `update` refuses the document that
+     * triggers it.
+     */
+    protected fun dropEarlierBalloons() = raised.clear()
 
     private val raised = mutableListOf<Notification>()
 
@@ -285,3 +312,70 @@ internal val PROJECT_ANNOTATION = """
         String scope() default "";
     }
 """.trimIndent()
+
+/*
+ * The reversal fixtures, shared rather than copied.
+ *
+ * Two test classes now assert the same round trip from opposite ends — `De-anonymize Clipboard`
+ * over the clipboard and `De-anonymize Clipboard and Paste` over a document — and a snippet
+ * duplicated into both would let the two halves of one claim drift apart on what was anonymized.
+ */
+
+/**
+ * A clipboard a test owns, and can make fail.
+ *
+ * [written] rather than a comparison against [text], because *"the clipboard was not rewritten"* and
+ * *"the clipboard was rewritten with the same string"* are different behaviours that leave the same
+ * string behind, and it is the first of the two that is the guarantee.
+ *
+ * **Both directions fail on demand, and which one a test needs says which action it is testing.**
+ * `De-anonymize Clipboard` writes, so its failure is [failWrite]; `De-anonymize Clipboard and Paste`
+ * only ever reads, so a clipboard it cannot fail on read has no failure path to assert at all.
+ */
+internal class FakeClipboard(
+    var text: String?,
+    private val failWrite: Boolean = false,
+    private val failRead: Boolean = false,
+) : Clipboard {
+
+    var written: Boolean = false
+        private set
+
+    override fun read(): String? {
+        if (failRead) throw IllegalStateException("the system clipboard is owned by another process")
+        return text
+    }
+
+    override fun write(text: String) {
+        if (failWrite) throw IllegalStateException("the system clipboard is owned by another process")
+        this.text = text
+        written = true
+    }
+}
+
+internal const val REVERSAL_LEDGER = "Ledger.java"
+
+/**
+ * A snippet with no comment in it, deliberately: comments are stripped by default and no reversal
+ * restores destroyed information, so a fixture with one would make the round trip assert the
+ * strip rather than the reversal. That the default path is lossy is asserted where it belongs, in
+ * `:core`'s round-trip test.
+ */
+internal val REVERSAL_SNIPPET = """
+    class Ledger {
+        <selection>int settle(int amount) {
+            int owed = amount;
+            return owed;
+        }</selection>
+    }
+""".trimIndent()
+
+/**
+ * What `<selection>` marks, which is what the copy took and therefore what either reversal must
+ * return — to the clipboard or to a document.
+ *
+ * Named apart from the same helper in `ExportMappingTest`, which is deliberately its own: that file
+ * asserts the exported *file* reverses a snippet, and shares no fixture with the two actions here.
+ */
+internal fun selectionIn(text: String): String =
+    text.substringAfter("<selection>").substringBefore("</selection>")

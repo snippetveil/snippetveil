@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- De-anonymize Clipboard and Paste restores a reply and inserts it at the caret in one invocation,
+  replacing the selection if there is one, as a single undo step. It refuses to paste a reply it
+  could not restore in full — a partial or empty reversal is reported and nothing is written, so
+  unrestored placeholders cannot reach source code. The clipboard is never rewritten, so the
+  anonymized reply stays available to quote back. Needs a writable editor and greys out without one;
+  offered on every file type, like the reversal beside it.
+
 ## [1.0.0] - 2026-08-24
 
 - Copy Anonymized replaces project-owned names in a Java selection with stable placeholders and

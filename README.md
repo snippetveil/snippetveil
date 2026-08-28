@@ -25,6 +25,9 @@ control flow, and the libraries you call go as-is.
   place you can anonymize *less* — keep comments for this snippet, or preserve a name
   SnippetVeil could not resolve.
 - **De-anonymize Clipboard** turns the placeholders in a reply back into your real names.
+- **De-anonymize Clipboard and Paste** does the same and inserts the result at the caret,
+  replacing the selection. It will not paste a reply it could not restore in full, so
+  placeholders never reach your source; the clipboard keeps the anonymized reply either way.
 - The mapping is per-project and stays on your machine. Placeholders are stable across
   invocations and IDE restarts, so a second snippet never contradicts the first.
 

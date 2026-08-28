@@ -31,7 +31,7 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
      */
     fun `test a reply built out of a real anonymized snippet comes back as the original`() {
         assertTheHarnessResolves()
-        myFixture.configureByText(LEDGER, SNIPPET)
+        myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
 
         invokeCopyAnonymized()
         val anonymized = clipboard()
@@ -40,7 +40,7 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
         invokeDeanonymize(clipboardUnderTest)
 
         assertEquals(
-            "Have a look at this:\n${selectionOf(SNIPPET)}\nThe loop is the problem.",
+            "Have a look at this:\n${selectionIn(REVERSAL_SNIPPET)}\nThe loop is the problem.",
             clipboardUnderTest.text,
         )
     }
@@ -52,7 +52,7 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
      */
     fun `test a placeholder inside a sentence is replaced and the sentence is not`() {
         assertTheHarnessResolves()
-        myFixture.configureByText(LEDGER, SNIPPET)
+        myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
         invokeCopyAnonymized()
 
         val clipboardUnderTest = FakeClipboard("`method1` should validate before it returns.")
@@ -68,7 +68,7 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
      */
     fun `test the balloon reports what was restored and what was not`() {
         assertTheHarnessResolves()
-        myFixture.configureByText(LEDGER, SNIPPET)
+        myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
         invokeCopyAnonymized()
 
         invokeDeanonymize(FakeClipboard("`method1` and `local9`"))
@@ -85,7 +85,7 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
      */
     fun `test Show details is offered only when something was not restored`() {
         assertTheHarnessResolves()
-        myFixture.configureByText(LEDGER, SNIPPET)
+        myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
         invokeCopyAnonymized()
 
         invokeDeanonymize(FakeClipboard("`method1` and `local9`"))
@@ -160,7 +160,7 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
      */
     fun `test a failed write says the clipboard was not changed`() {
         assertTheHarnessResolves()
-        myFixture.configureByText(LEDGER, SNIPPET)
+        myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
         invokeCopyAnonymized()
 
         invokeDeanonymize(FakeClipboard("`method1` here", failWrite = true))
@@ -185,34 +185,40 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
     }
 
     /**
-     * **The submenu in a Markdown editor: the reversal is offered and the anonymizing actions are
+     * **The submenu in a Markdown editor: both reversals are offered and the anonymizing actions are
      * not.**
      *
      * This is the arrangement's whole point, and neither half of it is provable from the registration
-     * alone. `plugin.xml` puts all three in one group, so *which* of them a user actually sees is
-     * decided by three `update` methods — and the case that matters is the file type the reversal
-     * exists for and the other two refuse.
+     * alone. `plugin.xml` puts all four in one group, so *which* of them a user actually sees is
+     * decided by four `update` methods — and the case that matters is the file type the two
+     * reversals exist for and the two anonymizers refuse.
      *
      * Over an explicit context rather than the editor component's own, so that what is under test is
      * the gating rather than what a light fixture happens to publish into a `DataContext`.
      */
-    fun `test the submenu in a Markdown editor offers the reversal and not the anonymizers`() {
+    fun `test the submenu in a Markdown editor offers the reversals and not the anonymizers`() {
         myFixture.configureByText("reply.md", "The AI said something about `method1`.")
 
         val offered = offeredInSubmenu()
 
         assertTrue("the reversal is not offered outside Java", "SnippetVeil.DeanonymizeClipboard" in offered)
+        assertTrue("the pasting reversal is not offered outside Java", "SnippetVeil.DeanonymizeClipboardAndPaste" in offered)
         assertFalse("Copy Anonymized was offered on a Markdown file", "SnippetVeil.CopyAnonymized" in offered)
         assertFalse("the preview was offered on a Markdown file", "SnippetVeil.AnonymizeWithPreview" in offered)
     }
 
-    /** And in a Java editor all three are offered, which is what stops the check above being vacuous. */
-    fun `test the submenu in a Java editor offers all three`() {
+    /** And in a Java editor all four are offered, which is what stops the check above being vacuous. */
+    fun `test the submenu in a Java editor offers all four`() {
         assertTheHarnessResolves()
-        myFixture.configureByText(LEDGER, SNIPPET)
+        myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
 
         assertEquals(
-            listOf("SnippetVeil.CopyAnonymized", "SnippetVeil.AnonymizeWithPreview", "SnippetVeil.DeanonymizeClipboard"),
+            listOf(
+                "SnippetVeil.CopyAnonymized",
+                "SnippetVeil.AnonymizeWithPreview",
+                "SnippetVeil.DeanonymizeClipboard",
+                "SnippetVeil.DeanonymizeClipboardAndPaste",
+            ),
             offeredInSubmenu(),
         )
     }
@@ -256,45 +262,3 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
         PlaceholderLedger.getInstance().snapshotOf(project),
     )
 }
-
-/**
- * A clipboard a test owns, and can make fail.
- *
- * [written] rather than a comparison against [text], because *"the clipboard was not rewritten"* and
- * *"the clipboard was rewritten with the same string"* are different behaviours that leave the same
- * string behind, and it is the first of the two that is the guarantee.
- */
-private class FakeClipboard(var text: String?, private val failWrite: Boolean = false) : Clipboard {
-
-    var written: Boolean = false
-        private set
-
-    override fun read(): String? = text
-
-    override fun write(text: String) {
-        if (failWrite) throw IllegalStateException("the system clipboard is owned by another process")
-        this.text = text
-        written = true
-    }
-}
-
-private const val LEDGER = "Ledger.java"
-
-/**
- * A snippet with no comment in it, deliberately: comments are stripped by default and no reversal
- * restores destroyed information, so a fixture with one would make the round trip assert the
- * strip rather than the reversal. That the default path is lossy is asserted where it belongs, in
- * `:core`'s round-trip test.
- */
-private val SNIPPET = """
-    class Ledger {
-        <selection>int settle(int amount) {
-            int owed = amount;
-            return owed;
-        }</selection>
-    }
-""".trimIndent()
-
-/** What `<selection>` marks, which is what the copy took and therefore what the reversal must return. */
-private fun selectionOf(text: String): String =
-    text.substringAfter("<selection>").substringBefore("</selection>")

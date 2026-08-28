@@ -74,6 +74,26 @@ visible, inspectable gap. Fuzzy matching would recover more of the reply while d
 evidence that a token refers to a mapped symbol, and would manufacture text the model never meant.
 **A gap a reader can see beats a name a reader has no way to doubt.**
 
+### Pasting it back, and the one place under-recovery is refused instead
+
+**De-anonymize Clipboard and Paste** runs the same reversal and inserts the result at the caret,
+replacing the selection, as a single undo step.
+
+It differs from the reversal above in exactly one behaviour, and the difference follows from the
+destination. **A reply it could not restore in full is not pasted at all** — nothing is written, and
+the balloon says how many placeholders did not come back, with the same `Show details` breakdown.
+
+A visible gap on the clipboard is inspectable, because you read what you paste. A visible gap
+*already in a file* is a placeholder that compiles as an identifier and reads as a name somebody
+chose, and the case that hides best is the one that mostly worked: twelve of fifteen restored, three
+left over, everything around them correct. Refusing is cheap to recover from — the clipboard still
+holds the reply, so De-anonymize Clipboard and a paste are still there for anyone who has read the
+details and wants the text anyway. Reading a placeholder as a real name has no undo.
+
+**The clipboard is never rewritten by this action.** The insert already delivered the text, and
+overwriting the clipboard would destroy the anonymized reply you may still want to quote into the
+chat.
+
 ## Two stores, and why several snippets decode without you doing anything
 
 This is the part most often misunderstood, because **De-anonymize Clipboard does not use Export
@@ -175,7 +195,8 @@ Worth knowing before relying on it:
   SnippetVeil does nothing for you.
 - **The prompt you type around the snippet** is yours to write. SnippetVeil anonymizes the code, not
   the sentence above it.
-- **Java files only** for the two anonymizing actions. De-anonymize Clipboard works anywhere.
+- **Java files only** for the two anonymizing actions. The two reversals work anywhere —
+  De-anonymize Clipboard needs only a project, De-anonymize Clipboard and Paste a writable editor.
 - **It is not a secret scanner.** It replaces names your project owns; it does not look for
   credentials.
 

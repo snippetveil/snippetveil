@@ -76,6 +76,25 @@
                 text="De-anonymize Clipboard"
                 description="Replace SnippetVeil placeholders in the clipboard with the real names"/>
 
+        <!-- The same reversal, delivered to the caret instead of the clipboard. A fourth row rather
+             than a modifier on the item above it, or a checkbox: a modifier makes one gesture do two
+             things with nothing on screen to say which, and a setting makes it depend on state the
+             user cannot see at the moment they invoke — both unacceptable for the one item here that
+             writes into source code.
+
+             **It is not the item above with a paste bolted on, and three of its decisions differ.**
+             It needs a writable editor, where the reversal needs only a project. It refuses to write
+             anything it did not fully restore, because the sibling's tolerated no-op puts unrestored
+             placeholders on a clipboard the user reads and this one would put them in a file. And it
+             leaves the clipboard holding the anonymized reply, so quoting the AI back still works.
+
+             No <keyboard-shortcut> here either. This is precisely the item that tempts one, and the
+             decision recorded above is not reopened by a new row. -->
+        <action id="SnippetVeil.DeanonymizeClipboardAndPaste"
+                class="com.snippetveil.plugin.DeanonymizeClipboardAndPasteAction"
+                text="De-anonymize Clipboard and Paste"
+                description="Replace SnippetVeil placeholders in the clipboard with the real names and insert the result at the caret"/>
+
         <!-- **One group, two homes.** The same submenu is added to the Tools menu and to the editor
              popup, so the two placements cannot drift into two different menus: an action added
              here appears in both, in the same order, with the same gating, because it is the same
@@ -90,7 +109,12 @@
              actions a hover and keeps the global context menu the size it was.
 
              The group is never empty where it is shown: `De-anonymize Clipboard` needs only a
-             project, and an editor popup implies one. -->
+             project, and an editor popup implies one. That still holds now that a fourth item can be
+             disabled — `De-anonymize Clipboard and Paste` needs a writable editor, so it greys out
+             in a Tools menu opened with nothing open, and the item above it is what keeps the
+             submenu from being empty there. Greying out rather than hiding is what lets this stay
+             one group: an item hidden in one parent and shown in the other would be two submenus
+             wearing one name. -->
         <group id="SnippetVeil.Menu" text="SnippetVeil" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
 
@@ -102,6 +126,7 @@
             <reference ref="SnippetVeil.CopyAnonymized"/>
             <reference ref="SnippetVeil.AnonymizeWithPreview"/>
             <reference ref="SnippetVeil.DeanonymizeClipboard"/>
+            <reference ref="SnippetVeil.DeanonymizeClipboardAndPaste"/>
         </group>
     </actions>
 </idea-plugin>
