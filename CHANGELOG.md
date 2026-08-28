@@ -8,6 +8,9 @@
   unrestored placeholders cannot reach source code. The clipboard is never rewritten, so the
   anonymized reply stays available to quote back. Needs a writable editor and greys out without one;
   offered on every file type, like the reversal beside it.
+- The Preserve column in Anonymize with Preview carries a header tooltip saying who the column is
+  for: only names SnippetVeil could not resolve can be preserved, and an empty column means every
+  reference resolved.
 
 ## [1.0.0] - 2026-08-24
 

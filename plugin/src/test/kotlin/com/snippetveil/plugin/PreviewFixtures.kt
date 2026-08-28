@@ -3,6 +3,7 @@ package com.snippetveil.plugin
 import com.intellij.openapi.util.Disposer
 import java.awt.Component
 import java.awt.Container
+import javax.swing.JComponent
 import javax.swing.JTable
 
 /**
@@ -32,3 +33,27 @@ internal fun tableIn(component: Container): JTable =
 
 internal fun descendantsOf(component: Container): List<Component> =
     component.components.flatMap { listOf(it) + if (it is Container) descendantsOf(it) else emptyList() }
+
+/**
+ * The header tooltips, read the way the platform reads them — the renderer the column carries, or
+ * the header's own default where it carries none, asked for the component and then for its tip.
+ * That walk is [javax.swing.table.JTableHeader.getToolTipText]'s own, minus the mouse: a helper that
+ * read a field instead would assert a tooltip a user cannot get to.
+ *
+ * **Every header is rendered once before any tip is read**, because that is the order a user meets
+ * them in: painting the header draws all of them through one renderer that hands back one shared
+ * component, and a tip set on it for one column is still on it when the next is drawn. Reading in
+ * column order alone would report the tips a header shows only if nothing had ever been painted.
+ */
+internal fun headerTooltipsIn(table: JTable): List<String?> {
+    val columns = 0 until table.columnModel.columnCount
+
+    fun render(column: Int): Component {
+        val header = table.columnModel.getColumn(column)
+        val renderer = header.headerRenderer ?: table.tableHeader.defaultRenderer
+        return renderer.getTableCellRendererComponent(table, header.headerValue, false, false, -1, column)
+    }
+
+    columns.forEach { render(it) }
+    return columns.map { (render(it) as? JComponent)?.toolTipText }
+}

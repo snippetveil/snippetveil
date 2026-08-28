@@ -28,6 +28,7 @@ import javax.swing.JPanel
 import javax.swing.JTable
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
+import javax.swing.table.JTableHeader
 import javax.swing.table.TableCellRenderer
 import javax.swing.table.TableRowSorter
 
@@ -229,6 +230,12 @@ internal class PreviewDialog private constructor(
                 it.cellRenderer = PreserveRenderer()
                 it.maxWidth = JBUI.scale(80)
             }
+            // On every header of this opening rather than on `Preserve` alone — see
+            // [PreserveHeaderRenderer].
+            val headers = PreserveHeaderRenderer(table.tableHeader)
+            for (column in 0 until table.columnModel.columnCount) {
+                table.columnModel.getColumn(column).headerRenderer = headers
+            }
         }
 
         val splitter = JBSplitter(false, "SnippetVeil.Preview.Splitter", 0.6f)
@@ -426,6 +433,51 @@ internal class MappingTableModel(
 }
 
 /**
+ * **The `Preserve` header, saying who the column is for.**
+ *
+ * The column's common state is empty — everything resolved is the good case — and an empty column
+ * under a header nobody explained reads as a control the user has lost rather than as the good news
+ * it is. Two sentences answer both halves of the question actually asked: what the override is, and
+ * what an empty column means. It is a header renderer and nothing else — the cells say nothing
+ * extra, because the rows that offer the override already show a checkbox and the rest **are** the
+ * answer to the second sentence.
+ *
+ * **Installed on every header of the reduction opening, not on `Preserve` alone.** The header's
+ * default renderer hands back one component for every column it draws, so a tip set on it and never
+ * cleared is still on it when the next header is drawn — the tip would follow the shared component
+ * onto `Original`. Every column has to pass through here for that to be impossible rather than
+ * unlikely. (The read-only opening installs nothing, because it has no such column.)
+ *
+ * **What it takes away is its own sentence and nothing else.** Blanking the tip on the other three
+ * headers would be this ticket editing columns it was not given: whatever the platform says about a
+ * header — a truncated title, say — is that header's, and a renderer that clears the field wholesale
+ * silences it. So the other columns are left as the delegate rendered them, unless what is on them
+ * is the sentence this class put there.
+ *
+ * The column is read back through [JTable.convertColumnIndexToModel] because the platform hands a
+ * header renderer the view index, and the columns are draggable. The delegate is asked of the header
+ * on every render rather than captured, because the renderer it hands back is the current theme's.
+ */
+private class PreserveHeaderRenderer(private val header: JTableHeader) : TableCellRenderer {
+
+    override fun getTableCellRendererComponent(
+        table: JTable,
+        value: Any?,
+        selected: Boolean,
+        focused: Boolean,
+        row: Int,
+        column: Int,
+    ) = header.defaultRenderer.getTableCellRendererComponent(table, value, selected, focused, row, column).also {
+        if (it is JComponent) {
+            when {
+                table.convertColumnIndexToModel(column) == PRESERVE -> it.toolTipText = PRESERVE_TOOLTIP
+                it.toolTipText == PRESERVE_TOOLTIP -> it.toolTipText = null
+            }
+        }
+    }
+}
+
+/**
  * A checkbox on the rows that offer the override, and **nothing at all on the rest** — not a
  * disabled checkbox, which reads as an offer the user has done something wrong to lose.
  */
@@ -457,3 +509,7 @@ private const val PRESERVE = 3
 
 /** What a preserved name renders as: it has no placeholder, and it stands for itself. */
 private const val NO_PLACEHOLDER = "—"
+
+/** What the `Preserve` header says. See [PreserveHeaderRenderer] for why it says the second sentence. */
+private const val PRESERVE_TOOLTIP =
+    "Only names SnippetVeil could not resolve can be preserved. An empty column means every reference resolved."
