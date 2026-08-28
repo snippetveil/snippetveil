@@ -514,13 +514,29 @@ one-line diff — `platformLatestVersion` going stale is a maintenance chore not
 ### Hardening
 
 - **Both workflows declare `permissions:` explicitly and minimally.** A repository whose pitch is
-  *audit me* has no implicit `write-all` anywhere. Both files are `contents: read`; the one job that
-  needs more — drafting a release — asks for `contents: write` on itself.
+  *audit me* has no implicit `write-all` anywhere. Both files are `contents: read`; the two jobs that
+  need more — drafting a release, and patching the changelog back — ask for it on themselves.
 - **Every action is pinned to a commit SHA, not a tag.** A tag is mutable and can be repointed by
   whoever controls the action's repository. Dependabot keeps the SHAs current, which is the other
   half of the trade, and the cost is a pull request that runs the same merge gate as any other.
 - **CodeQL runs through GitHub's default setup**, not a hand-written workflow — so it adds no
   supply-chain surface of its own.
+- **A job that opens a pull request needs two settings on top of its own permission, and neither is
+  in this repository.** `release.yml`'s changelog job declares `pull-requests: write` and still fails
+  with *"GitHub Actions is not permitted to create or approve pull requests"* unless
+  `can_approve_pull_request_reviews` is true on the repository — which the organization has to allow
+  first, or the repository-level write is refused with a 409. Both are on now. Before they were, the
+  job pushed its branch and its signed commit and went red on `gh pr create`, which is how v1.1.0
+  shipped: uploaded cleanly, red run, changelog pull request opened by hand.
+
+  **The switch is labelled "create *and* approve", and the approve half is the one worth thinking
+  about** — a workflow that can approve a pull request can satisfy a required-review count and merge
+  its own work unreviewed. There is none to satisfy here: the `main` ruleset requires a pull request
+  with `required_approving_review_count: 0`, so the dangerous half has no gate to bypass. **Raising
+  that count above 0 makes this setting load-bearing and is the moment to revisit it.**
+  `default_workflow_permissions` stays `read` at both levels, so what the switch lifts is a
+  prohibition rather than a token scope: a job still has to ask for `pull-requests: write`, and the
+  changelog job is the only one in either file that does.
 
 The first two are not left to habit. `assertWorkflowsAreHardened`, in the root `build.gradle.kts`
 and wired into `check`, fails the build if a workflow uses an action it has not pinned to a SHA,
