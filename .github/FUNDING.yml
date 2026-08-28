@@ -3,6 +3,9 @@
 # the plugin's description, which is generated from README.md's listing-copy block and is governed
 # by the Marketplace Approval Guidelines.
 #
+# This file alone does not display the button: Settings -> General -> Features -> Sponsorships
+# has to be enabled as well, and nothing warns you when it is not.
+#
 # Ko-fi rather than GitHub Sponsors: Sponsors pays out over Stripe Connect, which is not available
 # to this project without a business registration it has no other reason to hold. Ko-fi pays into
 # PayPal, which needs no such thing.
