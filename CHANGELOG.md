@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-28
+
 - De-anonymize Clipboard and Paste restores a reply and inserts it at the caret in one invocation,
   replacing the selection if there is one, as a single undo step. It refuses to paste a reply it
   could not restore in full — a partial or empty reversal is reported and nothing is written, so
@@ -27,5 +29,6 @@
 - The plugin makes no network calls and starts no subprocesses. `./gradlew check` asserts both
   against the built distribution rather than against the sources.
 
-[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/snippetveil/snippetveil/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/snippetveil/snippetveil/commits/v1.0.0
