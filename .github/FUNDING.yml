@@ -3,6 +3,11 @@
 # the plugin's description, which is generated from README.md's listing-copy block and is governed
 # by the Marketplace Approval Guidelines.
 #
-# On the personal account rather than the `snippetveil` organisation: an organisation sponsorship
-# profile is a second identity with its own payout account, and it buys nothing at this size.
-github: fredskor
+# Ko-fi rather than GitHub Sponsors: Sponsors pays out over Stripe Connect, which is not available
+# to this project without a business registration it has no other reason to hold. Ko-fi pays into
+# PayPal, which needs no such thing.
+#
+# The page is tips-only — no memberships, no products, no commissions. A donation that buys nothing
+# is the only kind this project offers, and the only kind that leaves the Marketplace non-trader
+# declaration untouched.
+ko_fi: snippetveil
