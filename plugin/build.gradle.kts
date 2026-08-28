@@ -347,6 +347,10 @@ intellijPlatform {
 // `plugin/src/test/kotlin/com/snippetveil/trust/ShippedCodeArchitectureTest.kt`.
 // ---------------------------------------------------------------------------------------------
 
+// Every check below registers its task under a string that repeats the `val` on the same line. That
+// is a decision, not a leftover of the Gradle 9.6 migration off `by tasks.registering` — the root
+// `build.gradle.kts` gives the reasoning, in the banner above `corpusSweepTask`.
+
 /**
  * Walks every class in the built distribution's `lib/` and fails on a constant-pool reference to a
  * networking class, to a process-execution class, or to `Runtime.exec`.
@@ -361,7 +365,7 @@ intellijPlatform {
  * `buildPlugin` without promising it runs before everything else that depends on `buildPlugin`,
  * which is not good enough when the other thing is an upload.
  */
-val scanDistributionForBannedReferences by tasks.registering {
+val scanDistributionForBannedReferences = tasks.register("scanDistributionForBannedReferences") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if any class in the built distribution can reach the network or start a process."
 
@@ -605,7 +609,7 @@ tasks.named("publishPlugin") {
  * classifying licences, which is strictly stronger while it holds. CONTRIBUTING.md carries the
  * argument and the policy itself.
  */
-val assertNothingThirdPartyIsShipped by tasks.registering {
+val assertNothingThirdPartyIsShipped = tasks.register("assertNothingThirdPartyIsShipped") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if the shipped runtime classpath contains anything but :core."
 
@@ -659,7 +663,7 @@ tasks.named("check") {
  * ban across every other surface; the rest of the guidelines are judgement, and a check that guessed
  * at them would be the kind of noise that teaches people to suppress a check.
  */
-val assertTheListingCopyIsTheReadme by tasks.registering {
+val assertTheListingCopyIsTheReadme = tasks.register("assertTheListingCopyIsTheReadme") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if the shipped description is not the listing-copy block in README.md."
 
@@ -937,7 +941,7 @@ tasks.named("publishPlugin") {
  * that has no key, which is every machine except one. Its rules are still exercised on every run,
  * against the unsigned archive, which is the fixture that is always present.
  */
-val assertThePluginWasSigned by tasks.registering {
+val assertThePluginWasSigned = tasks.register("assertThePluginWasSigned") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if the archive publishPlugin would upload is not signed."
 
@@ -1067,7 +1071,7 @@ tasks.named("publishPlugin") {
  * than written down here, so that renaming the sample cannot leave the rule guarding a name nothing
  * uses any more.
  */
-val assertTheDemoIsNotShipped by tasks.registering {
+val assertTheDemoIsNotShipped = tasks.register("assertTheDemoIsNotShipped") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if demo/ is a Gradle subproject or appears in the built distribution."
 
@@ -1209,7 +1213,7 @@ val assertTheDemoIsNotShipped by tasks.registering {
  * Neither may carry text. Best practice forbids a logo that merely repeats the plugin name, and a
  * `<text>` element is the mechanical half of that rule — the half a check can decide.
  */
-val assertBothPluginIconsShip by tasks.registering {
+val assertBothPluginIconsShip = tasks.register("assertBothPluginIconsShip") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if either plugin icon is missing from the distribution or is a wordmark."
 
@@ -1365,7 +1369,7 @@ tasks.named("check") {
  * README always exists; CHANGELOG.md is declared as an input so that adding one invalidates this
  * task rather than leaving it `UP-TO-DATE` over a file it has never read.
  */
-val assertNoRoadmapIsPublished by tasks.registering {
+val assertNoRoadmapIsPublished = tasks.register("assertNoRoadmapIsPublished") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if the README, the listing copy or the change notes promise future work."
 
@@ -1593,7 +1597,7 @@ tasks.test {
  * Sharing one `val` between the two filters is half the answer: it keeps them agreeing with each
  * other. This is the other half, and it is the half that keeps them agreeing with the source.
  */
-val assertTheSweepIsExcludedFromTheMergeGate by tasks.registering {
+val assertTheSweepIsExcludedFromTheMergeGate = tasks.register("assertTheSweepIsExcludedFromTheMergeGate") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if the corpus sweep class the test filters name is not the one in the source tree."
 
