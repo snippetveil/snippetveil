@@ -771,7 +771,7 @@ happens next.
 from, committed so the shots are reproducible at any commit. **It is not a Gradle subproject** — the
 build is fixed at `:core` + `:plugin`, and the release asserts the shipped classpath holds `:core`
 and nothing else — so it is loose source, opened as its own IDEA project, and never on the
-distribution's path. [`docs/screenshots/README.md`](docs/screenshots/README.md) lists the five shots
+distribution's path. [`docs/screenshots/README.md`](docs/screenshots/README.md) lists the six shots
 and the selection each is taken from.
 
 ## Signing off: the DCO, and deliberately no CLA
