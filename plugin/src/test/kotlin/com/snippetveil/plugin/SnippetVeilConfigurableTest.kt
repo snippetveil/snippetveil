@@ -203,6 +203,29 @@ class SnippetVeilConfigurableTest : JavaSnippetTestCase() {
         assertTrue("the threat model is not linked: $shown", THREAT_MODEL in shown)
     }
 
+    /**
+     * **The second quiet line: the one cold way in.** Every other route to the tracker is hot — it
+     * appears on an error balloon, at the moment something has already gone wrong. A user who wants
+     * to say something on a day nothing failed has nowhere to say it, and a plugin that collects
+     * nothing has no other way to find out.
+     *
+     * The destination is asserted here rather than in a test of the balloon action, because there
+     * is only one destination: `SnippetVeilNotifications` browses [REPORT_A_PROBLEM] too. What is
+     * being pinned is the `/choose` on the end — the chooser page is where the *use a synthetic
+     * example* instruction is rendered, and `issues/new` without it is a blank public comment box
+     * opened for someone whose last screen was a failure on their own code.
+     */
+    fun `test the page says nothing is collected and links the report destination`() {
+        val shown = open().text()
+
+        assertTrue("the no-telemetry fact is missing: $shown", "collects no telemetry" in shown)
+        assertTrue("the report link is missing: $shown", REPORT_A_PROBLEM in shown)
+        assertTrue(
+            "the report link opens a blank form rather than the chooser: $REPORT_A_PROBLEM",
+            REPORT_A_PROBLEM.endsWith("/issues/new/choose"),
+        )
+    }
+
     /** A page with its component built, which is the state every assertion above is about. */
     private fun open(): Page = SnippetVeilConfigurable(project).let { Page(it, it.createComponent()) }
 

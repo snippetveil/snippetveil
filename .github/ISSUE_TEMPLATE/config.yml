@@ -1,0 +1,18 @@
+# The chooser page at /issues/new/choose is where every in-IDE `Report a
+# problem` link lands, and it is a copy surface: the descriptions below are
+# rendered before there is a text box on screen, which makes them the only
+# place the *use a synthetic example* instruction can be read rather than
+# remembered.
+#
+# Blank issues are off for that reason and no other. A blank form says nothing
+# about what to paste into it, and the balloons that send people here appear at
+# the moment something failed on the code they were in the middle of
+# anonymizing — which is the worst moment to leave the question open.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Report a security vulnerability
+    url: mailto:security@snippetveil.com
+    about: >-
+      By email, not on this tracker. A vulnerability report is the one thing
+      that must not open in public before there is a fix.

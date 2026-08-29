@@ -130,6 +130,13 @@ internal class SnippetVeilConfigurable(private val project: Project) : Searchabl
             row {
                 comment("SnippetVeil makes no network calls. <a href=\"$THREAT_MODEL\">Threat model</a>")
             }
+
+            row {
+                comment(
+                    "SnippetVeil collects no telemetry, so a problem only reaches the maintainer if you " +
+                        "report it. <a href=\"$REPORT_A_PROBLEM\">Report a problem</a>",
+                )
+            }
         }
     }
 
@@ -296,6 +303,23 @@ internal const val SHORTCUT_ACTION = "SnippetVeil.CopyAnonymized"
  * artifacts in snippetveil/snippetveil#18 — this page is one of the two surfaces that link to it.
  */
 internal const val THREAT_MODEL = "https://github.com/snippetveil/snippetveil/blob/main/THREAT-MODEL.md"
+
+/**
+ * **Where every `Report a problem` and `Report an issue` in this product goes.** The chooser page,
+ * not `issues/new` — a blank form is the one surface between a failed anonymization and a public
+ * comment box that says nothing about what to paste into it, and the chooser's rendered template
+ * descriptions are what say it.
+ *
+ * Spelled once because it has two callers that look nothing alike: the row at the bottom of this
+ * page, which is cold, and `SnippetVeilNotifications`' `Report an issue` action, which is hot on
+ * five error balloons. Two spellings of one destination is how one of them ends up pointing at the
+ * blank form again.
+ *
+ * Opening it is not a network call by this plugin. The platform hands a URL to the desktop when the
+ * user clicks a named link; nothing here opens a socket, and the trust checks would fail the build
+ * if it did.
+ */
+internal const val REPORT_A_PROBLEM = "https://github.com/snippetveil/snippetveil/issues/new/choose"
 
 private const val PREFIX = 0
 

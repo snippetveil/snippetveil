@@ -397,8 +397,11 @@ internal object SnippetVeilNotifications {
      * Opens the issue tracker in the user's browser. Not a network call by this plugin — the
      * platform hands a URL to the desktop, and nothing here opens a socket. The trust checks would
      * fail the build if it did.
+     *
+     * It lands on the chooser rather than a blank form, and the destination is
+     * [REPORT_A_PROBLEM] rather than a string here, for the reasons recorded there.
      */
     private val REPORT = NotificationAction.createSimpleExpiring("Report an issue") {
-        BrowserUtil.browse("https://github.com/snippetveil/snippetveil/issues/new")
+        BrowserUtil.browse(REPORT_A_PROBLEM)
     }
 }

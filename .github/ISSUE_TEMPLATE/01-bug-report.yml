@@ -1,0 +1,64 @@
+name: Bug report
+description: SnippetVeil did something wrong — a failure balloon, a name it missed, a name it should not have touched.
+labels: ["bug", "needs-triage"]
+body:
+  - type: checkboxes
+    id: synthetic
+    attributes:
+      label: Before anything else
+      description: >-
+        This is a public tracker. Everything below it is world-readable and stays in the
+        history after an edit.
+      options:
+        - label: >-
+            The example I am about to write is synthetic — invented names in the shape of the
+            real ones — and not source copied out of my project.
+          required: true
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Plugin version and IDE build
+      description: >-
+        `Settings | Plugins | SnippetVeil` for the first, `Help | About` for the second. SnippetVeil
+        does not fill this in for you: it collects nothing about your machine, and a field it
+        filled would suggest it had.
+      placeholder: SnippetVeil 1.1.0 · IntelliJ IDEA 2025.2.1 (IU-252.23892.409)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Which action you invoked, and what it did instead of what you expected.
+      placeholder: >-
+        Copy Anonymized on a selection of about 40 lines. The balloon said 12 names replaced, but
+        the class name Charge came through unchanged.
+    validations:
+      required: true
+
+  - type: textarea
+    id: snippet
+    attributes:
+      label: A synthetic example
+      description: >-
+        The smallest file or selection that still shows it, with every name replaced by an
+        invented one. Shape is what matters here — a nested class, an annotation, a Lombok
+        accessor — and shape survives renaming.
+      render: java
+    validations:
+      required: false
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: >-
+        The IDE log helps if a balloon named an internal error — `Help | Show Log in Finder`,
+        or `Show Log in Explorer`. Read it before you attach it; it is a log of your session,
+        not of this plugin.
+    validations:
+      required: false

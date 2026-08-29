@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- The settings page carries a Report a problem link. SnippetVeil collects no telemetry, so a problem
+  only reaches the maintainer if it is reported, and every other route to the tracker appears on an
+  error balloon after something has already gone wrong.
+- Report an issue on the error balloons opens the issue chooser rather than a blank form, so the
+  instruction to use a synthetic example is on screen before there is a box to type into.
+
 ## [1.1.0] - 2026-08-28
 
 - De-anonymize Clipboard and Paste restores a reply and inserts it at the caret in one invocation,
