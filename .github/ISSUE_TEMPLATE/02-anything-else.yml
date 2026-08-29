@@ -1,0 +1,30 @@
+name: Anything else
+description: A question, an idea, or something in the documentation that is wrong.
+labels: ["needs-triage"]
+body:
+  - type: checkboxes
+    id: synthetic
+    attributes:
+      label: Before anything else
+      description: >-
+        This is a public tracker. Everything below it is world-readable and stays in the
+        history after an edit.
+      options:
+        - label: >-
+            If I include code, it is synthetic — invented names in the shape of the real ones —
+            and not source copied out of my project.
+          required: true
+    validations:
+      required: true
+
+  - type: textarea
+    id: body
+    attributes:
+      label: What is on your mind
+      description: >-
+        There is no roadmap to check an idea against, so say what you were trying to do rather
+        than which feature you think would do it — the first is a fact and the second is a guess
+        about a codebase you cannot see.
+    validations:
+      required: true
+

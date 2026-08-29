@@ -396,10 +396,14 @@ extra.set("bannedPhrases", bannedPhrases)
 /**
  * Fails if a banned phrase appears in a document in this repository or in a string the plugin shows.
  *
- * **Two kinds of surface, read two different ways.** A Markdown file is read whole: all of it is
- * prose somebody may quote. A Kotlin file is read for its *string literals only* — the comments in
- * this codebase discuss the ban, and several of them quote the banned phrases in order to explain
- * why they are banned. A rule that read those would fail this build over its own rationale.
+ * **Two kinds of surface, read two different ways.** A document is read whole: all of it is prose
+ * somebody may quote. That is every Markdown file, and the issue forms under
+ * `.github/ISSUE_TEMPLATE/` — a form's labels and descriptions are rendered to a stranger on the
+ * chooser page, which makes them copy in the same sense the README is, and they were the one public
+ * surface in this repository that nothing read. A Kotlin file is read for its *string literals
+ * only* — the comments in this codebase discuss the ban, and several of them quote the banned
+ * phrases in order to explain why they are banned. A rule that read those would fail this build
+ * over its own rationale.
  *
  * Telling the two apart needs a scanner rather than a regular expression, because a line comment
  * stripped by a pattern takes the `//` out of `https://` with it. The one below is a state machine
@@ -415,6 +419,7 @@ val assertNoBannedPhraseAppearsOnAnySurface = tasks.register("assertNoBannedPhra
 
     val documents = fileTree(layout.projectDirectory) {
         include("**/*.md")
+        include(".github/ISSUE_TEMPLATE/**/*.yml")
         exclude("**/build/**", "**/.gradle/**", "**/.git/**", "**/.idea/**", "**/.intellijPlatform/**")
     }
     val sources = fileTree(layout.projectDirectory) {
@@ -589,8 +594,9 @@ val assertNoBannedPhraseAppearsOnAnySurface = tasks.register("assertNoBannedPhra
                 )
                 appendLine("None of them may say any of: ${banned.joinToString(", ")}")
                 appendLine()
-                appendLine("Documents are read whole; Kotlin sources are read for their string literals only,")
-                appendLine("and the descriptor for everything its comments do not cover.")
+                appendLine("Documents — every Markdown file, and the issue forms — are read whole; Kotlin")
+                appendLine("sources are read for their string literals only, and the descriptor for everything")
+                appendLine("its comments do not cover.")
                 appendLine("The Marketplace description is checked separately, in :plugin:assertTheListingCopyIsTheReadme.")
             }
         )

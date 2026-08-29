@@ -731,7 +731,7 @@ The strictest surface wins automatically, by construction rather than by discipl
 | Check | Where | Covers |
 |---|---|---|
 | `assertTheListingCopyIsTheReadme` | `plugin/build.gradle.kts` | The description in the built distribution, word for word against README.md — plus the heading order, the 40-character floor, HTTPS-only links, the phrase ban and third-party brand names |
-| `assertNoBannedPhraseAppearsOnAnySurface` | root `build.gradle.kts` | Every Markdown file in the repository, every string literal in `:core` and `:plugin` main sources, and the descriptor's own menu strings |
+| `assertNoBannedPhraseAppearsOnAnySurface` | root `build.gradle.kts` | Every Markdown file in the repository, the issue forms under `.github/ISSUE_TEMPLATE/`, every string literal in `:core` and `:plugin` main sources, and the descriptor's own menu strings |
 | `assertNoRoadmapIsPublished` | `plugin/build.gradle.kts` | README.md, CHANGELOG.md the day there is one, and the change notes in the built distribution |
 | `assertTheDemoIsNotShipped` | `plugin/build.gradle.kts` | `settings.gradle.kts`, and every path in the zip at both levels |
 | `assertBothPluginIconsShip` | `plugin/build.gradle.kts` | Both icons in the distribution: 40 × 40, no text, and a dark variant that is not a copy of the light one |
@@ -765,7 +765,7 @@ deliberate: THREAT-MODEL.md turns on a sentence saying what actually holds the n
 and that sentence needs the noun. Banning it too would be the kind of noise that teaches people to
 suppress a check.
 
-**Markdown is read whole; Kotlin is read for its string literals only.** The comments in this
+**Documents are read whole; Kotlin is read for its string literals only.** The comments in this
 codebase quote banned phrases in order to explain the ban, and a rule that read them would fail the
 build over its own rationale. Telling the two apart needs a scanner rather than a pattern —
 stripping line comments with a regular expression takes the `//` out of `https://` with it — so
@@ -911,3 +911,17 @@ dependencies.
 ## Issues
 
 Work is tracked in this repository's [issues](https://github.com/snippetveil/snippetveil/issues).
+
+**Blank issues are off, and the forms under `.github/ISSUE_TEMPLATE/` are the only way in.** Not to
+collect fields nobody reads — the bug form asks three things and the catch-all asks two. It is
+because of where reporters arrive from: five error balloons carry a `Report an
+issue` action, and the product's whole job is to stop code leaving a machine by accident. Sending
+someone from a failed anonymization to an empty public comment box, with nothing on screen saying
+*use a synthetic example*, is this repository asking for the one thing the plugin exists to prevent.
+The chooser page is where that sentence is rendered, which is why the in-IDE links point at
+`issues/new/choose` and not at `issues/new`, and why the URL is a single constant with a test on the
+`/choose`.
+
+The forms are read by `assertNoBannedPhraseAppearsOnAnySurface` like any other document. A
+vulnerability is the exception and goes to `security@snippetveil.com`, which the chooser says before
+it offers a form.
