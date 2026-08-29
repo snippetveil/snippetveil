@@ -924,4 +924,6 @@ The chooser page is where that sentence is rendered, which is why the in-IDE lin
 
 The forms are read by `assertNoBannedPhraseAppearsOnAnySurface` like any other document. A
 vulnerability is the exception and goes to `security@snippetveil.com`, which the chooser says before
-it offers a form.
+it offers a form — as a link to [`SECURITY.md`](SECURITY.md), because **a contact link's `url` has
+to be http(s)**. A `mailto:` is dropped from the rendered chooser with no build error and no banner
+on the file, so the first version of that row was simply absent from the page and nothing said so.

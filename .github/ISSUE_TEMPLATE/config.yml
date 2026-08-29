@@ -10,9 +10,13 @@
 # anonymizing — which is the worst moment to leave the question open.
 blank_issues_enabled: false
 
+# A contact link's `url` has to be http(s). A `mailto:` is dropped from the
+# rendered chooser silently — no build error, no banner on this file, just a
+# row that is not there — which is why this one points at the security policy
+# and the policy carries the address.
 contact_links:
   - name: Report a security vulnerability
-    url: mailto:security@snippetveil.com
+    url: https://github.com/snippetveil/snippetveil/security/policy
     about: >-
       By email, not on this tracker. A vulnerability report is the one thing
       that must not open in public before there is a fix.
