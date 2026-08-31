@@ -1,6 +1,7 @@
 package com.snippetveil.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -363,5 +364,74 @@ class LiteralRedactionTest {
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
         assertEquals("""void run() { log("run"); }""", result.text)
+    }
+
+    /**
+     * **A preserved symbol keeps its name inside a spliced literal too**, because the preserve is a
+     * fact about the symbol and a spliced reference renames *with* the symbol it names. Preserving
+     * `merchantId` and leaving `createdAt` alone has to show up inside the annotation, or the
+     * snippet would say two different things about one field.
+     *
+     * **And the row survives being ticked**, which is the half that has to be asserted here rather
+     * than left to the identifier case: a symbol whose only occurrence is inside a literal has no
+     * identifier to be recorded from, so a row that came only from the replaced branch would vanish
+     * the moment it was preserved — and a row that vanished when ticked could not be unticked.
+     *
+     * **The literal itself is untouched by any of this.** It has no key, so nothing in the preserve
+     * set can name it; what moved is a symbol the literal happens to mention.
+     */
+    @Test
+    fun `a preserved symbol keeps its name inside a spliced literal, and keeps its row`() {
+        val merchantId = symbol("merchantId", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:merchantId")
+        val createdAt = symbol("createdAt", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:createdAt")
+        val plan = SnippetPlan("""@Index(columnList = "merchantId, createdAt")""", emptyList()).withLiteral(
+            """"merchantId, createdAt"""",
+            covers = arrayOf(covering("merchantId", merchantId), covering("createdAt", createdAt)),
+        )
+
+        val result = anonymize(
+            plan,
+            AnonymizationSettings(preservedSymbols = setOf("field:merchantId")),
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals("""@Index(columnList = "merchantId, field1")""", result.text)
+        assertEquals(
+            listOf("merchantId" to null, "createdAt" to "field1"),
+            result.names.map { it.original to it.placeholder },
+        )
+        assertEquals(mapOf("field1" to "createdAt"), result.mapping)
+    }
+
+    /**
+     * **A literal replaced whole is not preservable, and it is not preservable structurally.**
+     *
+     * An explicit non-goal rather than an omission: literal text is the most directly sensitive
+     * content the product handles. There are two independent reasons it cannot happen and this
+     * pins the engine's — a literal is not a symbol, so the preserve set is never consulted for one
+     * and there is no key that could name it. (The dialog's is that a literal row carries no key to
+     * hand back; `PreviewDialogTest` holds that half.)
+     *
+     * The keys tried are the literal's own placeholder and its text, which are the two things
+     * somebody guessing would reach for — and the local beside it renames, so the set was read.
+     */
+    @Test
+    fun `a redacted literal cannot be preserved by any key`() {
+        val plan = planOf(
+            """String reason = "merchant settlement failed";""",
+            symbol("reason", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT, key = "local:reason"),
+        ).withLiteral(""""merchant settlement failed"""")
+
+        val result = anonymize(
+            plan,
+            AnonymizationSettings(preservedSymbols = setOf("str2", "merchant settlement failed")),
+            LedgerSnapshot.EMPTY,
+        )
+
+        // The local beside it renamed, which is what says the set was read at all rather than
+        // ignored wholesale: a key that names a symbol works, and neither key aimed at the literal
+        // moved a character of it.
+        assertEquals("""String local1 = "str2";""", result.text)
+        assertNull(result.names.single { it.kind == MappedKind.LITERAL }.key)
     }
 }
