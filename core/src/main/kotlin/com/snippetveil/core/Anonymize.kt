@@ -59,7 +59,8 @@ fun anonymize(
     fun isPreserved(symbol: SymbolEvidence): Boolean =
         wouldReplace(symbol) && sharedKeyOf(symbol) in settings.preservedSymbols
 
-    fun isReplaced(symbol: SymbolEvidence): Boolean = wouldReplace(symbol) && !isPreserved(symbol)
+    fun isReplaced(symbol: SymbolEvidence): Boolean =
+        wouldReplace(symbol) && sharedKeyOf(symbol) !in settings.preservedSymbols
 
     val allocator = PlaceholderAllocator(
         ledger.nextNumber,
@@ -214,9 +215,8 @@ fun anonymize(
                         edits += Edit(reference.start, reference.end, placeholder)
                         record(reference.symbol, placeholder)
                     } else if (isPreserved(reference.symbol)) {
-                        // The same row for the same reason: a symbol whose only occurrence is inside
-                        // a literal is still a row the tick sits on, and one that vanished when
-                        // ticked could not be unticked.
+                        // A row for the reason the identifier above is one: a symbol met only inside
+                        // a literal is still a row, and the tick is on it.
                         record(reference.symbol, placeholder = null)
                     }
                 }
@@ -245,12 +245,12 @@ fun anonymize(
     // offering one is a row that cannot be acted on.
     val unknowns = symbols
         .filter { it.symbol.origin == SymbolOrigin.UNRESOLVED }
-        .distinctBy { it.symbol.key }
+        .distinctBy { sharedKeyOf(it.symbol) }
         .map { occurrence ->
             UnknownName(
-                key = occurrence.symbol.key,
+                key = sharedKeyOf(occurrence.symbol),
                 name = occurrence.symbol.declaredName,
-                placeholder = placeholderByKey[occurrence.symbol.key]
+                placeholder = placeholderByKey[sharedKeyOf(occurrence.symbol)]
                     ?.takeIf { isReplaced(occurrence.symbol) },
             )
         }

@@ -15,12 +15,13 @@ package com.snippetveil.core
  *   placeholder, or a variable called `filter` that the question is entirely about.
  *
  *   **A key may name any symbol this invocation would otherwise replace** — a resolved local,
- *   parameter, field, method or type as readily as an unresolved name. It reached unresolved names
- *   only until 2026-08-31, when the maintainer extended it, and the friction that used to be a
- *   restriction is now an explicit unlock in the preview: locked again on every open, warned before
- *   it opens, and remembered nowhere. That puts the friction at the moment of reduction, where it
- *   is read, rather than on every invocation — and it leaves the governing rule above exactly as it
- *   was, because a reduction is still per-invocation and still visible in the preview.
+ *   parameter, field, method or type as readily as an unresolved name. The friction that used to be
+ *   *the engine refuses* is an explicit unlock in the preview instead: locked again on every open,
+ *   warned before it opens, and remembered nowhere. That puts the friction at the moment of
+ *   reduction, where it is read, rather than on every invocation — and it leaves the governing rule
+ *   above exactly as it was, because a reduction is still per-invocation and still visible in the
+ *   preview. (It reached unresolved names alone until the maintainer extended it on 2026-08-31,
+ *   which is worth one sentence because comments elsewhere may still be catching up.)
  *
  *   **A key naming anything this invocation was not going to replace is a no-op**, which is what
  *   keeps the extension off the spine rule: the JDK and third-party libraries are preserved before
@@ -425,7 +426,8 @@ class CommentCounts(val prose: Int, val code: Int) {
  * resolve and what was emitted for it. The preview's **Preserve** reads rows off
  * [AnonymizationResult.names] rather than off this list, because that list is now the whole table.
  *
- * @param key the symbol key, which is what a preserve override is expressed in
+ * @param key the symbol key — the same one [MappedName.key] carries for this name, which is the key
+ *   a preserve override is expressed in
  * @param name the name as it is written in the snippet
  * @param placeholder what it renders as, or `null` when this invocation preserved it and its real
  *   name was emitted. Null rather than the name itself: a preserved item has no placeholder, and

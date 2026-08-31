@@ -41,7 +41,7 @@ internal class PersistsCommentRetention : PersistentStateComponent<PersistsComme
  * The same mistake made with the other reduction: a preserve list written to disk.
  *
  * It is the shape the design has refused from the start — *a settings file that becomes a plaintext
- * domain glossary committed to the repo* — and since the override reached resolved names it is a
+ * domain glossary committed to the repo* — and now that the override reaches resolved names it is a
  * list that could hold every class in the codebase rather than the handful the IDE failed on.
  */
 @State(name = "SnippetVeilPreserveFixture", storages = [Storage("snippetveil-fixture.xml")])

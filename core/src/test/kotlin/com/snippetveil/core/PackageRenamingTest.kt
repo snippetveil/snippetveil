@@ -144,6 +144,11 @@ class PackageRenamingTest {
      * package-renaming spine rule is not a thing it touches. So `com.acme.billing.PaymentFilter`
      * ticked in the preview renders `com.pkg1.pkg2.PaymentFilter` — the reader keeps the name that
      * made the snippet answerable, and still cannot read the employer's package layout off it.
+     *
+     * **That is one segment longer than the ticket's illustration**, which writes it
+     * `pkg1.PaymentFilter`, and the difference is the top-level pass-through asserted above rather
+     * than a disagreement: `com` is preserved whoever owns it. The claim the illustration is about —
+     * the simple name survives and the qualifiers do not — is exactly as drawn.
      */
     @Test
     fun `a preserved type keeps its simple name and its package renames around it`() {

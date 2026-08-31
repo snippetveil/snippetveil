@@ -22,8 +22,10 @@ control flow, and the libraries you call go as-is.
 - Select Java code, right-click, **Copy Anonymized**. The anonymized text is on your clipboard.
 - **Anonymize with Preview…** shows the code that will be copied beside its mapping table,
   with counts: `14 renamed · 3 unknown · 22 preserved · 2 comments stripped`. It is the only
-  place you can anonymize *less* — keep comments for this snippet, or preserve a name
-  SnippetVeil could not resolve.
+  place you can anonymize *less* — keep comments for this snippet, or preserve a name and send it
+  exactly as written. Names SnippetVeil could not resolve can be preserved directly; every other
+  name becomes preservable once you unlock the column, which warns you first and is locked again
+  the next time you open the preview.
 - **De-anonymize Clipboard** turns the placeholders in a reply back into your real names.
 - **De-anonymize Clipboard and Paste** does the same and inserts the result at the caret,
   replacing the selection. It will not paste a reply it could not restore in full, so

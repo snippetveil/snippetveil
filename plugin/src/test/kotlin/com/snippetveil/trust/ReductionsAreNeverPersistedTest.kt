@@ -4,6 +4,7 @@ import com.tngtech.archunit.core.domain.JavaClass
 import com.tngtech.archunit.core.domain.JavaClasses
 import com.tngtech.archunit.core.importer.ClassFileImporter
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -17,10 +18,10 @@ import org.junit.jupiter.api.Test
  * **one tick set a year ago silently leaks the domain on every paste since.**
  *
  * There are two reductions to be right about, and this file names both. Keeping comments is one. The
- * per-item preserve is the other, and it became the one worth a check of its own on 2026-08-31, when
- * it stopped being *unresolved names only* and grew an unlock: an unlock that survived an opening
- * would be exactly the set-once-and-forgotten reduction the rule exists to prevent, and it would be
- * invisible in a way the tick under it is not.
+ * per-item preserve is the other, and it earned a check of its own when it stopped being *unresolved
+ * names only* and grew an unlock: an unlock that survived an opening would be exactly the
+ * set-once-and-forgotten reduction the rule exists to prevent, and it would be invisible in a way
+ * the tick under it is not.
  *
  * The rule has something of its own to be right about: SnippetVeil ships exactly one persistent
  * setting — the internal-library prefix list — and it is an *increase*, which is the case that makes
@@ -61,7 +62,7 @@ class ReductionsAreNeverPersistedTest {
     fun `the per-invocation settings are not a state holder`() {
         val settings = SHIPPED_CLASSES.single { it.name == "com.snippetveil.core.AnonymizationSettings" }
 
-        assertTrue(!settings.isStateHolder()) {
+        assertFalse(settings.isStateHolder()) {
             "AnonymizationSettings carries persistence machinery, so a reduction could be written to disk"
         }
     }
@@ -69,17 +70,18 @@ class ReductionsAreNeverPersistedTest {
     /**
      * **And neither is the preview**, which is where the unlock and every tick live.
      *
-     * Asserted of the two classes rather than of a flag name, because *the unlock* is a state a
-     * dialog holds for as long as it is open and not a word a bean would carry. What the rule has to
-     * rule out is either of them acquiring the machinery that would let the platform write it down —
-     * and a dialog that could be persisted is the shape *"don't warn me again"* would arrive in.
+     * Asserted of the classes rather than of a flag name, because *the unlock* is a state a table
+     * model holds for as long as its dialog is open and not a word a bean would carry. What the rule
+     * has to rule out is either of them acquiring the machinery that would let the platform write it
+     * down — and a preview that could be persisted is the shape *"don't warn me again"* would arrive
+     * in.
      */
     @Test
     fun `the preview holds the unlock, and the preview is not a state holder`() {
         for (name in PREVIEW_CLASSES) {
             val preview = SHIPPED_CLASSES.single { it.name == name }
 
-            assertTrue(!preview.isStateHolder()) {
+            assertFalse(preview.isStateHolder()) {
                 "$name carries persistence machinery, so the Preserve unlock could survive an opening"
             }
         }
@@ -194,8 +196,9 @@ private fun JavaClass.declares(reduction: String): Boolean =
 private val REDUCTIONS = listOf("keepComments", "preservedSymbols")
 
 /**
- * The two shipped classes that hold the `Preserve` unlock while a preview is open — the dialog that
- * owns the flag, and the table model that reads it to decide which rows offer a box.
+ * The two shipped classes the `Preserve` unlock lives in while a preview is open — the table model
+ * that holds the flag and decides which rows offer a box, and the dialog that sets it once the
+ * warning has been answered.
  */
 private val PREVIEW_CLASSES = listOf(
     "com.snippetveil.plugin.MappingTableModel",

@@ -77,7 +77,7 @@ class MappedNamesTest {
      * it stands for itself and a row mapping a name to itself maps nothing.
      *
      * Written here over unresolved names because that is where the mechanism started; it is the same
-     * mechanism for a resolved name since 2026-08-31, asserted in [AnonymizeTest].
+     * mechanism for a resolved name, asserted in [AnonymizeTest].
      */
     @Test
     fun `an unresolved name is a row whether or not it was preserved`() {

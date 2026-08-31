@@ -168,7 +168,8 @@ class PreviewDialogTest : JavaSnippetTestCase() {
     fun `test the Preserve header says who it is for and no other header says anything`() {
         assertTheHarnessResolves()
         val analysis = analysisOf("class Ledger { <selection>void settle() {}</selection> }")
-        val tip = LOCKED_TOOLTIP
+        val tip = "By default only names SnippetVeil could not resolve can be preserved. " +
+            "Unlock Preserve for resolved names to tick any name in this table."
 
         withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
             val table = tableIn(dialog)
@@ -203,7 +204,8 @@ class PreviewDialogTest : JavaSnippetTestCase() {
     fun `test a header tip that is not ours survives, and Preserve still says its own`() {
         assertTheHarnessResolves()
         val analysis = analysisOf("class Ledger { <selection>void settle() {}</selection> }")
-        val tip = LOCKED_TOOLTIP
+        val tip = "By default only names SnippetVeil could not resolve can be preserved. " +
+            "Unlock Preserve for resolved names to tick any name in this table."
 
         withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
             val table = tableIn(dialog)
@@ -475,7 +477,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
         withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
             val table = tableIn(dialog)
 
-            assertEquals(UNLOCK_LINK, unlockIn(dialog).text)
+            assertEquals("Unlock Preserve for resolved names\u2026", unlockIn(dialog).text)
             assertTrue("the unlock is not offered", unlockIn(dialog).isEnabled)
             // settle, MissingType, m — and only the unresolved one is offered a box.
             assertEquals(
@@ -516,7 +518,12 @@ class PreviewDialogTest : JavaSnippetTestCase() {
 
             unlockIn(dialog).doClick()
 
-            assertEquals(UNLOCK_MESSAGE, warning)
+            assertEquals(
+                "Preserved names are sent exactly as written in your code. SnippetVeil will not " +
+                    "conceal a name you tick.\n\n" +
+                    "Only preserve names you would be comfortable typing into the chat yourself.",
+                warning,
+            )
             assertEquals(
                 listOf(true, true),
                 (0 until table.rowCount).map { table.isCellEditable(it, PRESERVE_COLUMN) },
@@ -526,8 +533,11 @@ class PreviewDialogTest : JavaSnippetTestCase() {
                 (0 until table.rowCount).map { table.getValueAt(it, PRESERVE_COLUMN) },
             )
             assertEquals("unlocking changed the render", before, dialog.analysis.result.text)
-            assertEquals(UNLOCKED_TOOLTIP, headerTooltipsIn(table)[PRESERVE_COLUMN])
-            assertEquals(UNLOCK_DONE, unlockIn(dialog).text)
+            assertEquals(
+                "Ticked names are emitted exactly as written in your code.",
+                headerTooltipsIn(table)[PRESERVE_COLUMN],
+            )
+            assertEquals("Preserve unlocked for this preview", unlockIn(dialog).text)
         }
     }
 

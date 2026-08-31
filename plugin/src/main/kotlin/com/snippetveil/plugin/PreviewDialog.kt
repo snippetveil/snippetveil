@@ -45,11 +45,11 @@ import javax.swing.table.TableRowSorter
  *
  * ### Preserve is locked, and the unlock is the friction
  *
- * The per-item preserve reaches every keyed row rather than the `Unknown`s alone — the decision of
- * 2026-08-31 — and it reaches them **only after an explicit unlock that warns first**. The unlock is
- * locked again on every open, there is no *don't warn me again*, and neither the unlock nor a tick
- * is written anywhere: a sticky unlock would be exactly the set-once-and-forgotten reduction the
- * governing rule exists to prevent.
+ * The per-item preserve reaches every keyed row rather than the `Unknown`s alone, and it reaches
+ * them **only after an explicit unlock that warns first**. The unlock is locked again on every open,
+ * there is no *don't warn me again*, and neither the unlock nor a tick is written anywhere: a sticky
+ * unlock would be exactly the set-once-and-forgotten reduction the governing rule exists to
+ * prevent.
  *
  * Why an unlock rather than a checkbox on every row: **the friction belongs at the moment of
  * reduction, where it is read.** A warning banner shown on every preview was rejected for the
@@ -102,15 +102,6 @@ internal class PreviewDialog private constructor(
      * and this is the field that makes that structural rather than remembered.
      */
     private val preserved = mutableSetOf<String>()
-
-    /**
-     * **Whether `Preserve` reaches the resolved rows, and it is `false` on every open** — constructed
-     * that way rather than reset, which is what makes *locked again next time* a property of the
-     * object instead of a thing somebody has to remember to do. There is no *don't warn me again*
-     * and nothing writes this down; see [getDimensionServiceKey] for the whole of what this dialog
-     * remembers.
-     */
-    private var unlocked = false
 
     /**
      * **Unchecked on every open, without exception**, and unchecked because it is constructed that
@@ -206,8 +197,9 @@ internal class PreviewDialog private constructor(
      * inside one opening, and none is needed: the way back is closing the dialog, which is also the
      * only state this ticket guarantees.
      *
-     * The read-only opening never builds one. It has no reductions at all, so there is nothing here
-     * to unlock.
+     * **The read-only opening never shows one** — [assemble] adds it to the reduction opening and to
+     * nothing else, because a dialog over an invocation that has already left has no reduction to
+     * unlock.
      */
     private val unlock = ActionLink(UNLOCK_LINK) { unlockPreserve() }
 
@@ -226,7 +218,8 @@ internal class PreviewDialog private constructor(
      * **The `Preserve` unlock is covered by that**, and it is worth naming because it is the one a
      * reader would expect an exception for. An unlock that survived an opening is a reduction set
      * once and forgotten, which is the failure the governing rule exists to prevent — so it is not
-     * here, it is not in any state holder, and the ticks under it are not either.
+     * here, it is not in any state holder, and the ticks under it are not either. It lives on
+     * [MappingTableModel.unlocked], for as long as this dialog's table does.
      */
     override fun getDimensionServiceKey(): String = "SnippetVeil.Preview"
 
@@ -355,7 +348,6 @@ internal class PreviewDialog private constructor(
      */
     private fun unlockPreserve() {
         if (!confirmedUnlock(project)) return
-        unlocked = true
         rows.unlocked = true
         unlock.text = UNLOCK_DONE
         unlock.isEnabled = false
@@ -366,7 +358,7 @@ internal class PreviewDialog private constructor(
      * locked, it explains the default and points at the unlock; unlocked, it says what a tick does.
      * See [PreserveHeaderRenderer].
      */
-    private fun preserveTooltip(): String = if (unlocked) UNLOCKED_TOOLTIP else LOCKED_TOOLTIP
+    private fun preserveTooltip(): String = if (rows.unlocked) UNLOCKED_TOOLTIP else LOCKED_TOOLTIP
 
     /** Both panes, the strip and the notices, from one more call to a pure function. Nothing else moves. */
     private fun rerender() {
@@ -628,9 +620,10 @@ private const val NO_PLACEHOLDER = "—"
  * starts in.
  *
  * Two sentences, and they answer the two halves of the question a locked column actually raises: why
- * most rows have no box, and what to do about it if you wanted one. The second is what the old
- * wording could not have had — until 2026-08-31 the answer was *nothing*, and the sentence *"only
- * names SnippetVeil could not resolve can be preserved"* is now simply false.
+ * most rows have no box, and what to do about it if you wanted one. The second half is the one the
+ * unlock made sayable: while the override reached unresolved names alone the answer was *nothing*,
+ * and the sentence this replaced — *"only names SnippetVeil could not resolve can be preserved"* —
+ * is now simply false.
  */
 internal const val LOCKED_TOOLTIP =
     "By default only names SnippetVeil could not resolve can be preserved. " +
@@ -642,7 +635,7 @@ internal const val LOCKED_TOOLTIP =
  * Not a repeat of the unlock warning. The warning is the decision and it has been made; this is the
  * label on the column that decision opened, and it has to be true of every box in it.
  */
-internal const val UNLOCKED_TOOLTIP = "Ticked names are emitted exactly as written in your code."
+private const val UNLOCKED_TOOLTIP = "Ticked names are emitted exactly as written in your code."
 
 /**
  * Both sentences this file puts on a header — read by the renderer's clearing arm, which has to
@@ -653,14 +646,14 @@ private val PRESERVE_TOOLTIPS = setOf(LOCKED_TOOLTIP, UNLOCKED_TOOLTIP)
 /** The unlock, before and after. See [PreviewDialog.unlock]. */
 internal const val UNLOCK_LINK = "Unlock Preserve for resolved names\u2026"
 
-internal const val UNLOCK_DONE = "Preserve unlocked for this preview"
+private const val UNLOCK_DONE = "Preserve unlocked for this preview"
 
 /**
  * **The unlock's title**, phrased as the question the click asked rather than as a label. It is the
  * one moment the product asks a user to confirm a reduction, and *`Preserve`* alone would name the
  * column without naming the decision.
  */
-internal const val UNLOCK_TITLE = "Unlock Preserve for all names?"
+private const val UNLOCK_TITLE = "Unlock Preserve for all names?"
 
 /**
  * **What unlocking means, said as consequence rather than as caution.**
@@ -670,12 +663,12 @@ internal const val UNLOCK_TITLE = "Unlock Preserve for all names?"
  * apply to the name in front of them. A user who reads only the last sentence has still been told
  * the thing that matters.
  */
-internal const val UNLOCK_MESSAGE =
+private const val UNLOCK_MESSAGE =
     "Preserved names are sent exactly as written in your code. SnippetVeil will not conceal a name " +
         "you tick.\n\nOnly preserve names you would be comfortable typing into the chat yourself."
 
 /** The button that carries the unlock out — named for the decision, not `OK`. */
-internal const val UNLOCK_CONFIRM = "I understand, unlock"
+private const val UNLOCK_CONFIRM = "I understand, unlock"
 
 private const val UNLOCK_CANCEL = "Cancel"
 

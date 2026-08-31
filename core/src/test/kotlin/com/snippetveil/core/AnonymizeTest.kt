@@ -244,8 +244,8 @@ class AnonymizeTest {
     }
 
     /**
-     * **The override reaches a resolved project-owned name too, and that is the decision of
-     * 2026-08-31 rather than creep.**
+     * **The override reaches a resolved project-owned name too, and that is the decision this test
+     * replaced its opposite for rather than creep.**
      *
      * A handful of names sometimes carry the context that makes a snippet answerable — a variable
      * called `filter` is the maintainer's own example — and the friction that used to be *the engine
