@@ -110,9 +110,12 @@ class PackageRenamingTest {
      *
      * The pass-through is *positional* — the segment with nothing before it — so a project rooted at
      * a single-segment package emits that segment verbatim, and `billing` is a domain word where
-     * `com` is not. The alternative is a list of names preserved by spelling, which is the one thing
-     * this product has ruled out everywhere else: a preserve list leaks by construction and there is
-     * nowhere to stop adding to it.
+     * `com` is not. The alternative is a *persistent* list of names preserved by spelling, which is
+     * the one thing this product has ruled out everywhere else: such a list leaks by construction,
+     * there is nowhere to stop adding to it, and it is a reduction nobody sees again after the day
+     * they set it. The per-invocation preserve the preview offers is the other thing — keys rather
+     * than spellings, unticked on every open, written down nowhere — and it is no answer here,
+     * because it would have to be ticked on every paste for as long as the project has that root.
      *
      * This is green on purpose. It says what today's rule does, so that changing the rule is a
      * deliberate edit to an assertion rather than a golden quietly shifting under someone.
@@ -132,6 +135,50 @@ class PackageRenamingTest {
 
         result.assertKeptItsName(TOP_LEVEL, "billing")
         assertEquals("billing.Type1 field2;", result.text)
+    }
+
+    /**
+     * **A preserved type keeps its simple name; its qualifiers still follow the package rules.**
+     *
+     * Deliberate rather than incidental: preservation reaches the symbol's own name, and the
+     * package-renaming spine rule is not a thing it touches. So `com.acme.billing.PaymentFilter`
+     * ticked in the preview renders `com.pkg1.pkg2.PaymentFilter` — the reader keeps the name that
+     * made the snippet answerable, and still cannot read the employer's package layout off it.
+     */
+    @Test
+    fun `a preserved type keeps its simple name and its package renames around it`() {
+        val text = """
+            class Ledger {
+                com.acme.billing.PaymentFilter filter;
+            }
+        """.trimIndent()
+
+        val plan = planOf(
+            text,
+            pkg("com", SymbolOrigin.IN_CONTENT),
+            pkg("com.acme", SymbolOrigin.IN_CONTENT),
+            pkg("com.acme.billing", SymbolOrigin.IN_CONTENT),
+            symbol(
+                "PaymentFilter",
+                SymbolRole.TYPE,
+                SymbolOrigin.IN_CONTENT,
+                key = "class:com.acme.billing.PaymentFilter",
+            ),
+            symbol("filter", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:class:Ledger#filter"),
+        )
+
+        val result = anonymize(
+            plan,
+            AnonymizationSettings(preservedSymbols = setOf("class:com.acme.billing.PaymentFilter")),
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals(
+            "class Ledger {\n" +
+                "    com.pkg1.pkg2.PaymentFilter field3;\n" +
+                "}",
+            result.text,
+        )
     }
 
     /**

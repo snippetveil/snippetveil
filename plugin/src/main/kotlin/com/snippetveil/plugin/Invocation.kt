@@ -138,8 +138,8 @@ internal fun startAnonymizing(event: AnActionEvent, plans: PlanBuilder, proceed:
  * throws burns no number and leaves the mapping exactly as it was.
  *
  * **The defaults, plus the one setting that can only anonymize more.** Every reduction the design
- * authorises — the per-item preserve on an unresolved name, keeping comments — is per-invocation and
- * lives only in the preview dialog. That is what makes `Copy Anonymized` the maximally-anonymizing
+ * authorises — the per-item preserve, keeping comments — is per-invocation and lives only in the
+ * preview dialog. That is what makes `Copy Anonymized` the maximally-anonymizing
  * path **by construction** rather than by discipline: there is no reduction for it to read, so there
  * is nothing that can have been left on. It is also why the preview is handed *this* analysis and
  * re-renders from its own controls: the state it opens in is the state this line produced.

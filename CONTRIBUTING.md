@@ -96,12 +96,14 @@ outliving the conversation in a corpus, a log, a breach or a subpoena — and a 
 ticked once and forgotten is the severe failure mode: one tick set a year ago silently leaks the
 domain on every paste since.
 
-`CommentRetentionIsNeverPersistedTest`, in the same package and reading the same shipped classes,
-holds the first instance of it: keeping comments is a reduction, so nothing that ships may persist
-it. It follows both habits above. It asserts its own coverage — the flag has to be found, on exactly
-one class, and that class is the per-invocation settings object — and it proves it can fail, over
-fixtures that persist a reduction and an *increase*, because a check that banned persistence outright
-would be the kind of noise that teaches people to suppress a check.
+`ReductionsAreNeverPersistedTest`, in the same package and reading the same shipped classes, holds
+it: keeping comments is a reduction and so is the per-item preserve, so nothing that ships may
+persist either. It follows both habits above. It asserts its own coverage — each flag has to be
+found, on exactly one class, and that class is the per-invocation settings object — and it proves it
+can fail, over fixtures that persist each reduction and one that persists an *increase*, because a
+check that banned persistence outright would be the kind of noise that teaches people to suppress a
+check. The `Preserve` unlock is covered from the other end: the two classes that hold it while a
+preview is open carry no persistence machinery at all.
 
 The rule is not vacuous: **SnippetVeil persists exactly one setting**, the internal-library prefix
 list, and it is an increase. Before it existed every library symbol was preserved, and nothing that

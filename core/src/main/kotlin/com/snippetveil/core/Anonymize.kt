@@ -46,9 +46,20 @@ fun anonymize(
 
     // The spine rule: anonymize a symbol iff its declaring file is project-owned. The JDK and
     // third-party libraries alike are preserved. An unresolved reference joins the anonymized set
-    // by failing closed rather than by being owned — see [namespaceOf].
-    fun isReplaced(symbol: SymbolEvidence): Boolean =
-        isAnonymized(symbol, settings, ownership) && sharedKeyOf(symbol) !in constrained
+    // by failing closed rather than by being owned — see [namespaceOf]. **No setting is read here**,
+    // which is what keeps the one reduction below off the rule it sits on top of.
+    fun wouldReplace(symbol: SymbolEvidence): Boolean =
+        isAnonymized(symbol, ownership) && sharedKeyOf(symbol) !in constrained
+
+    // **The one deliberate fail-open in the product, and the only place a setting can subtract.** A
+    // name is preserved by hand when the invocation was told to emit it as written *and* the rules
+    // above were going to replace it — so a key naming a library symbol, a name Java forbids from
+    // being renamed, or nothing at all is a no-op rather than a route around the spine rule. See
+    // [AnonymizationSettings.preservedSymbols].
+    fun isPreserved(symbol: SymbolEvidence): Boolean =
+        wouldReplace(symbol) && sharedKeyOf(symbol) in settings.preservedSymbols
+
+    fun isReplaced(symbol: SymbolEvidence): Boolean = wouldReplace(symbol) && !isPreserved(symbol)
 
     val allocator = PlaceholderAllocator(
         ledger.nextNumber,
@@ -77,9 +88,12 @@ fun anonymize(
      *
      * **The stated limit of that, because it is a real one.** A placeholder issued weeks ago is
      * returned here **without being checked against the names surviving into this output** — the
-     * reserved set only steers what is allocated now. So a snippet that preserves a library or JDK
-     * name spelled exactly like an old placeholder — `Type1`, `T1` — puts that word in the output
-     * twice, standing for two things.
+     * reserved set only steers what is allocated now. So a snippet that preserves a name spelled
+     * exactly like an old placeholder — `Type1`, `T1` — puts that word in the output twice,
+     * standing for two things. The preserve override widened the set of names that can be one of
+     * those from *the JDK and the libraries* to *anything a user ticked*, which widens the scope of
+     * this limit without changing it in kind: it is still an old number meeting a name spelled like
+     * it, and still visible in the snippet the user is looking at.
      *
      * It is the right way round, and not by omission. The alternative is to hand the symbol a fresh
      * number, which makes this paste contradict an earlier one and every reply built on it — the
@@ -143,8 +157,13 @@ fun anonymize(
     val names = LinkedHashMap<String, MappedName>()
 
     fun record(symbol: SymbolEvidence, placeholder: String?) {
-        names.getOrPut(placeholder ?: PRESERVED + symbol.key) {
-            MappedName(symbol.declaredName, placeholder, kindOf(symbol), symbol.key)
+        // **The key the placeholder was handed out against**, which is the key a preserve is
+        // expressed in — see [MappedName.key]. Two symbols forced to share a placeholder are one
+        // row, and one tick on it has to preserve both or the declaration renames while the call
+        // site stays.
+        val key = sharedKeyOf(symbol)
+        names.getOrPut(placeholder ?: PRESERVED + key) {
+            MappedName(symbol.declaredName, placeholder, kindOf(symbol), key)
         }
     }
 
@@ -163,9 +182,10 @@ fun anonymize(
                     val placeholder = placeholderFor(symbol)
                     edits += Edit(occurrence.start, occurrence.end, placeholder)
                     record(symbol, placeholder)
-                } else if (symbol.origin == SymbolOrigin.UNRESOLVED) {
+                } else if (isPreserved(symbol)) {
                     // Preserved by the one reduction the design authorises, and a row *because* it
-                    // was preserved — see [MappedName].
+                    // was preserved — see [MappedName]. A row that vanished when ticked could not
+                    // be unticked.
                     record(symbol, placeholder = null)
                 }
             }
@@ -193,6 +213,11 @@ fun anonymize(
                         val placeholder = placeholderFor(reference.symbol)
                         edits += Edit(reference.start, reference.end, placeholder)
                         record(reference.symbol, placeholder)
+                    } else if (isPreserved(reference.symbol)) {
+                        // The same row for the same reason: a symbol whose only occurrence is inside
+                        // a literal is still a row the tick sits on, and one that vanished when
+                        // ticked could not be unticked.
+                        record(reference.symbol, placeholder = null)
                     }
                 }
             }
@@ -210,10 +235,9 @@ fun anonymize(
     val text = StringBuilder(plan.text)
     for (edit in edits.asReversed()) text.replace(edit.start, edit.end, edit.text)
 
-    // Every unresolved name, once, in document order of first occurrence — the order the preview
-    // dialog sorts its rows by. The placeholder is read back through [isAnonymized] rather than out
-    // of the ledger, so a name preserved by this invocation reports no placeholder even when an
-    // earlier invocation gave it one.
+    // Every unresolved name, once, in document order of first occurrence. The placeholder is read
+    // back through the rules rather than out of the ledger, so a name preserved by this invocation
+    // reports no placeholder even when an earlier invocation gave it one.
     //
     // Read off the identifiers alone. A reference inside a literal that resolved to nothing covers
     // nothing either way — the literal is decided by the text around what *did* resolve — so a
@@ -227,7 +251,7 @@ fun anonymize(
                 key = occurrence.symbol.key,
                 name = occurrence.symbol.declaredName,
                 placeholder = placeholderByKey[occurrence.symbol.key]
-                    ?.takeIf { isAnonymized(occurrence.symbol, settings, ownership) },
+                    ?.takeIf { isReplaced(occurrence.symbol) },
             )
         }
 
@@ -389,8 +413,11 @@ private fun bearsAWord(text: String, from: Int, to: Int): Boolean =
  * plan reported, and that is a correction the name-constrained rules force. A project method that
  * keeps its real name because it implements `Runnable` is project-owned evidence and a preserved
  * name, and `replaced` is a claim about what is on the clipboard: counting it as replaced would be
- * false about the one surface a user checks. Unresolved names are counted by evidence, because
- * [NameCounts.unknown] reports what the IDE could not resolve rather than what became of it.
+ * false about the one surface a user checks. **A name the user ticked in the preview is the same
+ * case and needs no arm of its own**: it was not replaced, so it is preserved, and the strip moves
+ * by one in each direction as the tick goes in. Unresolved names are counted by evidence, because
+ * [NameCounts.unknown] reports what the IDE could not resolve rather than what became of it — the
+ * override changes what was emitted, not what the IDE knew.
  *
  * Distinct means distinct *symbols*, so an override chain rendered as one placeholder is one name.
  *
@@ -434,8 +461,11 @@ private fun countsOf(
  *    platform looks them up by name rather than through a type: `main` and the serialization hooks.
  *    All non-domain words, so preserving them leaks nothing.
  *
- * **There is deliberately no user-editable list of preserved names** — a knob that leaks by
+ * **There is deliberately no *persistent* list of preserved names** — a knob that leaks by
  * construction, and a settings file that becomes a plaintext domain glossary committed to the repo.
+ * The per-invocation preserve the preview offers is the other thing: it is keys rather than
+ * spellings, it is unticked on every open, and it is written down nowhere. See
+ * [AnonymizationSettings.preservedSymbols].
  *
  * Scoped to the symbols the project owns, which is not a shortcut: a third-party library and the JDK
  * are preserved by the spine rule already, and an unresolved name must stay failed closed. A
@@ -510,25 +540,25 @@ private val PLATFORM_CONSTRAINED_NAMES =
  * in it to conceal. It is checked first rather than folded into the spine rule so that the spine
  * rule stays the one sentence it has to stay.
  *
- * [AnonymizationSettings.preservedUnknowns] is read here and nowhere else, which is what confines
- * the product's one deliberate fail-open to the branch it was granted for: the spine rule above it
- * reads no setting at all.
+ * **No per-invocation reduction is read here at all.** The one deliberate fail-open —
+ * [AnonymizationSettings.preservedSymbols] — is applied on top of this answer rather than inside it,
+ * so a preserve can only ever decline to replace something these rules had already claimed. It
+ * cannot reach a name the spine rule never owned, and it cannot make this function say a different
+ * thing about whose name it is.
  *
  * The first three arms are what [Ownership.owns] answers, and this deliberately does not delegate to
  * it. An exhaustive `when` over [SymbolOrigin] is a compile error the day a fifth origin is added,
  * which is exactly the moment somebody has to decide what becomes of it — and folding three arms
  * into one call would trade that for two lines.
  */
-private fun isAnonymized(
-    symbol: SymbolEvidence,
-    settings: AnonymizationSettings,
-    ownership: Ownership,
-): Boolean = when {
+private fun isAnonymized(symbol: SymbolEvidence, ownership: Ownership): Boolean = when {
     isTopLevelPackageSegment(symbol) -> false
 
     else -> when (symbol.origin) {
         SymbolOrigin.IN_CONTENT -> true
-        SymbolOrigin.UNRESOLVED -> symbol.key !in settings.preservedUnknowns
+
+        // Fail closed: nothing here can tell whose name it is, so it is treated as the user's own.
+        SymbolOrigin.UNRESOLVED -> true
 
         // A third-party library is preserved, and not by omission: concealing the tech stack is a
         // declared non-goal, and library names are what make a snippet answerable at all. A

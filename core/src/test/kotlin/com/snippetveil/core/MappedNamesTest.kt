@@ -71,10 +71,13 @@ class MappedNamesTest {
     }
 
     /**
-     * **An unresolved name is a row whether or not this invocation preserved it**, and that is the
-     * whole mechanism of the one reduction the design authorises: the tick sits on the row, so a row
-     * that disappeared when ticked could not be unticked. A preserved row carries no placeholder,
-     * because it stands for itself and a row mapping a name to itself maps nothing.
+     * **A name is a row whether or not this invocation preserved it**, and that is the whole
+     * mechanism of the one reduction the design authorises: the tick sits on the row, so a row that
+     * disappeared when ticked could not be unticked. A preserved row carries no placeholder, because
+     * it stands for itself and a row mapping a name to itself maps nothing.
+     *
+     * Written here over unresolved names because that is where the mechanism started; it is the same
+     * mechanism for a resolved name since 2026-08-31, asserted in [AnonymizeTest].
      */
     @Test
     fun `an unresolved name is a row whether or not it was preserved`() {
@@ -96,7 +99,7 @@ class MappedNamesTest {
 
         val preserved = anonymize(
             plan,
-            AnonymizationSettings(preservedUnknowns = setOf("unresolved:MissingType")),
+            AnonymizationSettings(preservedSymbols = setOf("unresolved:MissingType")),
             LedgerSnapshot.EMPTY,
         )
 
@@ -198,7 +201,7 @@ class MappedNamesTest {
 
     /**
      * A row for a symbol carries the key a preserve override is expressed in — which is what lets
-     * the dialog hand one back through [AnonymizationSettings.preservedUnknowns] without the table
+     * the dialog hand one back through [AnonymizationSettings.preservedSymbols] without the table
      * having to be joined to a second list to find it.
      */
     @Test
@@ -211,5 +214,42 @@ class MappedNamesTest {
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
         assertEquals(listOf("class:com.acme.Ledger"), result.names.map { it.key })
+    }
+
+    /**
+     * **And the key it carries is the one the placeholder was handed out against**, which is what
+     * makes one tick on a shared row preserve the whole override chain.
+     *
+     * The two keys part company exactly here: an override and its root are distinct symbols that
+     * Java forbids from diverging, so they are one row. A row keyed by whichever of them happened to
+     * be met first would preserve that one and rename the other — a declaration renamed and its call
+     * site kept, which is the incoherence the sharing rule exists to prevent, arriving through the
+     * tick that was meant to avoid it.
+     */
+    @Test
+    fun `a shared row is keyed by the shared key, so one tick preserves the whole chain`() {
+        val root = symbol("name", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, key = "method:class:com.acme.Named#name")
+        val overriding = symbol(
+            "name",
+            SymbolRole.METHOD,
+            SymbolOrigin.IN_CONTENT,
+            key = "method:class:com.acme.Payment#name",
+            overrideRoots = listOf(OverrideRoot(root.key, SymbolOrigin.IN_CONTENT)),
+        )
+        val text = "interface Named { String name(); }\nclass Payment implements Named { public String name() { return null; } }"
+        val plan = planPlacing(text, at(0, root), at(1, overriding))
+
+        val shared = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY).names.single().key
+
+        assertEquals("method:class:com.acme.Named#name", shared)
+
+        val preserved = anonymize(
+            plan,
+            AnonymizationSettings(preservedSymbols = setOfNotNull(shared)),
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals(text, preserved.text)
+        assertEquals(listOf(null), preserved.names.map { it.placeholder })
     }
 }

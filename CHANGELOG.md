@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Preserve in Anonymize with Preview reaches every name in the mapping table, not only the ones
+  SnippetVeil could not resolve — a name that carries the context making a snippet answerable can be
+  sent as written. It is behind an explicit unlock that warns what a preserved name is, and the
+  unlock is locked again on every open: neither it nor any tick is stored anywhere, and Copy
+  Anonymized still reads no reduction at all. Literals stay non-preservable, and a preserved type
+  keeps its simple name while its package renames around it.
 - The settings page carries a Report a problem link. SnippetVeil collects no telemetry, so a problem
   only reaches the maintainer if it is reported, and every other route to the tracker appears on an
   error balloon after something has already gone wrong.

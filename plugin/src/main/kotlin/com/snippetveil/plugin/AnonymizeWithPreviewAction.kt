@@ -8,9 +8,9 @@ import com.intellij.openapi.actionSystem.AnActionEvent
  * **Anonymize with Preview…** — the same invocation as `Copy Anonymized`, stopped at a dialog.
  *
  * It exists for one reason, and it is not caution: **it is the only place a user can anonymize
- * less.** The per-item preserve on an unresolved name and keeping comments live only in
- * [PreviewDialog] and only for one invocation, which is what leaves the fast path with no reduction
- * to read.
+ * less.** The per-item preserve — on an unresolved name, or on any name once the user has unlocked
+ * the column — and keeping comments live only in [PreviewDialog] and only for one invocation, which
+ * is what leaves the fast path with no reduction to read.
  *
  * **Preview-first — always opening the dialog — was rejected**: it taxes the common case to protect
  * against a risk that does not exist on that path. So there are two actions, and the fast one is the

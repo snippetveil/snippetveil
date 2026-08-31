@@ -213,8 +213,8 @@ class AnonymizeTest {
 
     /**
      * **The one deliberate fail-open in the product**, and it is bought rather than assumed away: a
-     * typo'd JDK call hidden behind a placeholder makes a snippet unanswerable, so one unresolved
-     * item at a time can be released.
+     * typo'd JDK call hidden behind a placeholder makes a snippet unanswerable, so one item at a
+     * time can be released.
      *
      * It is **per-invocation only, never persistent**, because the governing rule is that persistent
      * settings may only ever increase anonymization — a reduction that can be set once and forgotten
@@ -230,7 +230,7 @@ class AnonymizeTest {
 
         val result = anonymize(
             plan,
-            AnonymizationSettings(preservedUnknowns = setOf("unresolved:MissingType")),
+            AnonymizationSettings(preservedSymbols = setOf("unresolved:MissingType")),
             LedgerSnapshot.EMPTY,
         )
 
@@ -244,14 +244,48 @@ class AnonymizeTest {
     }
 
     /**
-     * **The override must not creep.** A preserve that reached resolved symbols would be the
-     * free-text preserve list this design already rejected, built out of keys instead of text — and
-     * it would put a reduction on the spine rule, which is the one thing no setting may touch. So
-     * the engine ignores a key that does not name an unresolved symbol rather than trusting whoever
-     * assembled the set.
+     * **The override reaches a resolved project-owned name too, and that is the decision of
+     * 2026-08-31 rather than creep.**
+     *
+     * A handful of names sometimes carry the context that makes a snippet answerable — a variable
+     * called `filter` is the maintainer's own example — and the friction that used to be *the engine
+     * refuses* now sits at the moment of reduction, as an unlock in the preview that is locked again
+     * on every open. What is unchanged is the rule that matters: the set is per-invocation, it is
+     * visible in the preview, and it is persisted nowhere.
+     *
+     * The counts move with it, because they are outcome-based: a name emitted as written was not
+     * replaced, whatever the reason it was not.
      */
     @Test
-    fun `a preserve override cannot reach a resolved project-owned symbol`() {
+    fun `a preserve override reaches a resolved project-owned symbol`() {
+        val plan = planOf(
+            "Ledger ledger;",
+            symbol("Ledger", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.Ledger"),
+            symbol("ledger", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:class:com.acme.Holder#ledger"),
+        )
+
+        val result = anonymize(
+            plan,
+            AnonymizationSettings(preservedSymbols = setOf("class:com.acme.Ledger")),
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals("Ledger field1;", result.text)
+        assertEquals(1, result.counts.replaced)
+        assertEquals(1, result.counts.preserved)
+
+        // And it is out of the mapping rather than in it under its own name: a preserved name stands
+        // for itself, and a row mapping a name to itself decodes a reply that never needed decoding.
+        assertEquals(mapOf("field1" to "ledger"), result.mapping)
+    }
+
+    /**
+     * **The tick stays available, which means the row stays.** A preserved name is a row with no
+     * placeholder and the key that preserved it — the same shape the unresolved preserve has always
+     * had, and for the same reason: a row that vanished when ticked could not be unticked.
+     */
+    @Test
+    fun `a preserved resolved name is still a row, with no placeholder and its key`() {
         val plan = planOf(
             "Ledger ledger;",
             symbol("Ledger", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.Ledger"),
@@ -259,11 +293,82 @@ class AnonymizeTest {
 
         val result = anonymize(
             plan,
-            AnonymizationSettings(preservedUnknowns = setOf("class:com.acme.Ledger")),
+            AnonymizationSettings(preservedSymbols = setOf("class:com.acme.Ledger")),
             LedgerSnapshot.EMPTY,
         )
 
-        assertEquals("Type1 ledger;", result.text)
+        assertEquals(
+            listOf(Triple("Ledger", null, "class:com.acme.Ledger")),
+            result.names.map { Triple(it.original, it.placeholder, it.key) },
+        )
+    }
+
+    /**
+     * Every resolved kind, because *"a variable named `filter`"* is a local as readily as it is a
+     * type — and a rule that reached only some of the kinds in the table would be one the user
+     * discovers by ticking a box that does nothing.
+     */
+    @Test
+    fun `a preserved local, parameter, field, method and type are all emitted verbatim`() {
+        val text = "class Ledger { int settle(int amount) { int filter = amount; return filter + total; } }"
+        val plan = planOf(
+            text,
+            symbol("Ledger", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.Ledger"),
+            symbol("settle", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT, key = "method:class:com.acme.Ledger#settle"),
+            symbol("amount", SymbolRole.PARAMETER, SymbolOrigin.IN_CONTENT, key = "param:settle#amount"),
+            symbol("filter", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT, key = "local:settle#filter"),
+            symbol("total", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:class:com.acme.Ledger#total"),
+        )
+
+        val result = anonymize(
+            plan,
+            AnonymizationSettings(
+                preservedSymbols = setOf(
+                    "class:com.acme.Ledger",
+                    "method:class:com.acme.Ledger#settle",
+                    "param:settle#amount",
+                    "local:settle#filter",
+                    "field:class:com.acme.Ledger#total",
+                ),
+            ),
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals(text, result.text)
+        assertEquals(0, result.counts.replaced)
+        assertEquals(5, result.counts.preserved)
+        assertTrue(result.mapping.isEmpty())
+
+        // Nothing was named, so nothing was written down and no number was burnt: a preserved name
+        // never asks the allocator for one.
+        assertTrue(result.delta.placeholders.isEmpty())
+        assertEquals(LedgerSnapshot.EMPTY.nextNumber, result.delta.nextNumber)
+    }
+
+    /**
+     * **A key naming nothing this invocation was going to replace is a no-op**, which is what keeps
+     * the override on top of the spine rule rather than inside it. A JDK name was preserved before
+     * the set was consulted, and a key naming nothing in the snippet names nothing.
+     */
+    @Test
+    fun `a preserve key that names nothing this invocation would replace changes nothing`() {
+        val plan = planOf(
+            "List names = ledger;",
+            symbol("List", SymbolRole.TYPE, SymbolOrigin.JDK, key = "class:java.util.List"),
+            symbol("ledger", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:class:com.acme.Holder#ledger"),
+        )
+
+        val result = anonymize(
+            plan,
+            AnonymizationSettings(preservedSymbols = setOf("class:java.util.List", "class:com.acme.NotHere")),
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals("List names = field1;", result.text)
+
+        // The JDK row did not appear: a name preserved by the spine rule is a count, not a row the
+        // user can do anything about, and a key aimed at one does not make it one.
+        assertEquals(listOf("ledger"), result.names.map { it.original })
     }
 
     /**

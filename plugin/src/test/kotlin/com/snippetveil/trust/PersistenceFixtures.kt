@@ -10,10 +10,10 @@ import com.intellij.openapi.components.Storage
  *
  * A rule that has never been seen to fail is one edit from proving nothing, so each rule here is
  * pointed at a class written to be flagged **and** at one written to look like a violation and not
- * be one. [PersistsCommentRetention] must be flagged and [PersistsAnIncrease] must not;
- * [RoamsItsState] must be flagged and [KeepsItsStateLocal] must not.
+ * be one. [PersistsCommentRetention] and [PersistsAPreserveList] must be flagged and
+ * [PersistsAnIncrease] must not; [RoamsItsState] must be flagged and [KeepsItsStateLocal] must not.
  *
- * All four are test scope, so `SHIPPED_CLASSES` excludes them and none is registered as a service
+ * All five are test scope, so `SHIPPED_CLASSES` excludes them and none is registered as a service
  * anywhere: they are read as bytecode by a rule and never instantiated by the platform.
  */
 @State(name = "SnippetVeilFixture", storages = [Storage("snippetveil-fixture.xml")])
@@ -26,6 +26,29 @@ internal class PersistsCommentRetention : PersistentStateComponent<PersistsComme
      */
     internal class Settings {
         var keepComments: Boolean = false
+    }
+
+    private var settings = Settings()
+
+    override fun getState(): Settings = settings
+
+    override fun loadState(state: Settings) {
+        settings = state
+    }
+}
+
+/**
+ * The same mistake made with the other reduction: a preserve list written to disk.
+ *
+ * It is the shape the design has refused from the start — *a settings file that becomes a plaintext
+ * domain glossary committed to the repo* — and since the override reached resolved names it is a
+ * list that could hold every class in the codebase rather than the handful the IDE failed on.
+ */
+@State(name = "SnippetVeilPreserveFixture", storages = [Storage("snippetveil-fixture.xml")])
+internal class PersistsAPreserveList : PersistentStateComponent<PersistsAPreserveList.Settings> {
+
+    internal class Settings {
+        var preservedSymbols: MutableList<String> = mutableListOf()
     }
 
     private var settings = Settings()

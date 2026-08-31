@@ -112,7 +112,7 @@ class MappingExportTest {
 
         val result = anonymize(
             plan,
-            AnonymizationSettings(preservedUnknowns = setOf("unresolved:MissingType")),
+            AnonymizationSettings(preservedSymbols = setOf("unresolved:MissingType")),
             LedgerSnapshot.EMPTY,
         )
 
