@@ -201,8 +201,9 @@ private val WORD = Regex("""[\p{L}\p{N}_$]+""")
  * — and, in `De-anonymize Clipboard and Paste`, written into source rather than refused. It is
  * bounded: a **qualified** key's rename is in the mapping for the life of the project and therefore
  * always restores, so the gap is a renamed local, parameter or type parameter in a reply older than
- * the sidecar window. Recognising by shape is what the product refuses everywhere else, and this is
- * the one place the refusal costs something.
+ * the sidecar window — and every renamed placeholder after a reset, which clears both stores at
+ * once. Recognising by shape is what the product refuses everywhere else, and this is the one place
+ * the refusal costs something.
  *
  * **Something now depends on that count being exhaustive, which it did not when this was written.**
  * `De-anonymize Clipboard and Paste` refuses to write anything it did not restore in full, and asks
@@ -210,7 +211,8 @@ private val WORD = Regex("""[\p{L}\p{N}_$]+""")
  * see but a placeholder written silently into source. The tolerance argued above was priced against
  * a clipboard the user reads before it lands anywhere. Adding a namespace without adding it here is
  * therefore no longer a cosmetic omission, and the derivation from [SymbolRole] is what keeps it
- * from being possible by accident.
+ * from being possible by accident — which is a guarantee about the *default* namespaces, and all
+ * this can offer. What to do about the custom stem above is snippetveil/snippetveil#74.
  */
 private val MINTED = Regex(
     (SymbolRole.entries.map { it.placeholderPrefix } +

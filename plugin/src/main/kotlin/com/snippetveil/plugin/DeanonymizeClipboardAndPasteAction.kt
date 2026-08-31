@@ -123,14 +123,27 @@ private fun Editor?.acceptsAnInsert(): Boolean = this != null && !isViewer && do
  * the details and wants the text anyway. The reverse is not true — there is no undo for having read
  * a placeholder as a name.
  *
- * **The check is exactly as complete as `Unrestored` is, and that is now load-bearing in a way it
- * was not.** `deanonymize` counts an undecoded word as unrestored when it matches the minted shape,
- * and that recogniser's own KDoc records a limit: a fourth derived-accessor prefix would restore
- * correctly and go *uncounted* once it fell past the horizon. Nothing escapes the count today — the
- * pattern is built from `SymbolRole.entries` rather than written out — so this is a note about who
- * depends on that, not a hole. What changed is the stake: the argument for tolerating an uncounted
- * word was written when under-recovery meant a clipboard the user reads before it lands anywhere,
- * and this caller turns the same word into a silent write into source.
+ * **The check is exactly as complete as `Unrestored` is, and something escapes the count today.**
+ * `deanonymize` counts an undecoded word as unrestored when it matches the minted shape, and that
+ * shape is every namespace the engine mints from **by default** — derived from `SymbolRole.entries`
+ * rather than written out, so no default namespace can be forgotten into it.
+ *
+ * **A stem the user typed in the preview is outside it, and cannot be brought inside.** A custom
+ * stem is arbitrary text, so a pattern wide enough to recognise `theFilter7` would claim `sha256`
+ * and `count2` out of the model's own prose and refuse most replies outright — and *do not guess at
+ * names by shape* is the rule this product refuses to break everywhere else. So a renamed
+ * placeholder that decodes in neither table is not reported here, and **this action writes it into
+ * source** where a default-stemmed one would have been refused.
+ *
+ * It is bounded rather than open: a qualified key's rename is in the mapping for the life of the
+ * project, so the gap is a renamed local, parameter, type parameter or label in a reply older than
+ * the sidecar horizon — and every renamed placeholder after a `Reset Mappings…`, which clears both
+ * stores at once.
+ *
+ * **This paragraph is a disclosure, not a design.** The tolerance it describes was argued when
+ * under-recovery meant a clipboard the user reads before it lands anywhere, and this caller turns
+ * the same word into a silent write into source; that argument does not carry here, and the
+ * decision on what to do about it is snippetveil/snippetveil#74.
  *
  * ### The clipboard is not written, by either path
  *
