@@ -5,9 +5,11 @@ import com.intellij.ui.EditorTextField
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.snippetveil.core.AnonymizationSettings
+import com.snippetveil.core.LedgerDelta
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.MappedKind
 import com.snippetveil.core.MappedName
+import com.snippetveil.core.MintedName
 import com.snippetveil.core.Renaming
 import com.snippetveil.core.StemRejection
 import com.snippetveil.core.numberOf
@@ -238,6 +240,50 @@ class PlaceholderRenameTest : JavaSnippetTestCase() {
             assertEquals(original, table.getValueAt(rowOf(table, "filter"), PLACEHOLDER_COLUMN))
             assertNull("the reverted edit left a reason behind", dialog.rejection)
         }
+    }
+
+    /**
+     * **The headline case, over real Java rather than a hand-written plan.** A type renamed in the
+     * dialog renders `stem + number`; the **qualified key** is what carries it into the mapping; and
+     * the next invocation over the same class comes back under the same word with no rename stated
+     * anywhere — which is the whole of *stability comes from the ledger row and from nothing else*.
+     *
+     * `:core` asserts the rule over plan literals. What this adds is that the key the plugin's own
+     * walk derives for a class is the key the rename lands on, which a plan written by a test cannot
+     * show.
+     */
+    fun `test a renamed type is committed under its qualified key and comes back next time`() {
+        assertTheHarnessResolves()
+        val plan = planFor("Ledger.java", "class Ledger { <selection>Ledger settle() { return this; }</selection> }")
+        val ledger = PlaceholderLedger.getInstance()
+
+        var renamed = ""
+        var delta: LedgerDelta? = null
+        withDialog(PreviewDialog.forCopy(project, Analysis.of(plan, AnonymizationSettings.DEFAULTS, ledger.snapshotOf(project)))) { dialog ->
+            val table = tableIn(dialog)
+            val row = rowOf(table, "Ledger")
+
+            assertTrue("a type minted by this invocation was not offered the rename", table.isCellEditable(row, PLACEHOLDER_COLUMN))
+            commitStem(table, row, "FilterType")
+
+            renamed = table.getValueAt(rowOf(table, "Ledger"), PLACEHOLDER_COLUMN).toString()
+            assertEquals("FilterType", stemOf(renamed))
+            assertTrue("the number went away: $renamed", numberOf(renamed).isNotEmpty())
+            assertTrue("the rename is not in the render: " + dialog.analysis.result.text, renamed in dialog.analysis.result.text)
+            delta = dialog.analysis.result.delta
+        }
+
+        // The copy is the commit point, and this is what it commits — the same delta [deliver] takes.
+        ledger.commit(project, delta!!)
+
+        val row = ledger.snapshotOf(project).placeholders.entries.single { it.value.original == "Ledger" }
+        assertEquals("the rename did not reach the mapping", MintedName(renamed, "Ledger"), row.value)
+        assertTrue("the class was filed under a key nothing qualified: " + row.key, "Ledger" in row.key)
+
+        val again = Analysis.of(plan, AnonymizationSettings.DEFAULTS, ledger.snapshotOf(project))
+
+        assertTrue("the rename did not survive: " + again.result.text, renamed in again.result.text)
+        assertEquals(Renaming.ESTABLISHED, again.result.names.single { it.original == "Ledger" }.renaming)
     }
 
     /**
