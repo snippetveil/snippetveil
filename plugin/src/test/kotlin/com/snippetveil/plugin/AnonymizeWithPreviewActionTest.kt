@@ -136,7 +136,7 @@ class AnonymizeWithPreviewActionTest : JavaSnippetTestCase() {
 
         val settings = checkNotNull(opened) { "the second preview never opened" }
         assertFalse("the second preview opened with the first one's reduction", settings.keepComments)
-        assertEmpty(settings.preservedUnknowns)
+        assertEmpty(settings.preservedSymbols)
         assertFalse("the second copy kept a comment nobody ticked: " + clipboard(), "reconcile" in clipboard())
     }
 
@@ -154,7 +154,7 @@ class AnonymizeWithPreviewActionTest : JavaSnippetTestCase() {
 
         invokeWithPreview { _, analysis ->
             val unknown = analysis.result.names.first { it.original == "MissingType" }
-            analysis.rendered(settings = AnonymizationSettings(preservedUnknowns = setOfNotNull(unknown.key)))
+            analysis.rendered(settings = AnonymizationSettings(preservedSymbols = setOfNotNull(unknown.key)))
         }
         awaitBackgroundWork()
 

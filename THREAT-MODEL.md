@@ -160,10 +160,19 @@ release note because a trust document that lists only its strengths is not a tru
 - **Comments leak wholesale when you keep them.** They are stripped by default because prose is
   where a snippet's domain vocabulary actually lives. Keeping them for one snippet, from the
   preview, hands over their text unmodified — renaming symbols does nothing to a sentence.
-- **The per-item preserve override can hand a secret back.** The preview lets you release a name the
-  IDE could not resolve. That is the one reduction the design allows, and it exists because an
-  unresolvable name is sometimes the one thing the question is about. It is also a direct route from
-  *SnippetVeil concealed this* to *I chose to send it*.
+- **The per-item preserve override can hand a secret back.** The preview lets you release a name and
+  send it exactly as written. Unresolved names can be released directly; every other name in the
+  table becomes releasable once you unlock the column, which asks you to confirm first and says what
+  a preserved name is. That is the one reduction the design allows, and it exists because a name is
+  sometimes the one thing the question is about — a variable called `filter`, or a call the IDE could
+  not resolve. It is a direct route from *SnippetVeil concealed this* to *I chose to send it*.
+
+  What holds it in place is structural rather than a warning: **the set is per-invocation and is
+  stored nowhere.** The unlock is locked again on every open, there is no *don't warn me again*, and
+  every box is unticked on every open — so the failure mode this document worries about most, a
+  reduction set once and forgotten, cannot be reached from here. The warning is the friction, and it
+  sits at the moment of reduction rather than on every invocation, which is where a warning stops
+  being read. Literals are not preservable at all.
 - **A selection inside a non-project file is preserved.** Anonymization replaces names your project
   owns. Select code in a decompiled library, a dependency's sources, or a file outside the analysed
   project, and there is nothing project-owned in it to replace — the output is the input.

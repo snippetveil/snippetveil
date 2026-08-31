@@ -23,8 +23,9 @@ import javax.swing.table.AbstractTableModel
  * The rule governing every setting this product will ever have is that *persistent settings may only
  * ever increase anonymization; any reduction is per-invocation and visible in the preview*, and this
  * page is what that rule looks like once it has finished eating the knob list. Comment retention went
- * per-invocation, the per-item preserve stayed in the preview, and **exactly one knob survives as
- * persistent state — the one that only ever increases anonymization.** What is left besides it is
+ * per-invocation, the per-item preserve stayed in the preview — behind an unlock that is locked again
+ * on every open, and never written down here or anywhere else — and **exactly one knob survives as
+ * persistent state, the one that only ever increases anonymization.** What is left besides it is
  * not configuration at all: two facts about the mapping, a button, and a link.
  *
  * ### Project-level

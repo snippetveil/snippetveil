@@ -8,17 +8,36 @@ package com.snippetveil.core
  * reduction is per-invocation and visible in the preview.** A reduction that can be set once and
  * forgotten silently leaks on every paste after it.
  *
- * @param preservedUnknowns the symbol keys of unresolved names to emit verbatim, from
- *   [AnonymizationResult.unknowns]. **Per-invocation only, never persisted**, by the rule above —
- *   this is the one deliberate fail-open in the product, and it exists to buy off the case where a
- *   typo'd JDK call is hidden behind a placeholder and the snippet stops being answerable.
+ * @param preservedSymbols the symbol keys this invocation emits verbatim, read off
+ *   [MappedName.key]. **Per-invocation only, never persisted**, by the rule above — this is the one
+ *   deliberate fail-open in the product, and it exists because a handful of names sometimes carry
+ *   the context that makes a snippet answerable at all: a typo'd JDK call hidden behind a
+ *   placeholder, or a variable called `filter` that the question is entirely about.
  *
- *   **A key naming anything but an unresolved symbol is ignored**, and that is a rule rather than
- *   defensiveness: the override was given to unresolved names specifically and it must not creep.
- *   One that reached resolved symbols would be the free-text preserve list this design already
- *   rejected, built out of keys instead of text, and it would put a reduction on the spine rule.
- *   Enforcing it here rather than in the dialog puts it where creep cannot happen by adding a
- *   checkbox.
+ *   **A key may name any symbol this invocation would otherwise replace** — a resolved local,
+ *   parameter, field, method or type as readily as an unresolved name. The friction that used to be
+ *   *the engine refuses* is an explicit unlock in the preview instead: locked again on every open,
+ *   warned before it opens, and remembered nowhere. That puts the friction at the moment of
+ *   reduction, where it is read, rather than on every invocation — and it leaves the governing rule
+ *   above exactly as it was, because a reduction is still per-invocation and still visible in the
+ *   preview. (It reached unresolved names alone until the maintainer extended it on 2026-08-31,
+ *   which is worth one sentence because comments elsewhere may still be catching up.)
+ *
+ *   **A key naming anything this invocation was not going to replace is a no-op**, which is what
+ *   keeps the extension off the spine rule: the JDK and third-party libraries are preserved before
+ *   this set is consulted, a name Java forbids from being renamed was never going to move, and a
+ *   key naming nothing in the snippet names nothing. **A literal has no key and stays
+ *   non-preservable** — an explicit non-goal, literal text being the most directly sensitive
+ *   content the product handles.
+ *
+ *   **A key is the key the placeholder was handed out against** — see [MappedName.key] — so one
+ *   tick on the single row two symbols share preserves the whole override chain rather than half of
+ *   it, which would rename a declaration and keep its call site.
+ *
+ *   **A preserved type keeps its simple name and nothing more**: its package still follows the
+ *   package rules, so `com.acme.billing.PaymentFilter` in a renamed package renders
+ *   `pkg1.PaymentFilter`. Preservation reaches the symbol's own name, and the package-renaming
+ *   spine rule is not a thing it touches.
  * @param keepComments whether comments and javadoc survive into the output. **Off by default, and
  *   per-invocation only** — a later ticket puts it in the preview as a tick that resets to *strip*
  *   on every invocation, and it is **never persisted**, by the rule above.
@@ -44,7 +63,7 @@ package com.snippetveil.core
  *   rule above rather than being an exception to it.
  */
 class AnonymizationSettings(
-    val preservedUnknowns: Set<String> = emptySet(),
+    val preservedSymbols: Set<String> = emptySet(),
     val keepComments: Boolean = false,
     val internalLibraries: InternalLibraries = InternalLibraries(),
 ) {
@@ -321,7 +340,7 @@ class AnonymizationResult(
  * about, and `String`, `List` and `println` would drown the fourteen rows that matter. They are a
  * number instead, in [NameCounts.preserved].
  *
- * The one row with no placeholder is an **unresolved name this invocation preserved**, which is the
+ * The one row with no placeholder is **a name this invocation preserved by hand**, which is the
  * single reduction the design authorises. It stays in the table precisely because it was preserved:
  * the tick that preserved it is on the row, and a row that vanished when ticked could not be
  * unticked.
@@ -331,8 +350,14 @@ class AnonymizationResult(
  *   emitted
  * @param kind what it is, which is what makes the table readable at a glance and the export
  *   reversible by hand
- * @param key the symbol key, or `null` for a literal — which has none, and needs none. It is what a
- *   per-invocation preserve is expressed in; see [AnonymizationSettings.preservedUnknowns].
+ * @param key **the key the placeholder was handed out against**, or `null` for a literal — which has
+ *   none, and needs none. It is what a per-invocation preserve is expressed in; see
+ *   [AnonymizationSettings.preservedSymbols].
+ *
+ *   The key the placeholder was handed out against rather than the symbol's own, and the two part
+ *   company exactly where two symbols share a row: an override and its root are one row because Java
+ *   forbids their names from diverging, and a tick that reached only one of them would rename a
+ *   declaration and keep its call site.
  */
 class MappedName(
     val original: String,
@@ -396,11 +421,13 @@ class CommentCounts(val prose: Int, val code: Int) {
  * One name the IDE could not resolve, and what this invocation did with it.
  *
  * Reported as a list rather than only as a count because the count alone would name a surface the
- * user cannot act on. The preview dialog's per-item **Preserve** is built on exactly these three
- * fields: [name] to show, [placeholder] to show it against, and [key] to hand back through
- * [AnonymizationSettings.preservedUnknowns].
+ * user cannot act on. It is the evidence an unresolved name produced, and it stays that whatever
+ * this invocation did with the name: [key], [name] and [placeholder] say what the IDE could not
+ * resolve and what was emitted for it. The preview's **Preserve** reads rows off
+ * [AnonymizationResult.names] rather than off this list, because that list is now the whole table.
  *
- * @param key the symbol key, which is what a preserve override is expressed in
+ * @param key the symbol key — the same one [MappedName.key] carries for this name, which is the key
+ *   a preserve override is expressed in
  * @param name the name as it is written in the snippet
  * @param placeholder what it renders as, or `null` when this invocation preserved it and its real
  *   name was emitted. Null rather than the name itself: a preserved item has no placeholder, and
@@ -437,7 +464,10 @@ class UnknownName(
  *   leaked", which is precisely the inversion to avoid. It counts what did not resolve, so it is
  *   unmoved by a per-invocation preserve: the override changes what was emitted, not what the IDE
  *   knew.
- * @param preserved distinct names that survive verbatim — the JDK and third-party libraries, and
- *   the project's own names that Java forbids from being anything else
+ * @param preserved distinct names that survive verbatim — the JDK and third-party libraries, the
+ *   project's own names that Java forbids from being anything else, and **the names this invocation
+ *   was told by hand to emit as written**. Outcome-based, so a ticked resolved name moves here out
+ *   of [replaced]: this number is a claim about what is on the clipboard, and a name emitted as
+ *   written was not replaced whatever the reason.
  */
 class NameCounts(val replaced: Int, val unknown: Int, val preserved: Int)

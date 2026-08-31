@@ -256,7 +256,7 @@ internal val NON_TEST_CODE = ImportOption { location ->
  * because these tests live in it, `:core`'s because `:plugin` depends on it. That is the same set
  * of classes the distribution's `lib/` is built from.
  *
- * Internal rather than private so that [CommentRetentionIsNeverPersistedTest] reads the same set
+ * Internal rather than private so that [ReductionsAreNeverPersistedTest] reads the same set
  * these rules do. A second importer would be a second definition of *what ships*, and the two would
  * drift on the day one of them is updated.
  */

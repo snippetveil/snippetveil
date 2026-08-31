@@ -1,6 +1,10 @@
 package com.snippetveil.plugin
 
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.ui.TestDialog
+import com.intellij.openapi.ui.TestDialogManager
 import com.intellij.openapi.util.Disposer
+import com.intellij.ui.components.ActionLink
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JComponent
@@ -23,6 +27,36 @@ internal fun withDialog(dialog: PreviewDialog, assertions: (PreviewDialog) -> Un
     } finally {
         Disposer.dispose(dialog.disposable)
     }
+}
+
+/**
+ * The unlock link, as a user reaches it — the one [ActionLink] the reduction opening puts under its
+ * table. `single()` is the assertion: a second link-styled control in this dialog would make every
+ * *"clicking the unlock"* below ambiguous, and silently so.
+ */
+internal fun unlockIn(dialog: PreviewDialog): ActionLink =
+    descendantsOf(dialog.createCenterPanel()).filterIsInstance<ActionLink>().single()
+
+/**
+ * Answers the unlock's warning with [answer] until [parent] is disposed, handing its text to [read].
+ *
+ * The warning is a modal window, so it is the one thing about the unlock that a built-but-never-shown
+ * dialog cannot be asked about any other way. **The teardown is registered here rather than left to
+ * the caller** — a test that answered every dialog and forgot to stop would answer the *next* test's
+ * too, and the light fixture shares one project across the whole class.
+ *
+ * Named apart from `MappingResetTest`'s own helper rather than shared with it: that one answers the
+ * settings page's confirmation, and one helper reaching two unrelated dialogs would read as a
+ * connection between them that does not exist.
+ */
+internal fun answerDialogsWith(parent: Disposable, answer: Int, read: (String) -> Unit = {}) {
+    TestDialogManager.setTestDialog(
+        TestDialog { message ->
+            read(message)
+            answer
+        },
+    )
+    Disposer.register(parent) { TestDialogManager.setTestDialog(TestDialog.DEFAULT) }
 }
 
 /** The mapping table, as it is rendered — there is exactly one in the dialog. */

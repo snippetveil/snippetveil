@@ -1,6 +1,8 @@
 package com.snippetveil.plugin
 
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.EditorTextField
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerSnapshot
@@ -83,23 +85,49 @@ class PreviewDialogTest : JavaSnippetTestCase() {
     }
 
     /**
-     * **`Preserve` appears on `Unknown` rows and on no other row.** The override was given to
-     * unresolved names specifically and **it must not creep**: a preserve checkbox on every row *is*
-     * the free-text preserve list this design already rejected, built out of clicks instead of text.
+     * **Locked, `Preserve` appears on `Unknown` rows and on no other row** — which is today's
+     * behaviour and the state every opening starts in.
      *
      * The cell is empty rather than an unticked box on every other row — a box nobody may tick reads
      * as an offer the user has done something wrong to lose.
      */
-    fun `test preserve is offered on Unknown rows and on no other row`() {
-        val rows = listOf(
-            MappedName("Ledger", "Type1", MappedKind.TYPE, key = "class:com.acme.Ledger"),
-            MappedName("MissingType", "Unknown2", MappedKind.UNKNOWN, key = "unresolved:MissingType"),
-            MappedName("merchant settlement failed", "str3", MappedKind.LITERAL),
-        )
-        val model = MappingTableModel(rows, reducible = true) { _, _ -> }
+    fun `test preserve is offered on Unknown rows and on no other row while it is locked`() {
+        val model = MappingTableModel(THREE_ROWS, reducible = true) { _, _ -> }
 
-        assertEquals(listOf(false, true, false), rows.indices.map { model.isCellEditable(it, PRESERVE_COLUMN) })
-        assertEquals(listOf(null, false, null), rows.indices.map { model.getValueAt(it, PRESERVE_COLUMN) })
+        assertEquals(
+            listOf(false, true, false),
+            THREE_ROWS.indices.map { model.isCellEditable(it, PRESERVE_COLUMN) },
+        )
+        assertEquals(
+            listOf(null, false, null),
+            THREE_ROWS.indices.map { model.getValueAt(it, PRESERVE_COLUMN) },
+        )
+    }
+
+    /**
+     * **Unlocked, every row with a key is preservable — and the literal still is not.**
+     *
+     * The key is what decides rather than the kind, and the literal row is the whole reason that
+     * matters: a preserve travels as a key, a literal has none, and literal text is the most
+     * directly sensitive content the product handles. Offering a box there would be an offer that
+     * could do nothing, on the one row where a user would most want it to.
+     *
+     * Every box comes up unticked, because a tick is read off the render and nothing was preserved
+     * by unlocking.
+     */
+    fun `test unlocking offers preserve on every keyed row and never on a literal`() {
+        val model = MappingTableModel(THREE_ROWS, reducible = true) { _, _ -> }
+
+        model.unlocked = true
+
+        assertEquals(
+            listOf(true, true, false),
+            THREE_ROWS.indices.map { model.isCellEditable(it, PRESERVE_COLUMN) },
+        )
+        assertEquals(
+            listOf(false, false, null),
+            THREE_ROWS.indices.map { model.getValueAt(it, PRESERVE_COLUMN) },
+        )
     }
 
     /**
@@ -126,8 +154,8 @@ class PreviewDialogTest : JavaSnippetTestCase() {
      *
      * On the common snippet — everything resolved — the column renders a header and nothing under
      * it, which is a truthful signal that reads as a broken dialog to anyone who has not been told
-     * what it is. The two sentences are the telling: the override belongs to unresolved names, and
-     * an empty column is the good case rather than a missing control.
+     * what it is. The two sentences are the telling: the override belongs to unresolved names by
+     * default, and the unlock is where an empty column stops being the end of it.
      *
      * **No other header carries a tip**, and that half is asserted rather than left to the
      * implementation: the header's default renderer hands back one component for every column, so a
@@ -140,8 +168,8 @@ class PreviewDialogTest : JavaSnippetTestCase() {
     fun `test the Preserve header says who it is for and no other header says anything`() {
         assertTheHarnessResolves()
         val analysis = analysisOf("class Ledger { <selection>void settle() {}</selection> }")
-        val tip = "Only names SnippetVeil could not resolve can be preserved. " +
-            "An empty column means every reference resolved."
+        val tip = "By default only names SnippetVeil could not resolve can be preserved. " +
+            "Unlock Preserve for resolved names to tick any name in this table."
 
         withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
             val table = tableIn(dialog)
@@ -176,8 +204,8 @@ class PreviewDialogTest : JavaSnippetTestCase() {
     fun `test a header tip that is not ours survives, and Preserve still says its own`() {
         assertTheHarnessResolves()
         val analysis = analysisOf("class Ledger { <selection>void settle() {}</selection> }")
-        val tip = "Only names SnippetVeil could not resolve can be preserved. " +
-            "An empty column means every reference resolved."
+        val tip = "By default only names SnippetVeil could not resolve can be preserved. " +
+            "Unlock Preserve for resolved names to tick any name in this table."
 
         withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
             val table = tableIn(dialog)
@@ -434,6 +462,167 @@ class PreviewDialogTest : JavaSnippetTestCase() {
         }
     }
 
+    /**
+     * **The reduction opening opens locked, and behaves exactly as it did before the unlock existed.**
+     *
+     * The link is the whole of what is new until it is clicked: the resolved rows carry no box, the
+     * header still explains the default, and the render is the maximally-anonymized one. This is the
+     * test that says *today's behaviour survives*, so the unlock is an addition rather than a change
+     * of default.
+     */
+    fun `test the reduction opening is locked on open and offers the unlock`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle(MissingType m) {}</selection> }")
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val table = tableIn(dialog)
+
+            assertEquals("Unlock Preserve for resolved names\u2026", unlockIn(dialog).text)
+            assertTrue("the unlock is not offered", unlockIn(dialog).isEnabled)
+            // settle, MissingType, m — and only the unresolved one is offered a box.
+            assertEquals(
+                listOf(false, true, false),
+                (0 until table.rowCount).map { table.isCellEditable(it, PRESERVE_COLUMN) },
+            )
+            assertEquals(LOCKED_TOOLTIP, headerTooltipsIn(table)[PRESERVE_COLUMN])
+        }
+    }
+
+    /** The read-only re-open offers no unlock, because it has no reduction to unlock. */
+    fun `test the read-only re-open offers no unlock`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle() {}</selection> }")
+
+        withDialog(PreviewDialog.forReview(project, analysis)) { dialog ->
+            assertEmpty(descendantsOf(dialog.createCenterPanel()).filterIsInstance<ActionLink>())
+        }
+    }
+
+    /**
+     * **Unlocking warns first, and the warning says what a preserved name is** — the one moment the
+     * product asks a user to confirm a reduction, so the sentence it asks with is asserted rather
+     * than left to whoever edits it next.
+     *
+     * After it, the resolved rows carry boxes, every one of them unticked: nothing was preserved by
+     * unlocking, and the render is untouched until a box is ticked.
+     */
+    fun `test unlocking warns and then offers preserve on every keyed row, all unticked`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle(int amount) {}</selection> }")
+        var warning: String? = null
+        answerDialogsWith(testRootDisposable, Messages.YES) { warning = it }
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val table = tableIn(dialog)
+            val before = dialog.analysis.result.text
+
+            unlockIn(dialog).doClick()
+
+            assertEquals(
+                "Preserved names are sent exactly as written in your code. SnippetVeil will not " +
+                    "conceal a name you tick.\n\n" +
+                    "Only preserve names you would be comfortable typing into the chat yourself.",
+                warning,
+            )
+            assertEquals(
+                listOf(true, true),
+                (0 until table.rowCount).map { table.isCellEditable(it, PRESERVE_COLUMN) },
+            )
+            assertEquals(
+                listOf(false, false),
+                (0 until table.rowCount).map { table.getValueAt(it, PRESERVE_COLUMN) },
+            )
+            assertEquals("unlocking changed the render", before, dialog.analysis.result.text)
+            assertEquals(
+                "Ticked names are emitted exactly as written in your code.",
+                headerTooltipsIn(table)[PRESERVE_COLUMN],
+            )
+            assertEquals("Preserve unlocked for this preview", unlockIn(dialog).text)
+        }
+    }
+
+    /** **Cancel leaves it locked**, which is the whole of the Cancel path: nothing else moves. */
+    fun `test cancelling the unlock leaves preserve locked`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle(int amount) {}</selection> }")
+        answerDialogsWith(testRootDisposable, Messages.NO)
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val table = tableIn(dialog)
+
+            unlockIn(dialog).doClick()
+
+            assertEquals(
+                listOf(false, false),
+                (0 until table.rowCount).map { table.isCellEditable(it, PRESERVE_COLUMN) },
+            )
+            assertEquals(LOCKED_TOOLTIP, headerTooltipsIn(table)[PRESERVE_COLUMN])
+            assertEquals(UNLOCK_LINK, unlockIn(dialog).text)
+            assertTrue("cancelling took the unlock away", unlockIn(dialog).isEnabled)
+        }
+    }
+
+    /**
+     * **A second open is locked again**, and locked because the dialog is constructed that way rather
+     * than because anything reset it. A sticky unlock is the set-once-and-forgotten reduction the
+     * governing rule exists to prevent, and it is the one thing about this feature that could leak
+     * silently.
+     */
+    fun `test the unlock does not survive into the next opening`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle(int amount) {}</selection> }")
+        answerDialogsWith(testRootDisposable, Messages.YES)
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            unlockIn(dialog).doClick()
+            assertTrue("the first opening never unlocked", tableIn(dialog).isCellEditable(0, PRESERVE_COLUMN))
+        }
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val table = tableIn(dialog)
+
+            assertFalse("the second opening inherited the unlock", table.isCellEditable(0, PRESERVE_COLUMN))
+            assertEquals(UNLOCK_LINK, unlockIn(dialog).text)
+            assertEquals(LOCKED_TOOLTIP, headerTooltipsIn(table)[PRESERVE_COLUMN])
+        }
+    }
+
+    /**
+     * The same round trip the `Unknown` tick has, now on a resolved row: the ticked name is emitted
+     * as written, the row keeps its tick and loses its placeholder, and un-ticking puts the
+     * placeholder back. Nothing is committed by any of it.
+     */
+    fun `test ticking preserve on a resolved row emits that name verbatim`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle(int filter) { int x = filter; }</selection> }")
+        answerDialogsWith(testRootDisposable, Messages.YES)
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val panel = dialog.createCenterPanel()
+            val table = tableIn(panel)
+            val before = PlaceholderLedger.getInstance().snapshotOf(project)
+            unlockIn(dialog).doClick()
+            val row = (0 until table.rowCount).single { table.getValueAt(it, 0) == "filter" }
+
+            table.setValueAt(true, row, PRESERVE_COLUMN)
+
+            assertTrue("the preserved name is not in the render: " + dialog.analysis.result.text,
+                "filter" in dialog.analysis.result.text)
+            assertTrue("the code pane still shows the old render", "filter" in codeIn(panel).text)
+            assertEquals("—", table.getValueAt(row, 1))
+            assertEquals(true, table.getValueAt(row, PRESERVE_COLUMN))
+
+            // And back: the reduction is a tick, not a decision.
+            table.setValueAt(false, row, PRESERVE_COLUMN)
+            assertFalse("un-ticking did not put the placeholder back: " + dialog.analysis.result.text,
+                "filter" in dialog.analysis.result.text)
+
+            val after = PlaceholderLedger.getInstance().snapshotOf(project)
+            assertEquals("a tick named a symbol", before.placeholders, after.placeholders)
+            assertEquals("a tick burnt a number", before.nextNumber, after.nextNumber)
+        }
+    }
+
     private fun codeIn(component: Container): EditorTextField = descendantsOf(component).filterIsInstance<EditorTextField>().single()
 
     /**
@@ -460,3 +649,14 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             }
         }
 }
+
+/**
+ * A resolved row, an `Unknown` row and a replaced literal — the three shapes the `Preserve` column
+ * has to tell apart, held once so that the locked case and the unlocked case are read off the same
+ * table rather than off two that could drift.
+ */
+private val THREE_ROWS = listOf(
+    MappedName("Ledger", "Type1", MappedKind.TYPE, key = "class:com.acme.Ledger"),
+    MappedName("MissingType", "Unknown2", MappedKind.UNKNOWN, key = "unresolved:MissingType"),
+    MappedName("merchant settlement failed", "str3", MappedKind.LITERAL),
+)

@@ -157,17 +157,33 @@ reductions:
 - **Keep comments and javadoc**, for this snippet only.
 - **Preserve**, on an individual row.
 
-**The Preserve column only ever has checkboxes on `Unknown` rows.** It is the override for a name
-SnippetVeil could not resolve and you know to be harmless — a library it failed to see, say. Every
-other row renders nothing at all in that column, rather than a disabled checkbox, which would read as
-an offer you had done something wrong to lose.
+**By default the Preserve column only has checkboxes on `Unknown` rows.** That is the override for a
+name SnippetVeil could not resolve and you know to be harmless — a library it failed to see, say.
+Every other row renders nothing at all in that column, rather than a disabled checkbox, which would
+read as an offer you had done something wrong to lose.
 
 **An empty Preserve column means every reference resolved.** That is the good case, not a broken
 dialog.
 
-The override is confined to unresolved names on purpose: a preserve checkbox on every row would be a
-free-text preserve list built out of clicks, and deciding that a *resolved* symbol of yours is safe
-to send is the judgement this product does not offer.
+**`Unlock Preserve for resolved names…`, under the table, extends it to every name.** Sometimes the
+name is the question — a variable called `filter`, a method whose name is the whole reason the
+snippet is confusing — and hiding it makes the snippet unanswerable. Clicking the link asks you to
+confirm, and says what it is asking:
+
+> Preserved names are sent exactly as written in your code. SnippetVeil will not conceal a name you
+> tick. Only preserve names you would be comfortable typing into the chat yourself.
+
+Confirm and every row with a symbol behind it gains a checkbox, all of them unticked. Literals never
+gain one: a literal has no symbol to key an override to, and literal text is the most directly
+sensitive content the product handles.
+
+**The unlock is locked again the next time you open the preview**, every box is unticked again, and
+there is no *don't warn me again*. A sticky unlock would be exactly the reduction you set once and
+never think about again — which is the failure this whole design is built to prevent. The friction
+sits at the moment you reduce, where it gets read, rather than as a banner on every invocation.
+
+A preserved type keeps its own name and nothing more: `com.acme.billing.PaymentFilter` still comes
+out as `com.pkg1.pkg2.PaymentFilter`, because preserving a name is not a decision about its package.
 
 Neither reduction is persisted. Both live for one invocation, so nothing you tick here can quietly
 apply to a snippet next week.
