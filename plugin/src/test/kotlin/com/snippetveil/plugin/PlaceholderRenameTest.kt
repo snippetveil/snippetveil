@@ -10,6 +10,7 @@ import com.snippetveil.core.MappedKind
 import com.snippetveil.core.MappedName
 import com.snippetveil.core.Renaming
 import com.snippetveil.core.StemRejection
+import com.snippetveil.core.numberOf
 import com.snippetveil.core.plus
 import java.awt.Container
 import javax.swing.JTable
@@ -31,14 +32,14 @@ class PlaceholderRenameTest : JavaSnippetTestCase() {
      * has no key, so there was never an offer for it to have lost.
      */
     fun `test only rows minted in this invocation are editable, and the rest say why not`() {
-        val model = MappingTableModel(FOUR_ROWS, reducible = true, onPreserve = { _, _ -> }, onRename = { _, _ -> })
+        val model = modelOf(FOUR_ROWS, reducible = true)
 
         assertEquals(
             listOf(true, false, false, false),
             FOUR_ROWS.indices.map { model.isCellEditable(it, PLACEHOLDER_COLUMN) },
         )
         assertEquals(
-            listOf(RENAME_TOOLTIP, ESTABLISHED_TOOLTIP, DERIVED_TOOLTIP, null),
+            listOf(RENAME_TOOLTIP, Renaming.ESTABLISHED.message, Renaming.DERIVED.message, null),
             FOUR_ROWS.indices.map { model.renameTooltipAt(it) },
         )
     }
@@ -48,7 +49,7 @@ class PlaceholderRenameTest : JavaSnippetTestCase() {
      * it would name a snippet nobody can still send — no editor, and no sentence offering one.
      */
     fun `test the read-only re-open offers no rename and explains nothing`() {
-        val model = MappingTableModel(FOUR_ROWS, reducible = false, onPreserve = { _, _ -> }, onRename = { _, _ -> })
+        val model = modelOf(FOUR_ROWS, reducible = false)
 
         assertEquals(
             listOf(false, false, false, false),
@@ -111,7 +112,7 @@ class PlaceholderRenameTest : JavaSnippetTestCase() {
             val established = table.getValueAt(row, PLACEHOLDER_COLUMN)
 
             assertFalse("a ledgered row offered its editor", table.isCellEditable(row, PLACEHOLDER_COLUMN))
-            assertEquals(ESTABLISHED_TOOLTIP, cellTooltipAt(table, row, PLACEHOLDER_COLUMN))
+            assertEquals(Renaming.ESTABLISHED.message, cellTooltipAt(table, row, PLACEHOLDER_COLUMN))
 
             table.setValueAt("FilterMethod", row, PLACEHOLDER_COLUMN)
 
@@ -195,16 +196,59 @@ class PlaceholderRenameTest : JavaSnippetTestCase() {
             opened.stem.text = "filter2"
             assertFalse("an invalid stem was accepted", opened.editor.stopCellEditing())
             assertEquals(StemRejection.ENDS_WITH_A_DIGIT.message, opened.stem.toolTipText)
+            assertEquals(StemRejection.ENDS_WITH_A_DIGIT, dialog.rejection)
 
             opened.stem.text = "my filter"
             assertFalse("a stem that is not an identifier was accepted", opened.editor.stopCellEditing())
             assertEquals(StemRejection.NOT_AN_IDENTIFIER.message, opened.stem.toolTipText)
+            assertEquals(StemRejection.NOT_AN_IDENTIFIER, dialog.rejection)
+
+            opened.stem.text = "Unknown"
+            assertFalse("a stem spelling one of our own namespaces was accepted", opened.editor.stopCellEditing())
+            assertEquals(StemRejection.RESERVED_NAMESPACE, dialog.rejection)
 
             opened.stem.text = "  theFilter  "
             assertTrue("a valid stem was refused", opened.editor.stopCellEditing())
             assertEquals("theFilter", opened.editor.cellEditorValue)
             assertNull("the reason outlived the edit it was about", opened.stem.toolTipText)
+            assertNull("the dialog's error line outlived the edit it was about", dialog.rejection)
         }
+    }
+
+    /**
+     * **Clearing the editor is the way back to the default stem**, driven the way the platform
+     * drives it — the edit is stopped, and what the editor hands back is what the table is set to.
+     * Empty is not a refusal: [com.snippetveil.core.stemRejection] accepts it, so the edit commits
+     * and the row re-mints under its own namespace.
+     */
+    fun `test clearing the editor commits and reverts the row to its default stem`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle(int filter) { int x = filter; }</selection> }")
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val table = tableIn(dialog)
+            val original = table.getValueAt(rowOf(table, "filter"), PLACEHOLDER_COLUMN)
+
+            commitStem(table, rowOf(table, "filter"), "theFilter")
+            assertEquals("theFilter" + numberOf(original.toString()), table.getValueAt(rowOf(table, "filter"), PLACEHOLDER_COLUMN))
+
+            commitStem(table, rowOf(table, "filter"), "")
+
+            assertEquals(original, table.getValueAt(rowOf(table, "filter"), PLACEHOLDER_COLUMN))
+            assertNull("the reverted edit left a reason behind", dialog.rejection)
+        }
+    }
+
+    /**
+     * Types [stem] into the row's editor and commits it the way `JTable` does — stop the edit, then
+     * set the cell to what the editor hands back. A test that called `setValueAt` alone would skip
+     * the half of this that validates.
+     */
+    private fun commitStem(table: JTable, row: Int, stem: String) {
+        val opened = openEditor(table, row)
+        opened.stem.text = stem
+        assertTrue("the editor refused `$stem`", opened.editor.stopCellEditing())
+        table.setValueAt(opened.editor.cellEditorValue, row, PLACEHOLDER_COLUMN)
     }
 
     /** The editor as a user opens it: the column's own, over the cell they double-clicked. */

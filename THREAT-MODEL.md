@@ -180,8 +180,9 @@ release note because a trust document that lists only its strengths is not a tru
   invented**, and an alias chosen to be useful to the model is usually chosen out of the same
   vocabulary as the name it stands for. That is a chosen disclosure: small, deliberate, and yours.
 
-  **The number is what stops it becoming something else.** A stem may not end in a digit and the
-  number is never removable, so a renamed placeholder still reads as a placeholder — the
+  **The number is what stops it becoming something else.** A stem may not end in a digit, may not
+  spell one of SnippetVeil's own namespaces, and the number is never removable, so a renamed
+  placeholder still reads as a placeholder and never claims to be an `Unknown` or a literal — the
   announce-itself property this document refuses to trade away survives the feature. Free renaming
   was considered and rejected for exactly that reason: `Filter` would be indistinguishable from a
   name, which is a different product with a worse property. Renaming is per-invocation input, and

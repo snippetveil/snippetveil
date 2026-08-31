@@ -154,7 +154,7 @@ class RenamedStemTest {
     fun `an invalid stem falls back to the default namespace`() {
         val payment = symbol("Payment", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.Payment")
 
-        for (stem in listOf("Filter2", "9Filter", "my filter", "filter-type", "")) {
+        for (stem in listOf("Filter2", "9Filter", "my filter", "filter-type", "  ", "")) {
             val result = anonymize(
                 planOf("Payment p;", payment),
                 renaming("class:com.acme.Payment" to stem),
@@ -163,6 +163,51 @@ class RenamedStemTest {
 
             assertEquals("Type1 p;", result.text, "the stem `$stem` reached the output")
         }
+    }
+
+    /**
+     * **A stem may not spell one of this engine's own namespaces.** Injectivity is untouched — the
+     * counter is shared — but the *signal* is: `Unknown1` tells the model the IDE could not resolve
+     * a name, and a resolved symbol renaming itself into that namespace would say something untrue.
+     * `str` would let a symbol pass for a redacted literal, and the rest read as a claim about what
+     * kind of thing the placeholder stands for.
+     */
+    @Test
+    fun `a stem spelling one of the engine's own namespaces is refused and ignored`() {
+        val payment = symbol("Payment", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.Payment")
+
+        for (stem in listOf("Unknown", "str", "Type", "field", "T", "pkg", "getField")) {
+            assertEquals(StemRejection.RESERVED_NAMESPACE, stemRejection(stem), "`$stem` was accepted as a stem")
+
+            val result = anonymize(
+                planOf("Payment p;", payment),
+                renaming("class:com.acme.Payment" to stem),
+                LedgerSnapshot.EMPTY,
+            )
+
+            assertEquals("Type1 p;", result.text, "the stem `$stem` reached the output")
+        }
+    }
+
+    /**
+     * **An unqualified key's rename lasts this invocation and no longer**, which is the ticket's
+     * accepted cost stated as a test rather than as a caveat: a local is never ledgered, so there is
+     * no row to carry the stem, and the next snippet re-mints it under the default namespace.
+     *
+     * The `filter` local still carried its context in the snippet where the question was, which is
+     * what the cost was accepted for.
+     */
+    @Test
+    fun `a rename of an unqualified key does not survive into the next invocation`() {
+        val filter = symbol("filter", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT, key = "local:filter")
+        val plan = planOf("int filter = 0;", filter)
+
+        val first = anonymize(plan, renaming(filter.key to "theFilter"), LedgerSnapshot.EMPTY)
+        val second = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY + first.delta)
+
+        assertEquals("int theFilter1 = 0;", first.text)
+        assertEquals(emptyMap<String, MintedName>(), first.delta.placeholders, "an unqualified key was ledgered")
+        assertEquals("int local2 = 0;", second.text)
     }
 
     /**
@@ -316,8 +361,12 @@ class RenamedStemTest {
         assertNull(stemRejection(""))
         assertNull(stemRejection("FilterType"))
         assertNull(stemRejection("_filter\$"))
-        // The language's definition of an identifier rather than ASCII's.
+        // Surrounding whitespace is not part of a stem, so it is not a reason to refuse one.
+        assertNull(stemRejection("  FilterType  "))
+        // The language's definition of an identifier rather than ASCII's — including the half of it
+        // that does not fit in a `Char`, which is why this reads code points and not characters.
         assertNull(stemRejection("zahlungsprüfer"))
+        assertNull(stemRejection("\uD835\uDC53ilter"))
 
         assertEquals(StemRejection.ENDS_WITH_A_DIGIT, stemRejection("Filter2"))
         assertEquals(StemRejection.NOT_AN_IDENTIFIER, stemRejection("9Filter"))

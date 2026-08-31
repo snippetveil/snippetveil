@@ -69,18 +69,13 @@ fun anonymize(
     //
     // **An invalid stem is dropped here rather than rejected**, which is what keeps the invariant
     // off the dialog: the engine falls back to the default namespace, and a caller that validated
-    // nothing gets `Type1` rather than a placeholder that breaks reverse mapping. See
-    // [stemRejection].
+    // nothing gets `Type1` rather than a placeholder that breaks reverse mapping. See [usableStem].
     fun stemFor(key: String, namespace: String): String =
-        settings.renamedStems[key]?.takeIf { it.isNotEmpty() && stemRejection(it) == null } ?: namespace
+        settings.renamedStems[key]?.let(::usableStem) ?: namespace
 
-    // The `Unknown` namespace is the one a rename may not replace, and it is load-bearing rather
-    // than merely conventional: `Unknown1` tells the model *the IDE could not resolve this*, which
-    // localizes the breakage, where a stem the user chose would invite confident reasoning about a
-    // symbol nothing resolved.
     fun namespaceFor(symbol: SymbolEvidence): String {
         val namespace = namespaceOf(symbol)
-        if (symbol.origin == SymbolOrigin.UNRESOLVED) return namespace
+        if (keepsItsNamespace(symbol)) return namespace
         return stemFor(sharedKeyOf(symbol), namespace)
     }
 
@@ -103,7 +98,7 @@ fun anonymize(
     // right — a JavaBeans accessor's. Recorded as it happens rather than worked out afterwards,
     // because the derivation can fail: a derived name colliding with a surviving one falls back to
     // an ordinary allocation, and the row is then renamable like any other. See [Renaming.DERIVED].
-    val derived = HashSet<String>()
+    val derivedKeys = HashSet<String>()
 
     /**
      * The placeholder [symbol] renders as, allocating one the first time its key is asked for.
@@ -161,7 +156,7 @@ fun anonymize(
             // accessor costs them a hop, and an ambiguous one costs them the answer.
             val fromField = derivedAccessorPlaceholder(accessor.prefix, field)
             if (allocator.isFree(fromField)) {
-                derived += key
+                derivedKeys += key
                 fromField
             } else {
                 allocator.next(namespaceFor(symbol))
@@ -201,9 +196,9 @@ fun anonymize(
      * replies are written in, and every other placeholder here was minted a moment ago.
      */
     fun renamingOf(symbol: SymbolEvidence, key: String, placeholder: String?): Renaming = when {
-        placeholder == null || symbol.origin == SymbolOrigin.UNRESOLVED -> Renaming.NONE
+        placeholder == null || keepsItsNamespace(symbol) -> Renaming.NONE
         key in ledger.placeholders -> Renaming.ESTABLISHED
-        key in derived -> Renaming.DERIVED
+        key in derivedKeys -> Renaming.DERIVED
         else -> Renaming.OFFERED
     }
 
@@ -728,6 +723,17 @@ private fun isTopLevelPackageSegment(symbol: SymbolEvidence): Boolean =
  */
 private fun namespaceOf(symbol: SymbolEvidence): String =
     if (symbol.origin == SymbolOrigin.UNRESOLVED) UNKNOWN_PREFIX else symbol.role.placeholderPrefix
+
+/**
+ * **Whether a rename may not replace this symbol's namespace**, which is true of exactly one of
+ * them: `Unknown` is load-bearing rather than merely conventional — `Unknown1` tells the model *the
+ * IDE could not resolve this*, which localizes the breakage, where a stem the user chose would
+ * invite confident reasoning about a symbol nothing resolved.
+ *
+ * Asked in both places a rename is decided — what gets allocated, and what the row says about
+ * itself — so that the two cannot come to disagree about which rows are renamable.
+ */
+private fun keepsItsNamespace(symbol: SymbolEvidence): Boolean = symbol.origin == SymbolOrigin.UNRESOLVED
 
 /**
  * What a symbol is, as a table reads it. Unresolved outranks the role for the same reason

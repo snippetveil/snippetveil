@@ -200,7 +200,10 @@ editable text, so there is no way to end up with `Filter`. That is the whole des
 detail — output that is obviously anonymized is not a failure of this product, and a placeholder
 that reads as an ordinary name would be a different product with a worse property. A stem also
 cannot end in a digit, because stem `Filter2` with number 1 and stem `Filter` with number 21 would
-both spell `Filter21`, and two symbols spelling one word is what reverse mapping forbids.
+both spell `Filter21`, and two symbols spelling one word is what reverse mapping forbids. Nor can it
+spell one of SnippetVeil's own namespaces — `Unknown`, `str`, `Type` and the rest — because a
+placeholder is read as a claim about what it stands for, and `Unknown1` on a name the IDE resolved
+fine would be a false one.
 
 **Renaming is not a reduction.** Your real name never leaves the machine; the symbol is still
 replaced. What does go out is the alias you typed, which is a small disclosure you chose — see

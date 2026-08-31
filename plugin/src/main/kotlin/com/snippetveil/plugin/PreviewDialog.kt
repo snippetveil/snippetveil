@@ -22,6 +22,8 @@ import com.snippetveil.core.MappedName
 import com.snippetveil.core.Renaming
 import com.snippetveil.core.StemRejection
 import com.snippetveil.core.fidelityNotices
+import com.snippetveil.core.numberOf
+import com.snippetveil.core.stemOf
 import com.snippetveil.core.stemRejection
 import java.awt.BorderLayout
 import java.awt.Component
@@ -135,6 +137,10 @@ internal class PreviewDialog private constructor(
      * it, and a row that is preserved and then released comes back renamed rather than default.
      */
     private val stems = mutableMapOf<String, String>()
+
+    /** Why the editor last refused what was typed, or `null`. See [reportRejection]. */
+    internal var rejection: StemRejection? = null
+        private set
 
     /**
      * **Unchecked on every open, without exception**, and unchecked because it is constructed that
@@ -402,8 +408,15 @@ internal class PreviewDialog private constructor(
      * would be a second statement of it, free to drift from the one that is actually enforced.
      * Cleared on the way in and out of every edit, because an error line outliving the cell it was
      * about is a false statement about what is on screen.
+     *
+     * Kept in [rejection] as well as shown, for the reason [createActions] is public: a sentence a
+     * user reads is one a test has to be able to read, and the platform's error line is not
+     * something a dialog that was never shown can be asked about.
      */
-    private fun reportRejection(rejection: StemRejection?) = setErrorText(rejection?.message)
+    private fun reportRejection(rejection: StemRejection?) {
+        this.rejection = rejection
+        setErrorText(rejection?.message)
+    }
 
     /**
      * **The warning, and then the column.** Nothing is preserved by unlocking — every box comes up
@@ -619,11 +632,10 @@ internal class MappingTableModel(
      * `null` on a row with nothing to say — a preserved row, a literal, an `Unknown` — because a
      * tooltip that fires everywhere is one nobody reads anywhere.
      */
-    fun renameTooltipAt(row: Int): String? = if (!reducible) null else when (showing[row].renaming) {
-        Renaming.OFFERED -> RENAME_TOOLTIP
-        Renaming.ESTABLISHED -> ESTABLISHED_TOOLTIP
-        Renaming.DERIVED -> DERIVED_TOOLTIP
-        Renaming.NONE -> null
+    fun renameTooltipAt(row: Int): String? {
+        if (!reducible) return null
+        val renaming = showing[row].renaming
+        return if (renaming == Renaming.OFFERED) RENAME_TOOLTIP else renaming.message
     }
 
     override fun setValueAt(value: Any?, row: Int, column: Int) {
@@ -730,8 +742,11 @@ private class PreserveRenderer : TableCellRenderer {
  * a refusal rather than being discarded: what was typed is nearly right, and throwing it away to
  * show a message is the worst of both.
  *
- * Two clicks to start, like every other editable table in the platform: a single click on a table
- * whose rows are read for their content should select the row, not open a text field over it.
+ * Two clicks to start **when the start is a click**, like every other editable table in the
+ * platform: a single click on a table whose rows are read for their content should select the row,
+ * not open a text field over it. A keystroke starts it on the first one, which is not an
+ * inconsistency but the other half of the same convention — F2 and typing into a selected cell are
+ * the platform's own way in, and neither has a second half to wait for.
  */
 private class StemEditor(private val report: (StemRejection?) -> Unit) : AbstractCellEditor(), TableCellEditor {
 
@@ -751,12 +766,11 @@ private class StemEditor(private val report: (StemRejection?) -> Unit) : Abstrac
         row: Int,
         column: Int,
     ): Component {
-        // Split where the trailing digits start, which is exactly where the engine joined them: a
-        // stem may not end in a digit, so this is unambiguous by construction rather than by a
-        // guess about how the placeholder was built.
+        // Split by `:core`, which owns the format: *stem then number* is the engine's spelling, and
+        // a second reading of it on this side is one that goes stale the day the format moves.
         val placeholder = value?.toString().orEmpty()
-        stem.text = placeholder.dropLastWhile(Char::isDigit)
-        number.text = placeholder.takeLastWhile(Char::isDigit)
+        stem.text = stemOf(placeholder)
+        number.text = numberOf(placeholder)
         clear()
         return editor
     }
@@ -833,23 +847,12 @@ private const val NO_PLACEHOLDER = "—"
  * **The offer, and the one thing about it that is not negotiable.** A stem carries the user's own
  * word into the snippet — *the filter this question is about* — and the number stays, because it is
  * what keeps the output announcing itself as anonymized.
+ *
+ * The one sentence in this column the dialog writes rather than reads off [Renaming.message]: the
+ * engine has no objection to state on an offered row, and *double-click* is this dialog's own
+ * affordance rather than anything the engine knows about.
  */
 internal const val RENAME_TOOLTIP = "Double-click to rename this placeholder. The number always stays."
-
-/**
- * **Why a row that already has a name cannot be given another one.** The mapping is a record of what
- * was actually sent, so the placeholder in this cell is the word an earlier snippet used and an
- * earlier reply may be written in.
- */
-internal const val ESTABLISHED_TOOLTIP =
-    "Named in an earlier snippet; renaming it would contradict that snippet and its replies."
-
-/**
- * **Why an accessor has no name of its own to give.** `getMerchantField3` is `get` and its field's
- * placeholder, so the two agree the way the source's two names did — and the rename that moves it is
- * the field's.
- */
-internal const val DERIVED_TOOLTIP = "This name follows its field's placeholder. Rename the field and it follows."
 
 /**
  * **What the `Preserve` header says while the column is locked**, which is the state every opening

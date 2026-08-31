@@ -5,6 +5,7 @@ import com.intellij.openapi.ui.TestDialog
 import com.intellij.openapi.ui.TestDialogManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.components.ActionLink
+import com.snippetveil.core.MappedName
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JComponent
@@ -22,6 +23,18 @@ internal const val PRESERVE_COLUMN = 3
 
 /** The `Placeholder` column, which is the one the rename edits. See [PRESERVE_COLUMN]. */
 internal const val PLACEHOLDER_COLUMN = 1
+
+/**
+ * The table model over [names], with both callbacks inert — what a test asserting *which cells the
+ * table offers* wants, and spelled once because the two-callback constructor is otherwise repeated
+ * at every such call site.
+ */
+internal fun modelOf(
+    names: List<MappedName>,
+    reducible: Boolean,
+    onPreserve: (MappedName, Boolean) -> Unit = { _, _ -> },
+    onRename: (MappedName, String) -> Unit = { _, _ -> },
+): MappingTableModel = MappingTableModel(names, reducible, onPreserve, onRename)
 
 /** Runs [assertions] against a dialog that is built, never shown, and always disposed. */
 internal fun withDialog(dialog: PreviewDialog, assertions: (PreviewDialog) -> Unit) {

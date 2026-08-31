@@ -410,8 +410,14 @@ class MappedName(
  *
  * **The default is [NONE]**, which is the direction to err in: a row nobody vouched for is a row
  * with no editor on it, and the cost of that being wrong is a rename a user could not make.
+ *
+ * @param message **why this row cannot be renamed**, in the user's words, or `null` where there is
+ *   nothing to say. Carried here rather than written where it is shown, for the reason
+ *   [StemRejection] carries its own: the reason is the engine's, and a sentence spelled out on the
+ *   reporting side is one that goes stale the day the rule moves. [OFFERED] has none — the engine
+ *   has no objection to state, and *how* to rename is the dialog's own affordance to describe.
  */
-enum class Renaming {
+enum class Renaming(val message: String? = null) {
 
     /**
      * **Minted in this invocation, against this row's own key** — so the stem is this invocation's
@@ -425,7 +431,7 @@ enum class Renaming {
      * was actually sent, not an index of the current codebase* — and rewriting an entry would make
      * an old reply decode wrongly or not at all.
      */
-    ESTABLISHED,
+    ESTABLISHED("Named in an earlier snippet; renaming it would contradict that snippet and its replies."),
 
     /**
      * **Derived from a field's placeholder**, which is what a JavaBeans accessor's is: `field1`
@@ -435,7 +441,7 @@ enum class Renaming {
      * The stated cost: a Lombok accessor whose field has no declaration in source has no row to
      * rename, so it keeps the default stem. Under-naming, never a wrong name.
      */
-    DERIVED,
+    DERIVED("This name follows its field's placeholder. Rename the field and it follows."),
 
     /**
      * **Nothing here to rename.** A preserved row has no placeholder at all; an `Unknown` row's

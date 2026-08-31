@@ -47,8 +47,8 @@ class ReductionsAreNeverPersistedTest {
     @Test
     fun `each reduction is declared on the per-invocation settings and nowhere else`() {
         assertEquals(
-            REDUCTIONS.associateWith { listOf("com.snippetveil.core.AnonymizationSettings") },
-            REDUCTIONS.associateWith { flag -> SHIPPED_CLASSES.filter { it.declares(flag) }.map { it.name } },
+            NEVER_PERSISTED.associateWith { listOf("com.snippetveil.core.AnonymizationSettings") },
+            NEVER_PERSISTED.associateWith { flag -> SHIPPED_CLASSES.filter { it.declares(flag) }.map { it.name } },
             "a per-invocation reduction belongs to one class only",
         )
     }
@@ -162,7 +162,7 @@ class ReductionsAreNeverPersistedTest {
         .filter { it.isStateHolder() }
         .flatMap { holder -> listOf(holder) + holder.directDependenciesFromSelf.map { it.targetClass } }
         .filter { it.packageName.startsWith("com.snippetveil") }
-        .filter { holder -> REDUCTIONS.any { holder.declares(it) } }
+        .filter { holder -> NEVER_PERSISTED.any { holder.declares(it) } }
         .map { it.name }
         .distinct()
 }
@@ -194,6 +194,23 @@ private fun JavaClass.declares(reduction: String): Boolean =
  * worth naming here beside the first.
  */
 private val REDUCTIONS = listOf("keepComments", "preservedSymbols")
+
+/**
+ * **And the one per-invocation input that is not a reduction but may not be persisted either.**
+ *
+ * A rename does not anonymize less — the symbol is still replaced — so it is not on the list above,
+ * and calling it a reduction would blunt a word this file needs to keep sharp. It is on this one
+ * because the stem is text the user typed for one snippet: a **chosen disclosure**, and a chosen
+ * disclosure set once and forgotten is the same failure the rule above exists to prevent, arriving
+ * under a different name.
+ *
+ * The rule itself is proved against fixtures by
+ * [`the rule tells a persisted reduction from a persisted increase`]; what this line adds is the
+ * flag it is pointed at, and the assertion above is what stops that flag being renamed away
+ * silently.
+ */
+private val NEVER_PERSISTED = REDUCTIONS + "renamedStems"
+
 
 /**
  * The two shipped classes the `Preserve` unlock lives in while a preview is open — the table model
