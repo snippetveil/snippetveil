@@ -396,7 +396,19 @@ internal class PreviewDialog private constructor(
      */
     private fun rename(name: MappedName, stem: String) {
         val key = name.key ?: return
-        if (stem.isEmpty()) stems -= key else stems[key] = stem
+
+        // **Committing the stem the cell already shows is not a rename**, and it is the ordinary way
+        // an editor is closed. A row that has not been renamed shows one of the engine's own
+        // namespaces — a local's stem is `local` — which is a word a user may not *choose*, so
+        // storing it back would put an entry in the map that the engine could only ignore.
+        if (stem == stemOf(name.placeholder.orEmpty())) return
+
+        // And nothing re-renders unless the map actually moved: clearing a row that was never
+        // renamed asks for the default it already has.
+        val wanted = stem.takeIf { it.isNotEmpty() }
+        if (stems[key] == wanted) return
+
+        if (wanted == null) stems -= key else stems[key] = wanted
         rerender()
     }
 
@@ -754,6 +766,9 @@ private class StemEditor(private val report: (StemRejection?) -> Unit) : Abstrac
 
     private val number = JBLabel().also { it.border = JBUI.Borders.emptyLeft(2) }
 
+    /** The stem this editor opened with — see [stopCellEditing], which is the only reader. */
+    private var opened: String = ""
+
     private val editor = JPanel(BorderLayout()).also {
         it.add(stem, BorderLayout.CENTER)
         it.add(number, BorderLayout.EAST)
@@ -771,6 +786,7 @@ private class StemEditor(private val report: (StemRejection?) -> Unit) : Abstrac
         val placeholder = value?.toString().orEmpty()
         stem.text = stemOf(placeholder)
         number.text = numberOf(placeholder)
+        opened = stem.text
         clear()
         return editor
     }
@@ -780,7 +796,15 @@ private class StemEditor(private val report: (StemRejection?) -> Unit) : Abstrac
     override fun isCellEditable(event: EventObject?): Boolean = event !is MouseEvent || event.clickCount >= 2
 
     override fun stopCellEditing(): Boolean {
-        val rejection = stemRejection(stem.text.trim())
+        val typed = stem.text.trim()
+
+        // **What the editor opened with is always accepted**, because closing a cell you only looked
+        // at is not a rename and must not be answered with a refusal. It is not a hole in the rule:
+        // every default stem is one of the engine's own namespaces, and
+        // [StemRejection.RESERVED_NAMESPACE] is right about a namespace the user *chose* — a
+        // resolved name may not claim to be an `Unknown` — while saying nothing about the word the
+        // engine itself put in the cell. Whether anything was typed is exactly that difference.
+        val rejection = if (typed == opened) null else stemRejection(typed)
         if (rejection == null) {
             clear()
             return super.stopCellEditing()

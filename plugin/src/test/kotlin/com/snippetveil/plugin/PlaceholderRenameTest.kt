@@ -11,6 +11,7 @@ import com.snippetveil.core.MappedName
 import com.snippetveil.core.Renaming
 import com.snippetveil.core.StemRejection
 import com.snippetveil.core.numberOf
+import com.snippetveil.core.stemOf
 import com.snippetveil.core.plus
 import java.awt.Container
 import javax.swing.JTable
@@ -236,6 +237,41 @@ class PlaceholderRenameTest : JavaSnippetTestCase() {
 
             assertEquals(original, table.getValueAt(rowOf(table, "filter"), PLACEHOLDER_COLUMN))
             assertNull("the reverted edit left a reason behind", dialog.rejection)
+        }
+    }
+
+    /**
+     * **Opening a row's editor and closing it again is not a rename**, and must not be answered with
+     * a refusal — which is the ordinary way a user leaves a cell they only wanted to look at.
+     *
+     * The trap this pins: every default stem is one of the engine's own namespaces, so a row that
+     * has not been renamed shows a word [StemRejection.RESERVED_NAMESPACE] refuses. That rule is
+     * right about a namespace the user *chose* and says nothing about the one the engine put there,
+     * and the difference between the two is whether anything was typed.
+     */
+    fun `test closing an untouched editor is accepted and changes nothing`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf("class Ledger { <selection>void settle(int filter) { int x = filter; }</selection> }")
+
+        withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
+            val table = tableIn(dialog)
+            val rendered = dialog.analysis.result.text
+
+            // Every offered row, because the stem that would be refused is a different word on each
+            // of them and a test over one row would pass while the rest stayed broken.
+            for (row in (0 until table.rowCount).filter { table.isCellEditable(it, PLACEHOLDER_COLUMN) }) {
+                val placeholder = table.getValueAt(row, PLACEHOLDER_COLUMN)
+                val opened = openEditor(table, row)
+
+                assertEquals("the editor did not open on the rendered stem", stemOf(placeholder.toString()), opened.stem.text)
+                assertTrue("the editor refused the stem it opened with: $placeholder", opened.editor.stopCellEditing())
+                assertNull("closing an untouched editor reported a reason", dialog.rejection)
+
+                table.setValueAt(opened.editor.cellEditorValue, row, PLACEHOLDER_COLUMN)
+                assertEquals("closing an untouched editor moved the placeholder", placeholder, table.getValueAt(row, PLACEHOLDER_COLUMN))
+            }
+
+            assertEquals("closing an untouched editor re-rendered the snippet", rendered, dialog.analysis.result.text)
         }
     }
 
