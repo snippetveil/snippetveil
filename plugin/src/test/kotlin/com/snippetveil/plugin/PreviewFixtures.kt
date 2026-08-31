@@ -20,6 +20,9 @@ import javax.swing.JTable
  */
 internal const val PRESERVE_COLUMN = 3
 
+/** The `Placeholder` column, which is the one the rename edits. See [PRESERVE_COLUMN]. */
+internal const val PLACEHOLDER_COLUMN = 1
+
 /** Runs [assertions] against a dialog that is built, never shown, and always disposed. */
 internal fun withDialog(dialog: PreviewDialog, assertions: (PreviewDialog) -> Unit) {
     try {
@@ -64,6 +67,22 @@ internal fun tableIn(dialog: PreviewDialog): JTable = tableIn(dialog.createCente
 
 internal fun tableIn(component: Container): JTable =
     descendantsOf(component).filterIsInstance<JTable>().single()
+
+/**
+ * One cell's tooltip, read the way the platform reads it — the column's renderer if it carries one,
+ * the table's default for the column class otherwise, asked for the component and then for its tip.
+ * A helper that read the model instead would assert a sentence a user cannot get to.
+ */
+internal fun cellTooltipAt(table: JTable, row: Int, column: Int): String? {
+    val renderer = table.columnModel.getColumn(column).cellRenderer
+        ?: table.getDefaultRenderer(table.getColumnClass(column))
+    val cell = renderer.getTableCellRendererComponent(table, table.getValueAt(row, column), false, false, row, column)
+    return (cell as? JComponent)?.toolTipText
+}
+
+/** The row showing [original] in the `Original` column — `single()`, so an ambiguous fixture fails. */
+internal fun rowOf(table: JTable, original: String): Int =
+    (0 until table.rowCount).single { table.getValueAt(it, 0) == original }
 
 internal fun descendantsOf(component: Container): List<Component> =
     component.components.flatMap { listOf(it) + if (it is Container) descendantsOf(it) else emptyList() }

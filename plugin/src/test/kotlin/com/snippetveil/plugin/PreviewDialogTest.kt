@@ -92,7 +92,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
      * as an offer the user has done something wrong to lose.
      */
     fun `test preserve is offered on Unknown rows and on no other row while it is locked`() {
-        val model = MappingTableModel(THREE_ROWS, reducible = true) { _, _ -> }
+        val model = MappingTableModel(THREE_ROWS, reducible = true, onPreserve = { _, _ -> }, onRename = { _, _ -> })
 
         assertEquals(
             listOf(false, true, false),
@@ -116,7 +116,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
      * by unlocking.
      */
     fun `test unlocking offers preserve on every keyed row and never on a literal`() {
-        val model = MappingTableModel(THREE_ROWS, reducible = true) { _, _ -> }
+        val model = MappingTableModel(THREE_ROWS, reducible = true, onPreserve = { _, _ -> }, onRename = { _, _ -> })
 
         model.unlocked = true
 
@@ -137,8 +137,8 @@ class PreviewDialogTest : JavaSnippetTestCase() {
     fun `test the columns are the three the table is for, and preserve only where a reduction is possible`() {
         val rows = listOf(MappedName("Ledger", "Type1", MappedKind.TYPE, key = "class:com.acme.Ledger"))
 
-        val reducible = MappingTableModel(rows, reducible = true) { _, _ -> }
-        val review = MappingTableModel(rows, reducible = false) { _, _ -> }
+        val reducible = MappingTableModel(rows, reducible = true, onPreserve = { _, _ -> }, onRename = { _, _ -> })
+        val review = MappingTableModel(rows, reducible = false, onPreserve = { _, _ -> }, onRename = { _, _ -> })
 
         assertEquals(4, reducible.columnCount)
         assertEquals(3, review.columnCount)
@@ -231,7 +231,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
      */
     fun `test a preserved row keeps its tick and shows no placeholder`() {
         val rows = listOf(MappedName("MissingType", null, MappedKind.UNKNOWN, key = "unresolved:MissingType"))
-        val model = MappingTableModel(rows, reducible = true) { _, _ -> }
+        val model = MappingTableModel(rows, reducible = true, onPreserve = { _, _ -> }, onRename = { _, _ -> })
 
         assertEquals(listOf("MissingType", "—", "Unknown", true), (0 until 4).map { model.getValueAt(0, it) })
     }

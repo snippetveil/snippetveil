@@ -26,6 +26,11 @@ control flow, and the libraries you call go as-is.
   exactly as written. Names SnippetVeil could not resolve can be preserved directly; every other
   name becomes preservable once you unlock the column, which warns you first and is locked again
   the next time you open the preview.
+- **Renaming a placeholder** in that same table gives the model the word your question is about:
+  double-click a Placeholder cell and `Type1` becomes `FilterType1`. The stem is yours, the number
+  always stays, and your real name never leaves the machine. Only names this snippet introduced can
+  be renamed — one an earlier snippet already used keeps the name that snippet's replies are written
+  in.
 - **De-anonymize Clipboard** turns the placeholders in a reply back into your real names.
 - **De-anonymize Clipboard and Paste** does the same and inserts the result at the caret,
   replacing the selection. It will not paste a reply it could not restore in full, so

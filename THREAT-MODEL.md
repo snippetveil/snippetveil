@@ -173,6 +173,19 @@ release note because a trust document that lists only its strengths is not a tru
   reduction set once and forgotten, cannot be reached from here. The warning is the friction, and it
   sits at the moment of reduction rather than on every invocation, which is where a warning stops
   being read. Literals are not preservable at all.
+- **A renamed placeholder discloses whatever you typed into it.** The preview lets you give a
+  placeholder a stem of your own — `Type1` becomes `FilterType1` — so the model has the word your
+  question is about. The real name never leaves your machine, and the symbol is still replaced, so
+  this is not the preserve override wearing a different hat. What it does send is **the alias you
+  invented**, and an alias chosen to be useful to the model is usually chosen out of the same
+  vocabulary as the name it stands for. That is a chosen disclosure: small, deliberate, and yours.
+
+  **The number is what stops it becoming something else.** A stem may not end in a digit and the
+  number is never removable, so a renamed placeholder still reads as a placeholder — the
+  announce-itself property this document refuses to trade away survives the feature. Free renaming
+  was considered and rejected for exactly that reason: `Filter` would be indistinguishable from a
+  name, which is a different product with a worse property. Renaming is per-invocation input, and
+  what makes a rename come back next week is the mapping row that was already being written.
 - **A selection inside a non-project file is preserved.** Anonymization replaces names your project
   owns. Select code in a decompiled library, a dependency's sources, or a file outside the analysed
   project, and there is nothing project-owned in it to replace — the output is the input.
