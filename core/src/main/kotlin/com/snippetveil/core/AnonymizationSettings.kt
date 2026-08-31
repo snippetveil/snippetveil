@@ -58,6 +58,33 @@ package com.snippetveil.core
  *   plus a preview banner (a warning shown on every invocation stops being read within a week); and
  *   removing the control altogether, which hands the developer who genuinely always wants comments a
  *   forced loss with no escape hatch.
+ * @param renamedStems symbol key -> the stem this invocation names that symbol with, read off
+ *   [MappedName.key] exactly like [preservedSymbols]. **Per-invocation only, never persisted.**
+ *
+ *   **Renaming is stem-only, and the number always stays**: `Type1` may become `FilterType1`, and
+ *   it may never become `Filter`. A stem is a hint the user invents to give the AI context — *the
+ *   filter this question is about* — and the mandatory number is what keeps the output announcing
+ *   itself as anonymized while it carries the hint. See [stemRejection] for what a stem may be, and
+ *   note that **an invalid stem is ignored here** rather than trusted from the dialog: the rule is
+ *   the engine's, so a caller that never validated anything cannot break the invariant.
+ *
+ *   **A rename is not a reduction.** The symbol is still replaced, so this does not strain the rule
+ *   above — but the stem is text the user typed and it goes to the AI, which makes it a **chosen
+ *   disclosure** of whatever meaning was typed into it. `THREAT-MODEL.md` names it as one.
+ *
+ *   **Nothing new is stored, and stability comes only from the existing ledger row.** A renamed
+ *   placeholder for a qualified key is written into [LedgerDelta.placeholders] like any other, which
+ *   is what makes `FilterType1` come back on next week's paste. An unqualified key — a local, a
+ *   parameter, a type parameter, a label — is never ledgered, so its rename lasts this invocation
+ *   and the next snippet re-mints it under the default stem. That is an accepted cost rather than an
+ *   oversight: the `filter` local still carries its context in the snippet where the question is.
+ *
+ *   **Three keys are ignored**, and each for its own reason — see [Renaming], which is how core
+ *   tells the dialog which rows to offer. A key already in the [LedgerSnapshot] keeps the
+ *   placeholder it was given, because the ledger is append-only and rewriting an entry would make an
+ *   old reply decode wrongly. An unresolved name keeps the `Unknown` namespace, which is
+ *   load-bearing: `Unknown1` tells the model the IDE could not resolve this. And a literal has no
+ *   key to be named by at all.
  * @param internalLibraries which library packages are the company's own code arriving as a jar.
  *   **The one setting the product persists**, and see [InternalLibraries] for why it survives the
  *   rule above rather than being an exception to it.
@@ -65,6 +92,7 @@ package com.snippetveil.core
 class AnonymizationSettings(
     val preservedSymbols: Set<String> = emptySet(),
     val keepComments: Boolean = false,
+    val renamedStems: Map<String, String> = emptyMap(),
     val internalLibraries: InternalLibraries = InternalLibraries(),
 ) {
     companion object {
@@ -358,13 +386,71 @@ class AnonymizationResult(
  *   company exactly where two symbols share a row: an override and its root are one row because Java
  *   forbids their names from diverging, and a tick that reached only one of them would rename a
  *   declaration and keep its call site.
+ * @param renaming whether the preview may rename this row's placeholder, and when it may not, why —
+ *   see [Renaming]. Stated by the engine rather than worked out by the dialog, because every one of
+ *   the four answers turns on something only the engine has: the ledger it ran against, the
+ *   namespace it chose, and how the placeholder was allocated.
  */
 class MappedName(
     val original: String,
     val placeholder: String?,
     val kind: MappedKind,
     val key: String? = null,
+    val renaming: Renaming = Renaming.NONE,
 )
+
+/**
+ * **Whether this row's placeholder can be renamed, and when it cannot, what to say instead.**
+ *
+ * The engine answers it because the engine is where every answer lives, and because the rule it
+ * enforces has to hold whatever a dialog offers: [AnonymizationSettings.renamedStems] ignores a
+ * stem for anything that is not [OFFERED], so a dialog that offered a row it should not have would
+ * change no character of the output. This exists so that the dialog need not guess — not so that it
+ * can be trusted.
+ *
+ * **The default is [NONE]**, which is the direction to err in: a row nobody vouched for is a row
+ * with no editor on it, and the cost of that being wrong is a rename a user could not make.
+ *
+ * @param message **why this row cannot be renamed**, in the user's words, or `null` where there is
+ *   nothing to say. Carried here rather than written where it is shown, for the reason
+ *   [StemRejection] carries its own: the reason is the engine's, and a sentence spelled out on the
+ *   reporting side is one that goes stale the day the rule moves. [OFFERED] has none — the engine
+ *   has no objection to state, and *how* to rename is the dialog's own affordance to describe.
+ */
+enum class Renaming(val message: String? = null) {
+
+    /**
+     * **Minted in this invocation, against this row's own key** — so the stem is this invocation's
+     * to choose, and choosing it contradicts nothing that has already been sent.
+     */
+    OFFERED,
+
+    /**
+     * **Already in the ledger when this invocation started**, so the placeholder is a name a past
+     * snippet used and past replies are written in. The ledger is append-only — *a record of what
+     * was actually sent, not an index of the current codebase* — and rewriting an entry would make
+     * an old reply decode wrongly or not at all.
+     */
+    ESTABLISHED("Named in an earlier snippet; renaming it would contradict that snippet and its replies."),
+
+    /**
+     * **Derived from a field's placeholder**, which is what a JavaBeans accessor's is: `field1`
+     * under `get` renders `getField1`, so the two names agree the way the source's two names did.
+     * There is nowhere for a stem typed here to land — rename the field and this follows it.
+     *
+     * The stated cost: a Lombok accessor whose field has no declaration in source has no row to
+     * rename, so it keeps the default stem. Under-naming, never a wrong name.
+     */
+    DERIVED("This name follows its field's placeholder. Rename the field and it follows."),
+
+    /**
+     * **Nothing here to rename.** A preserved row has no placeholder at all; an `Unknown` row's
+     * namespace is load-bearing and may not move — `Unknown1` tells the model the IDE could not
+     * resolve this; a literal row has no key to be named by, and literal text is the most directly
+     * sensitive content the product handles.
+     */
+    NONE,
+}
 
 /**
  * What a mapped name is, as the preview and the export say it.

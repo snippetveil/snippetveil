@@ -192,6 +192,18 @@ private val WORD = Regex("""[\p{L}\p{N}_$]+""")
  * — and would merely go uncounted when they fell past the horizon. Under-recovery, never a wrong
  * name, which is the direction everything here errs in.
  *
+ * **A custom stem is outside it, and by construction rather than by omission.** A placeholder the
+ * user renamed — `FilterType1` — is restored exactly like any other, because restoring is the table
+ * and the table is exact. What this cannot do is *recognise* one: a stem is arbitrary text the user
+ * typed, so a pattern wide enough to catch it would catch `count2` and `sha256` in the model's own
+ * prose and report them as ours. The consequence is that a renamed placeholder which has fallen past
+ * the horizon goes uncounted where a default-stemmed one would be reported [UnrestoredReason.EVICTED]
+ * — and, in `De-anonymize Clipboard and Paste`, written into source rather than refused. It is
+ * bounded: a **qualified** key's rename is in the mapping for the life of the project and therefore
+ * always restores, so the gap is a renamed local, parameter or type parameter in a reply older than
+ * the sidecar window. Recognising by shape is what the product refuses everywhere else, and this is
+ * the one place the refusal costs something.
+ *
  * **Something now depends on that count being exhaustive, which it did not when this was written.**
  * `De-anonymize Clipboard and Paste` refuses to write anything it did not restore in full, and asks
  * [Reversal.unrestored] to decide — so a word that goes uncounted there is not a gap a reader can

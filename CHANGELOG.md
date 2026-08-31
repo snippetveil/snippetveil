@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Placeholders can be renamed in Anonymize with Preview, so a snippet can carry the word the
+  question is about: double-click the Placeholder cell and `Type1` becomes `FilterType1`. The stem
+  is yours and the number always stays — a name cannot end in a digit and cannot lose its number, so
+  the output still announces itself as anonymized. Only rows this invocation named are editable; a
+  name an earlier snippet already used, an Unknown and a literal are not, and each says why. A
+  renamed field carries its accessors with it. Nothing new is stored: a renamed placeholder comes
+  back on next week's paste through the same mapping row as any other.
 - Preserve in Anonymize with Preview reaches every name in the mapping table, not only the ones
   SnippetVeil could not resolve — a name that carries the context making a snippet answerable can be
   sent as written. It is behind an explicit unlock that warns what a preserved name is, and the

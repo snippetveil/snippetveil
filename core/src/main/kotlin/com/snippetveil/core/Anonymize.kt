@@ -62,6 +62,23 @@ fun anonymize(
     fun isReplaced(symbol: SymbolEvidence): Boolean =
         wouldReplace(symbol) && sharedKeyOf(symbol) !in settings.preservedSymbols
 
+    // **The stem a key is named with, or the namespace it falls into by default.** A rename
+    // substitutes the namespace and nothing else: the number still comes from the shared counter,
+    // is still checked against the same reserved set, and still burns on collision — so a renamed
+    // placeholder cannot collide with any placeholder this project has ever handed out.
+    //
+    // **An invalid stem is dropped here rather than rejected**, which is what keeps the invariant
+    // off the dialog: the engine falls back to the default namespace, and a caller that validated
+    // nothing gets `Type1` rather than a placeholder that breaks reverse mapping. See [usableStem].
+    fun stemFor(key: String, namespace: String): String =
+        settings.renamedStems[key]?.let(::usableStem) ?: namespace
+
+    fun namespaceFor(symbol: SymbolEvidence): String {
+        val namespace = namespaceOf(symbol)
+        if (keepsItsNamespace(symbol)) return namespace
+        return stemFor(sharedKeyOf(symbol), namespace)
+    }
+
     val allocator = PlaceholderAllocator(
         ledger.nextNumber,
         namesSurviving(plan, symbols.filter { isReplaced(it.symbol) } + stripped),
@@ -76,6 +93,12 @@ fun anonymize(
     // the other way round by a reversal and only the forward direction was ever a key. See
     // [MintedName].
     val persisted = LinkedHashMap<String, MintedName>()
+
+    // The keys whose placeholder was **derived from a field's** rather than allocated in their own
+    // right — a JavaBeans accessor's. Recorded as it happens rather than worked out afterwards,
+    // because the derivation can fail: a derived name colliding with a surviving one falls back to
+    // an ordinary allocation, and the row is then renamable like any other. See [Renaming.DERIVED].
+    val derivedKeys = HashSet<String>()
 
     /**
      * The placeholder [symbol] renders as, allocating one the first time its key is asked for.
@@ -108,10 +131,14 @@ fun anonymize(
 
         val accessor = symbol.accessor
         val placeholder = if (accessor == null) {
-            allocator.next(namespaceOf(symbol))
+            allocator.next(namespaceFor(symbol))
         } else {
             val field = placeholderByKey.getOrPut(accessor.fieldKey) {
-                allocator.next(SymbolRole.FIELD.placeholderPrefix).also {
+                // **The field's stem, never the accessor's** — the accessor's name is derived from
+                // this one, so renaming the field is what moves both. It is also why a stem typed
+                // on the accessor's own row would have nowhere to land, which is what
+                // [Renaming.DERIVED] says on the row rather than leaving it to be discovered.
+                allocator.next(stemFor(accessor.fieldKey, SymbolRole.FIELD.placeholderPrefix)).also {
                     if (accessor.fieldKeyIsQualified) {
                         // The field's own name rather than a name derived from the accessor's: the
                         // builder found the field, so it reports what it is called. This row is
@@ -127,8 +154,13 @@ fun anonymize(
             // name is checked against the surviving text like any allocated one. A reader holding
             // `getField1` from an AI's reply must be able to map it back to one thing; a split
             // accessor costs them a hop, and an ambiguous one costs them the answer.
-            val derived = derivedAccessorPlaceholder(accessor.prefix, field)
-            if (allocator.isFree(derived)) derived else allocator.next(namespaceOf(symbol))
+            val fromField = derivedAccessorPlaceholder(accessor.prefix, field)
+            if (allocator.isFree(fromField)) {
+                derivedKeys += key
+                fromField
+            } else {
+                allocator.next(namespaceFor(symbol))
+            }
         }
 
         placeholderByKey[key] = placeholder
@@ -157,14 +189,27 @@ fun anonymize(
     // rather than on a guess about how whoever built the plan spells a key.
     val names = LinkedHashMap<String, MappedName>()
 
+    /**
+     * **Whether the preview may rename this row, and when it may not, why** — see [Renaming]. Asked
+     * of the ledger this invocation was handed rather than of the delta it is building, because the
+     * question is *was this name already sent*: a key the snapshot already had is a name past
+     * replies are written in, and every other placeholder here was minted a moment ago.
+     */
+    fun renamingOf(symbol: SymbolEvidence, key: String, placeholder: String?): Renaming = when {
+        placeholder == null || keepsItsNamespace(symbol) -> Renaming.NONE
+        key in ledger.placeholders -> Renaming.ESTABLISHED
+        key in derivedKeys -> Renaming.DERIVED
+        else -> Renaming.OFFERED
+    }
+
     fun record(symbol: SymbolEvidence, placeholder: String?) {
-        // **The key the placeholder was handed out against**, which is the key a preserve is
-        // expressed in — see [MappedName.key]. Two symbols forced to share a placeholder are one
-        // row, and one tick on it has to preserve both or the declaration renames while the call
-        // site stays.
+        // **The key the placeholder was handed out against**, which is the key a preserve and a
+        // rename are both expressed in — see [MappedName.key]. Two symbols forced to share a
+        // placeholder are one row, and one tick on it has to preserve both or the declaration
+        // renames while the call site stays.
         val key = sharedKeyOf(symbol)
         names.getOrPut(placeholder ?: PRESERVED + key) {
-            MappedName(symbol.declaredName, placeholder, kindOf(symbol), key)
+            MappedName(symbol.declaredName, placeholder, kindOf(symbol), key, renamingOf(symbol, key, placeholder))
         }
     }
 
@@ -678,6 +723,17 @@ private fun isTopLevelPackageSegment(symbol: SymbolEvidence): Boolean =
  */
 private fun namespaceOf(symbol: SymbolEvidence): String =
     if (symbol.origin == SymbolOrigin.UNRESOLVED) UNKNOWN_PREFIX else symbol.role.placeholderPrefix
+
+/**
+ * **Whether a rename may not replace this symbol's namespace**, which is true of exactly one of
+ * them: `Unknown` is load-bearing rather than merely conventional — `Unknown1` tells the model *the
+ * IDE could not resolve this*, which localizes the breakage, where a stem the user chose would
+ * invite confident reasoning about a symbol nothing resolved.
+ *
+ * Asked in both places a rename is decided — what gets allocated, and what the row says about
+ * itself — so that the two cannot come to disagree about which rows are renamable.
+ */
+private fun keepsItsNamespace(symbol: SymbolEvidence): Boolean = symbol.origin == SymbolOrigin.UNRESOLVED
 
 /**
  * What a symbol is, as a table reads it. Unresolved outranks the role for the same reason

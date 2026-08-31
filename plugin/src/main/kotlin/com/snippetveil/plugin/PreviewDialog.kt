@@ -12,17 +12,26 @@ import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextField
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import com.snippetveil.core.AnonymizationResult
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.MappedKind
 import com.snippetveil.core.MappedName
+import com.snippetveil.core.Renaming
+import com.snippetveil.core.StemRejection
 import com.snippetveil.core.fidelityNotices
+import com.snippetveil.core.numberOf
+import com.snippetveil.core.stemOf
+import com.snippetveil.core.stemRejection
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.event.ActionEvent
+import java.awt.event.MouseEvent
+import java.util.EventObject
 import javax.swing.AbstractAction
+import javax.swing.AbstractCellEditor
 import javax.swing.Action
 import javax.swing.BoxLayout
 import javax.swing.JComponent
@@ -31,6 +40,7 @@ import javax.swing.JTable
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.JTableHeader
+import javax.swing.table.TableCellEditor
 import javax.swing.table.TableCellRenderer
 import javax.swing.table.TableRowSorter
 
@@ -56,6 +66,19 @@ import javax.swing.table.TableRowSorter
  * opposite reason — *a warning shown on every invocation stops being read within a week* — and the
  * unlock does not have that failure mode, because it only ever fires when the user has actively
  * asked to reduce.
+ *
+ * ### Renaming is not a reduction, and has no unlock in front of it
+ *
+ * A row minted by this invocation can be given a stem of the user's own — `Type1` becomes
+ * `FilterType1` — so a snippet can carry the word the question is actually about. **The symbol is
+ * still replaced**, which is why this sits outside the paragraph above: nothing is emitted that
+ * would not have been, and the number stays, so the output goes on announcing itself as anonymized.
+ * What the stem does disclose is whatever meaning the user typed into it, and `THREAT-MODEL.md`
+ * names that as a chosen disclosure.
+ *
+ * It is also written down nowhere. A qualified key's renamed placeholder reaches next week's paste
+ * through the ledger row this invocation commits, exactly like a default-stemmed one — **no new
+ * persistence surface at all** — and everything else is forgotten with the dialog.
  *
  * **Modal, not a tool window**, because a cancelled preview must burn nothing and that needs an
  * unambiguous commit point. A tool window has no Cancel, and *"did that invocation reach the
@@ -104,6 +127,22 @@ internal class PreviewDialog private constructor(
     private val preserved = mutableSetOf<String>()
 
     /**
+     * **The stems this invocation names symbols with, empty on every open** — key -> stem, read by
+     * the engine and written down nowhere. What makes `FilterType1` stable next week is the ledger
+     * row the copy commits, not this map, which is why it can be forgotten the moment the dialog
+     * closes without costing anything.
+     *
+     * A stem is kept against its **key** rather than against the placeholder it produced, so a
+     * number that shifts under a re-render — which burning already does — carries the rename with
+     * it, and a row that is preserved and then released comes back renamed rather than default.
+     */
+    private val stems = mutableMapOf<String, String>()
+
+    /** Why the editor last refused what was typed, or `null`. See [reportRejection]. */
+    internal var rejection: StemRejection? = null
+        private set
+
+    /**
      * **Unchecked on every open, without exception**, and unchecked because it is constructed that
      * way rather than because something reset it. Comments are the largest single domain leak in the
      * product, and a tick that survived an invocation would be the forgotten reduction the whole
@@ -134,7 +173,7 @@ internal class PreviewDialog private constructor(
         false,
     )
 
-    private val rows = MappingTableModel(analysis.result.names, reducible, ::preserve)
+    private val rows = MappingTableModel(analysis.result.names, reducible, ::preserve, ::rename)
 
     private val table = JBTable(rows)
 
@@ -269,6 +308,15 @@ internal class PreviewDialog private constructor(
                 it.cellRenderer = PreserveRenderer()
                 it.maxWidth = JBUI.scale(80)
             }
+            // **The rename lives on the reduction opening and nowhere else.** The read-only re-open
+            // is over an invocation that has already left, so a stem typed into it would name a
+            // snippet nobody can still send. The renderer goes on with the editor rather than
+            // separately: it is what says *why* a row has no editor, and a column that explained
+            // itself only where it could not be acted on would be the wrong way round.
+            table.columnModel.getColumn(PLACEHOLDER).also {
+                it.cellEditor = StemEditor(::reportRejection)
+                it.cellRenderer = PlaceholderRenderer(rows)
+            }
             // On every header of this opening rather than on `Preserve` alone — see
             // [PreserveHeaderRenderer]. The tip is asked for on every render rather than fixed,
             // because what the column is for changes when the unlock does.
@@ -339,6 +387,50 @@ internal class PreviewDialog private constructor(
     }
 
     /**
+     * A stem typed on a row, in or out. It travels as a **key** for the reason a preserve does: the
+     * engine names the key it was going to name and ignores every other one, so a stem aimed at a
+     * ledgered row, an `Unknown` or nothing at all changes no character of the output.
+     *
+     * **An empty stem is the way back**, not a rejection — the row returns to the default stem for
+     * its namespace, which is why it removes the entry rather than storing a blank.
+     */
+    private fun rename(name: MappedName, stem: String) {
+        val key = name.key ?: return
+
+        // **Committing the stem the cell already shows is not a rename**, and it is the ordinary way
+        // an editor is closed. A row that has not been renamed shows one of the engine's own
+        // namespaces — a local's stem is `local` — which is a word a user may not *choose*, so
+        // storing it back would put an entry in the map that the engine could only ignore.
+        if (stem == stemOf(name.placeholder.orEmpty())) return
+
+        // And nothing re-renders unless the map actually moved: clearing a row that was never
+        // renamed asks for the default it already has.
+        val wanted = stem.takeIf { it.isNotEmpty() }
+        if (stems[key] == wanted) return
+
+        if (wanted == null) stems -= key else stems[key] = wanted
+        rerender()
+    }
+
+    /**
+     * **Why the editor would not take what was typed**, on the dialog's own error line — where the
+     * platform puts a reason that is about the dialog's contents rather than about one keystroke.
+     *
+     * It is [StemRejection.message] verbatim: the rule is the engine's, so a sentence written here
+     * would be a second statement of it, free to drift from the one that is actually enforced.
+     * Cleared on the way in and out of every edit, because an error line outliving the cell it was
+     * about is a false statement about what is on screen.
+     *
+     * Kept in [rejection] as well as shown, for the reason [createActions] is public: a sentence a
+     * user reads is one a test has to be able to read, and the platform's error line is not
+     * something a dialog that was never shown can be asked about.
+     */
+    private fun reportRejection(rejection: StemRejection?) {
+        this.rejection = rejection
+        setErrorText(rejection?.message)
+    }
+
+    /**
      * **The warning, and then the column.** Nothing is preserved by unlocking — every box comes up
      * unticked, and the render is untouched until one is ticked — so what this buys is the sentence
      * in front of the reduction rather than the reduction.
@@ -389,6 +481,7 @@ internal class PreviewDialog private constructor(
     private fun settingsNow(): AnonymizationSettings = AnonymizationSettings(
         preservedSymbols = preserved.toSet(),
         keepComments = commentsBox.isSelected,
+        renamedStems = stems.toMap(),
         internalLibraries = libraries,
     )
 
@@ -463,11 +556,19 @@ internal fun stripOf(analysis: Analysis): String {
  * reduction is offered** — on `Unknown` rows while [unlocked] is false, and on every keyed row once
  * it is true. A literal row never has one: it has no key, and literal text is the most directly
  * sensitive content the product handles.
+ *
+ * **The `Placeholder` column is editable on the rows this invocation minted**, and the editor edits
+ * the stem while the number stays fixed beside it — see [StemEditor]. Which rows those are is
+ * [MappedName.renaming], answered by the engine rather than worked out here, because every reason a
+ * row is not renamable turns on something only the engine has. There is no unlock in front of it: a
+ * rename is not a reduction, the symbol is still replaced, and the friction the unlock exists to
+ * create belongs at the one place the product anonymizes *less*.
  */
 internal class MappingTableModel(
     names: List<MappedName>,
     private val reducible: Boolean,
     private val onPreserve: (MappedName, Boolean) -> Unit,
+    private val onRename: (MappedName, String) -> Unit,
 ) : AbstractTableModel() {
 
     var showing: List<MappedName> = names
@@ -513,8 +614,11 @@ internal class MappingTableModel(
         }
     }
 
-    override fun isCellEditable(row: Int, column: Int): Boolean =
-        column == PRESERVE && offersPreserve(showing[row])
+    override fun isCellEditable(row: Int, column: Int): Boolean = when (column) {
+        PRESERVE -> offersPreserve(showing[row])
+        PLACEHOLDER -> offersRename(showing[row])
+        else -> false
+    }
 
     /**
      * Whether this row offers the override. **The key decides**, not the kind: a preserve travels as
@@ -524,8 +628,33 @@ internal class MappingTableModel(
     private fun offersPreserve(name: MappedName): Boolean =
         reducible && name.key != null && (unlocked || name.kind == MappedKind.UNKNOWN)
 
+    /**
+     * Whether this row's placeholder can be renamed — [Renaming.OFFERED] and the reduction opening,
+     * and nothing else. The engine ignores a stem for every other row anyway, so this decides what
+     * is *offered* rather than what is enforced.
+     */
+    private fun offersRename(name: MappedName): Boolean = reducible && name.renaming == Renaming.OFFERED
+
+    /**
+     * **What the `Placeholder` cell says about itself**, which on three of the four rows is why it
+     * cannot be renamed. A row that simply refused the double-click without saying anything would
+     * read as a control the user has lost, which is the same reason the `Preserve` header explains
+     * its empty cells.
+     *
+     * `null` on a row with nothing to say — a preserved row, a literal, an `Unknown` — because a
+     * tooltip that fires everywhere is one nobody reads anywhere.
+     */
+    fun renameTooltipAt(row: Int): String? {
+        if (!reducible) return null
+        val renaming = showing[row].renaming
+        return if (renaming == Renaming.OFFERED) RENAME_TOOLTIP else renaming.message
+    }
+
     override fun setValueAt(value: Any?, row: Int, column: Int) {
-        if (column == PRESERVE) onPreserve(showing[row], value == true)
+        when (column) {
+            PRESERVE -> onPreserve(showing[row], value == true)
+            PLACEHOLDER -> onRename(showing[row], value?.toString().orEmpty())
+        }
     }
 }
 
@@ -605,6 +734,129 @@ private class PreserveRenderer : TableCellRenderer {
     }
 }
 
+/**
+ * **The stem is editable; the number is not.**
+ *
+ * A text field for the stem with the number in a label beside it, rather than one field holding the
+ * whole placeholder with a rule policing the tail. The difference is the whole ticket: a field
+ * containing `Type1` invites deleting the `1`, and every design that lets the number be typed has to
+ * take it away again afterwards, which is a rejection where this is an affordance. The number is not
+ * in the editable text at all, so *"there is no way to remove the number"* is a property of the
+ * widget rather than of a check.
+ *
+ * **The value handed back is the stem alone**, trimmed — the engine puts the number on, drawn from
+ * the same counter as every other placeholder, and it may not be the number shown here: burning
+ * already moves numbers between renders, and a rename is attached to the symbol's key rather than to
+ * a number.
+ *
+ * **Invalid input is refused at the cell**, by [stemRejection] — the same function the engine falls
+ * back on, so what the user is told and what would happen are one statement. The edit stays open on
+ * a refusal rather than being discarded: what was typed is nearly right, and throwing it away to
+ * show a message is the worst of both.
+ *
+ * Two clicks to start **when the start is a click**, like every other editable table in the
+ * platform: a single click on a table whose rows are read for their content should select the row,
+ * not open a text field over it. A keystroke starts it on the first one, which is not an
+ * inconsistency but the other half of the same convention — F2 and typing into a selected cell are
+ * the platform's own way in, and neither has a second half to wait for.
+ */
+private class StemEditor(private val report: (StemRejection?) -> Unit) : AbstractCellEditor(), TableCellEditor {
+
+    private val stem = JBTextField()
+
+    private val number = JBLabel().also { it.border = JBUI.Borders.emptyLeft(2) }
+
+    /** The stem this editor opened with — see [stopCellEditing], which is the only reader. */
+    private var opened: String = ""
+
+    private val editor = JPanel(BorderLayout()).also {
+        it.add(stem, BorderLayout.CENTER)
+        it.add(number, BorderLayout.EAST)
+    }
+
+    override fun getTableCellEditorComponent(
+        table: JTable,
+        value: Any?,
+        selected: Boolean,
+        row: Int,
+        column: Int,
+    ): Component {
+        // Split by `:core`, which owns the format: *stem then number* is the engine's spelling, and
+        // a second reading of it on this side is one that goes stale the day the format moves.
+        val placeholder = value?.toString().orEmpty()
+        stem.text = stemOf(placeholder)
+        number.text = numberOf(placeholder)
+        opened = stem.text
+        clear()
+        return editor
+    }
+
+    override fun getCellEditorValue(): Any = stem.text.trim()
+
+    override fun isCellEditable(event: EventObject?): Boolean = event !is MouseEvent || event.clickCount >= 2
+
+    override fun stopCellEditing(): Boolean {
+        val typed = stem.text.trim()
+
+        // **What the editor opened with is always accepted**, because closing a cell you only looked
+        // at is not a rename and must not be answered with a refusal. It is not a hole in the rule:
+        // every default stem is one of the engine's own namespaces, and
+        // [StemRejection.RESERVED_NAMESPACE] is right about a namespace the user *chose* — a
+        // resolved name may not claim to be an `Unknown` — while saying nothing about the word the
+        // engine itself put in the cell. Whether anything was typed is exactly that difference.
+        val rejection = if (typed == opened) null else stemRejection(typed)
+        if (rejection == null) {
+            clear()
+            return super.stopCellEditing()
+        }
+        report(rejection)
+        stem.putClientProperty(OUTLINE, "error")
+        stem.toolTipText = rejection.message
+        return false
+    }
+
+    override fun cancelCellEditing() {
+        clear()
+        super.cancelCellEditing()
+    }
+
+    private fun clear() {
+        report(null)
+        stem.putClientProperty(OUTLINE, null)
+        stem.toolTipText = null
+    }
+}
+
+/**
+ * The platform's own error outline on a text field — the red ring a user has seen on every other
+ * IntelliJ form, which is what makes it read as *this is not accepted* without a sentence.
+ */
+private const val OUTLINE = "JComponent.outline"
+
+/**
+ * **The `Placeholder` cell, carrying whatever this row has to say about being renamed** — see
+ * [MappingTableModel.renameTooltipAt].
+ *
+ * The row is read back through [JTable.convertRowIndexToModel] because the table is sortable and the
+ * renderer is handed the view index; the model is asked for the sentence rather than the row for its
+ * state, so the four answers are spelled out in one place.
+ */
+private class PlaceholderRenderer(private val rows: MappingTableModel) : DefaultTableCellRenderer() {
+
+    override fun getTableCellRendererComponent(
+        table: JTable,
+        value: Any?,
+        selected: Boolean,
+        focused: Boolean,
+        row: Int,
+        column: Int,
+    ): Component {
+        val component = super.getTableCellRendererComponent(table, value, selected, focused, row, column)
+        toolTipText = rows.renameTooltipAt(table.convertRowIndexToModel(row))
+        return component
+    }
+}
+
 private val COLUMNS = arrayOf("Original", "Placeholder", "Kind", "Preserve")
 
 private const val ORIGINAL = 0
@@ -614,6 +866,17 @@ private const val PRESERVE = 3
 
 /** What a preserved name renders as: it has no placeholder, and it stands for itself. */
 private const val NO_PLACEHOLDER = "—"
+
+/**
+ * **The offer, and the one thing about it that is not negotiable.** A stem carries the user's own
+ * word into the snippet — *the filter this question is about* — and the number stays, because it is
+ * what keeps the output announcing itself as anonymized.
+ *
+ * The one sentence in this column the dialog writes rather than reads off [Renaming.message]: the
+ * engine has no objection to state on an offered row, and *double-click* is this dialog's own
+ * affordance rather than anything the engine knows about.
+ */
+internal const val RENAME_TOOLTIP = "Double-click to rename this placeholder. The number always stays."
 
 /**
  * **What the `Preserve` header says while the column is locked**, which is the state every opening

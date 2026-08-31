@@ -37,7 +37,8 @@ of *unknown* is *possibly yours*. It gets an `Unknown3` placeholder rather than 
 ## Placeholders, and why they are stable
 
 A placeholder is its kind plus a number: `Type1`, `method2`, `field3`, `param4`, `local5`,
-`package6`, `str7`, `Unknown8`.
+`package6`, `str7`, `Unknown8`. The kind can be replaced with a word of your own from the preview —
+see below — and the number cannot be replaced with anything.
 
 `CustomerService` is `Type1` today, tomorrow, and after the IDE has been restarted twice. The
 argument for that is fidelity rather than privacy: the normal use is a conversation, and numbering
@@ -187,6 +188,41 @@ out as `com.pkg1.pkg2.PaymentFilter`, because preserving a name is not a decisio
 
 Neither reduction is persisted. Both live for one invocation, so nothing you tick here can quietly
 apply to a snippet next week.
+
+## Renaming a placeholder
+
+Double-click a cell in the **Placeholder** column and you can replace the stem with a word of your
+own: `Type1` becomes `FilterType1`, `field3` becomes `merchantField3`. It is what to reach for when
+the model needs to know which of four types is the one the question is about.
+
+**The number always stays.** You edit the stem; the number sits beside it and is not part of the
+editable text, so there is no way to end up with `Filter`. That is the whole design rather than a
+detail — output that is obviously anonymized is not a failure of this product, and a placeholder
+that reads as an ordinary name would be a different product with a worse property. A stem also
+cannot end in a digit, because stem `Filter2` with number 1 and stem `Filter` with number 21 would
+both spell `Filter21`, and two symbols spelling one word is what reverse mapping forbids. Nor can it
+spell one of SnippetVeil's own namespaces — `Unknown`, `str`, `Type` and the rest — because a
+placeholder is read as a claim about what it stands for, and `Unknown1` on a name the IDE resolved
+fine would be a false one.
+
+**Renaming is not a reduction.** Your real name never leaves the machine; the symbol is still
+replaced. What does go out is the alias you typed, which is a small disclosure you chose — see
+`THREAT-MODEL.md`.
+
+**Only names this snippet introduced can be renamed.** Three kinds of row have no editor, and each
+says why when you hover it:
+
+- A name **an earlier snippet already used** keeps it. The mapping is a record of what was actually
+  sent, and renaming an entry would make an old reply decode wrongly or not at all.
+- An **accessor** follows its field — `getMerchantField3` is `get` and the field's placeholder — so
+  rename the field and the accessor comes with it.
+- An **`Unknown`** keeps its namespace, which is load-bearing: `Unknown1` tells the model the IDE
+  could not resolve this. A **literal** has no symbol to key a rename to, like the Preserve column.
+
+**Nothing new is stored for it.** A rename is input to one invocation. What makes `FilterType1` come
+back on next week's paste is the mapping row this invocation was already going to write — so a
+renamed class stays renamed, while a renamed local, parameter or type parameter lasts for the
+snippet it mattered in and re-mints under the default stem next time.
 
 ## Where things are stored
 
