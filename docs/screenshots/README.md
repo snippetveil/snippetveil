@@ -1,6 +1,6 @@
 # The Marketplace screenshots
 
-Eight shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
+Nine shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
 commit by anyone.
 
 They are committed here rather than living only in the Marketplace listing, for the reason the demo
@@ -9,7 +9,7 @@ that cannot be reproduced cannot be corrected when the dialog it shows moves on.
 
 ## Rules every shot has to meet
 
-- **1280 × 800**, and the same aspect for all eight. The Marketplace scales them together; one odd
+- **1280 × 800**, and the same aspect for all nine. The Marketplace scales them together; one odd
   shot reads as a mistake in the listing rather than as a difference in the product.
 - **No window chrome.** Capture the IDE's content, not the title bar, the traffic lights or the
   desktop behind them.
@@ -59,14 +59,18 @@ link there. A listing image missing a control the reader will find on their own 
 failure this directory exists to prevent, and it is worse than a missing image: it is a picture of a
 product that no longer exists.
 
-**Shoot 3, 4 and 5 from one opening of the dialog, in that order.** They are three states of one
-preview, and the numbers make that a requirement rather than a preference — a placeholder's number is
-burnt when it is handed out, so a second invocation on the same selection re-mints every local and
-parameter while the types, methods and fields keep the numbers they already have. Three frames from
-three openings would disagree with each other down the middle of the table. One opening: capture the
-dialog, click the unlock and capture the warning, **Cancel** it, then rename two rows and capture
-that. Cancelling is what leaves the Preserve column in shot 4 looking the way it does in shot 3, so
-the only thing that changes between any two frames is the thing the frame is about.
+**Shoot 3, 4, 5 and 6 from one opening of the dialog, in that order.** They are four states of one
+preview, and the numbers make that a requirement rather than a preference — a placeholder's number
+is burnt when it is handed out, so a second invocation on the same selection re-mints every local
+and parameter while the types, methods and fields keep the numbers they already have. Four frames
+from four openings would disagree with each other down the middle of the table.
+
+One opening: capture the dialog, click the unlock and capture the warning, **Cancel** it, rename two
+rows and capture that, then unlock again and mean it, tick two names and capture that. The cancel is
+what leaves the Preserve column in shot 4 looking the way it does in shot 3, so that the only thing
+changing between any two frames is the thing that frame is about. Ticking a name re-runs the plan,
+so the locals and fields in shot 6 carry different numbers from the ones in shots 3 to 5 — that is
+the preserve being applied, not the set drifting.
 
 ### 4. `preview-rename-placeholder.png`
 
@@ -82,8 +86,8 @@ editor says the cell takes typing, and shows the number sitting outside the edit
 the promise the whole feature rests on: the stem is yours and the number always stays.
 
 **Rename to a hint, never to the real name.** The pair to type is `OverdueType` on the `Invoice`
-row, committed, and `chargeMethod` on the `feeFor` row, left open in its editor: both are words that
-tell a model which symbol the question is about, and neither is the name that was replaced. A shot of a
+row, committed, and `charge` on the `feeFor` row, left open in its editor: both are words that tell
+a model which symbol the question is about, and neither is the name that was replaced. A shot of a
 placeholder renamed back to the identifier it stands for would illustrate a use the product does not
 have — the real name never leaves the machine, and a listing image is a poor place to suggest
 otherwise.
@@ -101,22 +105,41 @@ The unlock's confirmation, open over the preview, with the empty **Preserve** co
 Preserve column behind the warning is empty — which is not a flat shot but the exact case the unlock
 exists for: nothing in this table can be preserved until you ask for it.
 
-**The sentence is the subject.** Frame it so all three lines are readable — *Preserved names are sent
-exactly as written in your code. SnippetVeil will not conceal a name you tick. Only preserve names
-you would be comfortable typing into the chat yourself.* — together with the two buttons, `I
-understand, unlock` and `Cancel`. The button that carries it out is named for the decision rather
+**The sentence is the subject.** Frame it so all three lines are readable — *Preserved names are
+sent exactly as written in your code. SnippetVeil will not conceal a name you tick. Only preserve
+names you would be comfortable typing into the chat yourself.* — together with the two buttons,
+`I understand, unlock` and `Cancel`. The button that carries it out is named for the decision rather
 than `OK`, and that is half of what the shot is showing.
 
-**The modal's own title bar is in frame, and that is not the chrome the rules bar.** The platform
-puts the question — *Unlock Preserve for all names?* — in the dialog's title, so it is the only place
-the frame says which column is being unlocked. The rule above is about the IDE window, its traffic
-lights and the desktop behind them.
+**The question is drawn inside the warning, not in a title bar.** *Unlock Preserve for all names?*
+is the first line of the modal itself, above the three sentences and beside the platform's warning
+icon, so the whole subject of this shot is one rectangle and the crop is the dialog behind it.
 
 **A warning is an odd thing to put in a listing, and it is the strongest frame in the set.** The
 product's claim is that it never quietly reduces what it conceals; a shot of it stopping to say so,
 in a dialog that has no *don't warn me again*, demonstrates that claim instead of asserting it.
 
-### 6. `preview-fidelity-notice.png`
+### 6. `preview-preserve-unlocked.png`
+
+The column the warning opened, and what a tick costs. Every row carries a checkbox now, two of them
+are ticked, and the two names those rows stand for are in the code beside the table exactly as they
+are written in the source.
+
+**Same opening of the dialog as shots 3, 4 and 5, and tick one local and one method** — `daysLate`
+and `dueOn`. One of each, so the frame cannot be read as a rule about one kind of name.
+
+**The warning is the question and this is the answer, which is why both are here.** A reader who
+sees only the warning has been shown a product that asks; this shows what it does when told to go
+ahead, and it is not flattering by accident — the counts strip moves from `19 renamed · 0 unknown ·
+15 preserved` to `17 renamed · 0 unknown · 17 preserved` in the same frame as the ticks, and the
+Placeholder cell of a preserved row reads `—`, because there is no placeholder to name. A reduction
+that shows up in the count the product reports about itself is a reduction a reader can audit.
+
+**If the listing ever has to give a slot back, give this one.** It is the only frame in the set
+showing a reduction taken rather than offered, and the warning above carries the decision without
+it.
+
+### 7. `preview-fidelity-notice.png`
 
 The preview again, on a selection that makes a fidelity notice fire.
 
@@ -125,7 +148,7 @@ class below it. `customer`, `overdue` and `fees` are each both a field and a met
 renamed symbols share one source name and the preview says so. The notice is the subject of the shot
 — frame it so the sentence is readable rather than implied.
 
-### 7. `copy-balloon-with-counts.png`
+### 8. `copy-balloon-with-counts.png`
 
 The balloon after a plain **Copy Anonymized**, showing the counts and the **Show mapping** action.
 
@@ -138,7 +161,7 @@ beside the method signature. In shots 1 and 2 the context menu happens to cover 
 it here, and a real person's name in a listing image is the one rule in this file with no judgement
 in it.
 
-### 8. `right-click-deanonymize-and-paste.png`
+### 9. `right-click-deanonymize-and-paste.png`
 
 The same popup, with **De-anonymize Clipboard and Paste** highlighted.
 
@@ -150,12 +173,12 @@ in the submenu that **writes into a source file** rather than onto the clipboard
 deciding whether to install has to be able to see that the plugin has a row that does that. The
 ellipsis distinction in shot 2 is a smaller difference than this one.
 
-**Last among the stills rather than third, because the set is a round trip.** Shots 1-7 go out —
-select, preview, edit the preview, copy, read the counts — and this is the return leg, the reply coming back into the
-editor. Grouped with the other menu shots it would put three near-identical frames at the front of
-the listing, which is where a reader decides whether to keep looking.
+**Last among the stills rather than third, because the set is a round trip.** Shots 1-8 go out —
+select, preview, edit the preview, copy, read the counts — and this is the return leg, the reply
+coming back into the editor. Grouped with the other menu shots it would put three near-identical
+frames at the front of the listing, which is where a reader decides whether to keep looking.
 
-### 9. `walkthrough.gif` (optional)
+### 10. `walkthrough.gif` (optional)
 
 Roughly ten seconds, no audio: select, **Copy Anonymized**, paste into a scratch buffer, then
 **De-anonymize Clipboard** on a reply pasted back. Same window, same theme, same rules as above.
@@ -176,20 +199,39 @@ screencapture -T 8 -R <x>,<y>,1280,800 docs/screenshots/<name>.png
 sips -z 800 1280 docs/screenshots/<name>.png
 ```
 
-Keep `<x>,<y>` the same for all eight so the shots line up, and place the region well inside the
+Keep `<x>,<y>` the same for all nine so the shots line up, and place the region well inside the
 editor area rather than against the window's edges.
+
+**Or capture the window and cut the shadow off afterwards**, which is how the three preview frames
+were made and is the easier method when the subject is a dialog. `⌘⇧4` then `Space`, aimed at the
+dialog, writes the window and its drop shadow with an alpha channel around them. The shadow is
+chrome, and it is chrome a machine can remove without any judgement: the dialog's own pixels are the
+flood-filled region of its chrome colour, and everything outside that box is shadow. Three captures
+that were three different sizes came out the same size to the pixel that way. What follows is
+unchanged — scale to fit 1280 × 800, centre on a ground sampled from the image's own edge.
 
 ## What is here
 
-Six of the eight stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each
-scaled to fit and centred on a ground sampled from its own edge, so the letterboxing is invisible
-and the set reads as one product rather than as eight window sizes.
+All nine stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each scaled to
+fit and centred on a ground sampled from its own edge, so the letterboxing is invisible and the set
+reads as one product rather than as nine window sizes.
 
-**`preview-rename-placeholder.png` and `preview-unlock-preserve-warning.png` are specified above and
-have not been shot yet.** They are the two frames the rename and the Preserve unlock add, and the
-Marketplace listing carries the set it has until they exist — an out-of-date listing is a smaller
-problem than a listing whose images do not match the plugin a reader just installed. Delete this
-paragraph in the commit that adds them.
+**Two of them are known to be wrong, and one opening of the dialog fixes both.** Neither has been
+uploaded to the listing yet:
+
+- **`preview-dialog.png` predates the unlock**, as shot 3 says. It is the only frame that
+  misrepresents the dialog rather than merely aging, and the listing must not be updated while it is
+  the frame carrying the product.
+- **`preview-rename-placeholder.png` renames the row below the one it meant to.** `OverdueType`
+  landed on the `invoice` parameter instead of on the `Invoice` type, so a parameter carries a stem
+  naming a type while the type above it still reads `Type154`. What the frame is for it does show
+  correctly — that the cell takes typing, and that the number sits outside the editable text where
+  it cannot be typed over.
+
+**The numbers in the three preview frames start at 153, and that is not a defect.** The sandbox they
+were shot in had minted that many already, and a number is burnt when it is handed out. A mature
+project's preview looks like these frames rather than like the `1`-to-`19` ones shot in August, so
+re-shooting for lower numbers would be making the product look newer than it is.
 
 `assertBothPluginIconsShip` fails the build if any image other than the two icons reaches the
 distribution. That rule exists because of how these were made: a screenshot has to live somewhere
