@@ -264,7 +264,8 @@ and the counter does not**, and the line between them is what each one names: a 
 user typed to describe one of their own symbols, and the counter is one integer that names nobody.
 The cost is stated rather than discovered — after a reset a reply holding only renamed placeholders
 matches nothing and is pasted, where one holding any default-stemmed placeholder is still refused
-because the counter survived. **The counter is not rewound**, and that is not a leftover: rewinding would hand an old placeholder to a new symbol, so a reply pasted from last
+because the counter survived. **The counter is not rewound**, and that is not a leftover: rewinding
+would hand an old placeholder to a new symbol, so a reply pasted from last
 week's conversation would decode to a *plausible wrong name* — the failure class this product refuses
 — where a cleared row decodes to nothing, which is a visible gap. It is one integer and it names
 nobody. Its confirmation states the consequence —

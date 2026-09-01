@@ -59,7 +59,9 @@ package com.snippetveil.core
  *   removing the control altogether, which hands the developer who genuinely always wants comments a
  *   forced loss with no escape hatch.
  * @param renamedStems symbol key -> the stem this invocation names that symbol with, read off
- *   [MappedName.key] exactly like [preservedSymbols]. **Per-invocation only, never persisted.**
+ *   [MappedName.key] exactly like [preservedSymbols]. **This map is per-invocation only and is never
+ *   persisted** — no store holds *which key was renamed to what*, so a rename cannot come back as a
+ *   setting nobody re-confirmed. The stem itself is a different question; see below.
  *
  *   **Renaming is stem-only, and the number always stays**: `Type1` may become `FilterType1`, and
  *   it may never become `Filter`. A stem is a hint the user invents to give the AI context — *the
@@ -72,12 +74,19 @@ package com.snippetveil.core
  *   above — but the stem is text the user typed and it goes to the AI, which makes it a **chosen
  *   disclosure** of whatever meaning was typed into it. `THREAT-MODEL.md` names it as one.
  *
- *   **Nothing new is stored, and stability comes only from the existing ledger row.** A renamed
- *   placeholder for a qualified key is written into [LedgerDelta.placeholders] like any other, which
- *   is what makes `FilterType1` come back on next week's paste. An unqualified key — a local, a
- *   parameter, a type parameter, a label — is never ledgered, so its rename lasts this invocation
- *   and the next snippet re-mints it under the default stem. That is an accepted cost rather than an
- *   oversight: the `filter` local still carries its context in the snippet where the question is.
+ *   **Stability comes from the existing ledger row and from nothing else.** A renamed placeholder
+ *   for a qualified key is written into [LedgerDelta.placeholders] like any other, which is what
+ *   makes `FilterType1` come back on next week's paste. An unqualified key — a local, a parameter, a
+ *   type parameter, a label — is never ledgered, so its rename lasts this invocation and the next
+ *   snippet re-mints it under the default stem. That is an accepted cost rather than an oversight:
+ *   the `filter` local still carries its context in the snippet where the question is.
+ *
+ *   **The stem is stored, and the pairing is not.** [LedgerDelta.mintedStems] records the *words*
+ *   this invocation minted under — a set, filed under no key — because a reversal has no way to tell
+ *   `theFilter7` from ordinary prose unless it was told the word, and `De-anonymize Clipboard and
+ *   Paste` refuses to write a reply it could not restore in full. That is read by the reversal and
+ *   never by this engine: nothing here consults it, so a recorded stem renames nothing on a later
+ *   invocation, which is what keeps the map above a per-invocation input.
  *
  *   **Three keys are ignored**, and each for its own reason — see [Renaming], which is how core
  *   tells the dialog which rows to offer. A key already in the [LedgerSnapshot] keeps the
@@ -280,9 +289,18 @@ data class MintedName(val placeholder: String, val original: String)
  * needs and strictly less than a row: a stem names no symbol, has no number attached, and says
  * nothing about what it stood for.
  *
- * **Only stems the engine actually minted with.** An invalid stem falls back to the default
- * namespace, and a stem spelling one of the engine's own namespaces is refused outright, so nothing
- * here is a word no placeholder in the output uses.
+ * **Only words the engine actually minted a placeholder under.** An invalid stem falls back to the
+ * default namespace and a stem spelling one of the engine's own namespaces is refused outright, so a
+ * word the user typed and the engine declined is not here. A **derived accessor's** stem is —
+ * `merchantField1` under `get` renders `getMerchantField1`, which is a word of its own and in no set
+ * built from what the user typed.
+ *
+ * **Minted is not the same as *in the output*, and the gap is deliberate.** A JavaBeans accessor
+ * allocates its backing field's placeholder whether or not the field is anywhere in the snippet —
+ * with Lombok it usually is not — so a stem can be recorded for a placeholder no character of this
+ * invocation's text contains. That is the right way round: the ledger row for that field is written
+ * too, an AI's reply can quote either name, and recognising a word this project minted is the whole
+ * job.
  *
  * @param placeholders the qualified keys named during this invocation, and what they were named —
  *   see [MintedName] for why a row is a pair rather than a placeholder.

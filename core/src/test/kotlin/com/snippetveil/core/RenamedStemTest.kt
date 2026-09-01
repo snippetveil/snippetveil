@@ -394,6 +394,104 @@ class RenamedStemTest {
     }
 
     /**
+     * **A renamed field's accessor is recognised too, and by the same route** — the derived name is a
+     * word of its own, so it is written down as one.
+     *
+     * `merchantField1` under `get` renders `getMerchantField1`, whose stem is `getMerchantField` and
+     * is in no set built from what the user typed. The default form needs no help — `getField1` is
+     * read off the roles — so this is the half that only recording can reach, and the fixture keys
+     * both symbols unqualified so that nothing is ledgered and the shape recogniser is the only
+     * thing left answering.
+     */
+    @Test
+    fun `a renamed field's derived accessor past the horizon is reported unrestored`() {
+        val field = symbol("merchantId", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:merchantId")
+        val plan = planOf(
+            "String merchantId; String getMerchantId() { return merchantId; }",
+            field,
+            symbol(
+                "getMerchantId", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT,
+                key = "method:getMerchantId",
+                accessor = AccessorEvidence(field.key, field.declaredName, "get"),
+            ),
+        )
+
+        val result = anonymize(plan, renaming(field.key to "merchantField"), LedgerSnapshot.EMPTY)
+        val committed = LedgerSnapshot.EMPTY + result.delta
+        val back = deanonymize("getMerchantField1 never reloads it.", Sidecar.EMPTY, committed)
+
+        assertEquals("String merchantField1; String getMerchantField1() { return merchantField1; }", result.text)
+        assertEquals(setOf("merchantField", "getMerchantField"), committed.mintedStems)
+        assertEquals(listOf(Unrestored("getMerchantField1", UnrestoredReason.EVICTED)), back.unrestored)
+    }
+
+    /**
+     * **A field named by an earlier snippet still carries its accessor's word**, which is the case
+     * the obvious guard gets wrong.
+     *
+     * The field is renamed and ledgered in the first invocation, where no accessor is in the snippet
+     * at all — so `getMerchantField` is minted by nothing and recorded by nothing. The second
+     * invocation reads the field's placeholder back out of the mapping rather than minting it, and
+     * is nonetheless the first thing ever to write `getMerchantField1`. A check that asked only what
+     * *this* invocation renamed would answer no and leave the word unrecognised for good.
+     */
+    @Test
+    fun `an accessor over a field named by an earlier snippet records the derived stem`() {
+        val field = symbol(
+            "merchantId", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT,
+            key = "field:class:com.acme.Payment#merchantId", keyIsQualified = true,
+        )
+        val accessor = symbol(
+            "getMerchantId", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT,
+            key = "method:getMerchantId",
+            accessor = AccessorEvidence(field.key, field.declaredName, "get", fieldKeyIsQualified = true),
+        )
+
+        val first = anonymize(planOf("String merchantId;", field), renaming(field.key to "merchantField"), LedgerSnapshot.EMPTY)
+        val second = anonymize(
+            planOf("String getMerchantId() { return null; }", accessor),
+            AnonymizationSettings.DEFAULTS,
+            LedgerSnapshot.EMPTY + first.delta,
+        )
+        val committed = LedgerSnapshot.EMPTY + first.delta + second.delta
+
+        assertEquals("String merchantField1;", first.text)
+        assertEquals("String getMerchantField1() { return null; }", second.text)
+        assertEquals(setOf("merchantField", "getMerchantField"), committed.mintedStems)
+        assertEquals(
+            listOf(Unrestored("getMerchantField1", UnrestoredReason.EVICTED)),
+            deanonymize("getMerchantField1 never reloads it.", Sidecar.EMPTY, committed).unrestored,
+        )
+    }
+
+    /**
+     * **A default-stemmed accessor records no stem**, because the roles already recognise it: the
+     * derived form of a namespace this engine mints from is in the shape recogniser by construction,
+     * and writing `getField` into the mapping as well would put a word there that names nothing the
+     * user chose.
+     */
+    @Test
+    fun `a default-stemmed accessor records no stem`() {
+        val field = symbol("merchantId", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:merchantId")
+        val plan = planOf(
+            "String merchantId; String getMerchantId() { return merchantId; }",
+            field,
+            symbol(
+                "getMerchantId", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT,
+                key = "method:getMerchantId",
+                accessor = AccessorEvidence(field.key, field.declaredName, "get"),
+            ),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+        val back = deanonymize("getField1 never reloads it.", Sidecar.EMPTY, LedgerSnapshot.EMPTY + result.delta)
+
+        assertEquals("String field1; String getField1() { return field1; }", result.text)
+        assertEquals(emptySet<String>(), result.delta.mintedStems)
+        assertEquals(listOf(Unrestored("getField1", UnrestoredReason.EVICTED)), back.unrestored)
+    }
+
+    /**
      * **A stem nobody minted is not a placeholder**, which is the half of this that keeps the action
      * usable: `sha256`, `utf8` and `count2` are how a model writes ordinary prose, and a recogniser
      * wide enough to claim them would refuse most replies outright.
