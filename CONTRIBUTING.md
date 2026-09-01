@@ -178,6 +178,19 @@ that `:plugin` owns the spelling of and `:core` is not allowed to know — the s
 with an empty name and still holds its placeholder and its number: under-recovery, never a wrong
 name, and pinned by a test.
 
+**And beside the rows, a set of words: the stems this project has minted under.** It is the one
+thing in the file that is not filed under a key, and that is what it is for. A placeholder the user
+renamed in the preview — `theFilter7` — restores like any other, because restoring is the table and
+the table is exact; what no *pattern* can do is **recognise** one, since a stem is arbitrary text and
+anything wide enough to catch it catches `sha256` and `count2` out of a model's own prose. That
+matters because `De-anonymize Clipboard and Paste` refuses to write a reply it could not restore in
+full and asks the unrestored count to decide, so a word going uncounted there is a placeholder
+written silently into source. Recording the word turns the question back into a lookup, which is the
+same total answer the restore pass gives — *do not guess at names by shape* is untouched. The
+placeholder that most needs it is a renamed **local's**, whose key is exactly the kind this file
+refuses to hold; a stem stands for no symbol and carries no number, so it is strictly less than the
+row beside it.
+
 `PlaceholderLedgerTest` asserts each of these rather than describing them: the roaming type, the
 component level, and the resolved path being neither under the project nor under the system
 directory.
@@ -244,10 +257,14 @@ and fails if the word appears on it.
 
 `Reset Mappings…` is **a button on the settings page and not an action**, so it is nowhere near
 `Copy Anonymized` and — the accepted cost, stated rather than discovered — not reachable from Find
-Action. It is the single place the append-only rule ends: it clears this project's mapping and the
-sidecar, and **leaves the org-prefix configuration intact**, which is a structural fact rather than a
-special case because the three are separate components. **The counter is not rewound**, and that is
-not a leftover: rewinding would hand an old placeholder to a new symbol, so a reply pasted from last
+Action. It is the single place the append-only rule ends: it clears this project's mapping — rows and
+stems alike — and the sidecar, and **leaves the org-prefix configuration intact**, which is a
+structural fact rather than a special case because the three are separate components. **The stems go
+and the counter does not**, and the line between them is what each one names: a stem is a word the
+user typed to describe one of their own symbols, and the counter is one integer that names nobody.
+The cost is stated rather than discovered — after a reset a reply holding only renamed placeholders
+matches nothing and is pasted, where one holding any default-stemmed placeholder is still refused
+because the counter survived. **The counter is not rewound**, and that is not a leftover: rewinding would hand an old placeholder to a new symbol, so a reply pasted from last
 week's conversation would decode to a *plausible wrong name* — the failure class this product refuses
 — where a cleared row decodes to nothing, which is a visible gap. It is one integer and it names
 nobody. Its confirmation states the consequence —

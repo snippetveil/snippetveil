@@ -62,6 +62,10 @@ fun anonymize(
     fun isReplaced(symbol: SymbolEvidence): Boolean =
         wouldReplace(symbol) && sharedKeyOf(symbol) !in settings.preservedSymbols
 
+    // The custom stems this invocation actually minted under — a set of words rather than a third
+    // tier of key, and the only thing a renamed **local** leaves behind. See [LedgerDelta].
+    val mintedStems = LinkedHashSet<String>()
+
     // **The stem a key is named with, or the namespace it falls into by default.** A rename
     // substitutes the namespace and nothing else: the number still comes from the shared counter,
     // is still checked against the same reserved set, and still burns on collision — so a renamed
@@ -70,8 +74,16 @@ fun anonymize(
     // **An invalid stem is dropped here rather than rejected**, which is what keeps the invariant
     // off the dialog: the engine falls back to the default namespace, and a caller that validated
     // nothing gets `Type1` rather than a placeholder that breaks reverse mapping. See [usableStem].
-    fun stemFor(key: String, namespace: String): String =
-        settings.renamedStems[key]?.let(::usableStem) ?: namespace
+    //
+    // **A stem the engine will use is written down as it is used**, which is why this is the one
+    // place that records them: every caller is at the moment a placeholder is being minted, so the
+    // set is exactly the words that reached the output rather than the words the dialog sent. See
+    // [LedgerDelta.mintedStems] for what recording them is for.
+    fun stemFor(key: String, namespace: String): String {
+        val stem = settings.renamedStems[key]?.let(::usableStem) ?: return namespace
+        mintedStems += stem
+        return stem
+    }
 
     fun namespaceFor(symbol: SymbolEvidence): String {
         val namespace = namespaceOf(symbol)
@@ -310,7 +322,7 @@ fun anonymize(
             prose = stripped.count { it.verdict == CommentVerdict.PROSE },
             code = stripped.count { it.verdict == CommentVerdict.CODE },
         ),
-        delta = LedgerDelta(persisted, allocator.nextNumber),
+        delta = LedgerDelta(persisted, allocator.nextNumber, mintedStems),
     )
 }
 

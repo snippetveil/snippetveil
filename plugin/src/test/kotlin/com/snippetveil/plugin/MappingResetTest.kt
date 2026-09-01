@@ -1,9 +1,11 @@
 package com.snippetveil.plugin
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.TestDialog
 import com.intellij.openapi.ui.TestDialogManager
+import com.intellij.util.xmlb.XmlSerializer
 import com.snippetveil.core.LedgerDelta
 import com.snippetveil.core.MintedName
 
@@ -67,6 +69,30 @@ class MappingResetTest : JavaSnippetTestCase() {
 
         assertEmpty(sidecar.window().invocations)
         assertNull(sidecar.originalOf("str1"))
+    }
+
+    /**
+     * **And the stems the user typed, which are vocabulary and not a counter.**
+     *
+     * The counter beside them stays because it is one integer that names nobody; a stem is a word the
+     * user chose to describe one of their own symbols, so it is exactly what this button exists to
+     * remove. The stated cost is the other side of the same coin and is argued at
+     * [PlaceholderLedger.clear]: after a reset a reply holding only renamed placeholders matches
+     * nothing and is pasted, where one holding any default-stemmed placeholder is still refused
+     * because the counter survived.
+     */
+    fun `test reset clears the stems the user typed, while the counter stays`() {
+        val ledger = PlaceholderLedger.getInstance()
+        ledger.commit(project, LedgerDelta(emptyMap(), nextNumber = 8, mintedStems = setOf("theFilter")))
+
+        MappingReset.reset(project)
+
+        assertEquals(emptySet<String>(), ledger.snapshotOf(project).mintedStems)
+        assertEquals("the counter went with the words", 8, ledger.snapshotOf(project).nextNumber)
+        assertFalse(
+            "a stem the user typed is still in the file after a reset",
+            "theFilter" in JDOMUtil.write(XmlSerializer.serialize(ledger.state)),
+        )
     }
 
     /**

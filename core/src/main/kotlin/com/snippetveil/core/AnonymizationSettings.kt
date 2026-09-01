@@ -166,10 +166,14 @@ class InternalLibraries(
  * @param placeholders symbol key -> what that symbol was named. **Qualified keys only** — see
  *   [LedgerDelta] for why, and for what happens to everything else.
  * @param nextNumber the next number the counter will hand out
+ * @param mintedStems every stem this project has minted a placeholder under that is not one of the
+ *   engine's own namespaces — see [LedgerDelta.mintedStems]. Defaulted, because a project that has
+ *   never renamed anything has none and a file written before this existed says so correctly.
  */
 class LedgerSnapshot(
     val placeholders: Map<String, MintedName>,
     val nextNumber: Int,
+    val mintedStems: Set<String> = emptySet(),
 ) {
 
     /**
@@ -266,16 +270,33 @@ data class MintedName(val placeholder: String, val original: String)
  * has to be committed, because [nextNumber] may have moved; a caller skipping the commit on an empty
  * map would hand the burnt numbers back out to different symbols later.
  *
+ * ### The stems, which are a set of words rather than a third tier of key
+ *
+ * [mintedStems] is the one thing here that is **not** filed under a key, and that is what it is for.
+ * A stem the user typed in the preview is arbitrary text, so [deanonymize]'s shape recogniser cannot
+ * know a word like `theFilter7` is a placeholder unless this project wrote the word down — and the
+ * placeholder that most needs recognising is a **local's**, whose key is exactly the kind that is
+ * never ledgered. So the *word* is recorded where the key could not be, which is all recognition
+ * needs and strictly less than a row: a stem names no symbol, has no number attached, and says
+ * nothing about what it stood for.
+ *
+ * **Only stems the engine actually minted with.** An invalid stem falls back to the default
+ * namespace, and a stem spelling one of the engine's own namespaces is refused outright, so nothing
+ * here is a word no placeholder in the output uses.
+ *
  * @param placeholders the qualified keys named during this invocation, and what they were named —
  *   see [MintedName] for why a row is a pair rather than a placeholder.
  * @param nextNumber where the counter stands afterwards. Higher than
  *   `snapshot.nextNumber + placeholders.size` whenever a number was burnt — by an unpersisted
  *   symbol, by a redacted literal, or by a candidate that collided with a name surviving into the
  *   output.
+ * @param mintedStems the custom stems this invocation minted under, qualified and unqualified keys
+ *   alike. Empty on every invocation that renamed nothing, which is almost all of them.
  */
 class LedgerDelta(
     val placeholders: Map<String, MintedName>,
     val nextNumber: Int,
+    val mintedStems: Set<String> = emptySet(),
 )
 
 /**
@@ -292,9 +313,14 @@ class LedgerDelta(
  *
  * [LedgerDelta.nextNumber] replaces rather than adds, because it is where the counter *stands* and
  * not how far it moved. Taking it wholesale is what carries the burnt numbers across.
+ *
+ * **[LedgerDelta.mintedStems] unions**, like the rows and unlike the counter: a stem is a word this
+ * project has minted under at some point in its history, and a later invocation that renamed nothing
+ * has not stopped that from being true. A stem that stopped accumulating would leave last month's
+ * `theFilter7` unrecognisable the moment the next paste went out under the default namespaces.
  */
 operator fun LedgerSnapshot.plus(delta: LedgerDelta): LedgerSnapshot =
-    LedgerSnapshot(placeholders + delta.placeholders, delta.nextNumber)
+    LedgerSnapshot(placeholders + delta.placeholders, delta.nextNumber, mintedStems + delta.mintedStems)
 
 /**
  * **Whether this snapshot is still the ledger it was taken from** — asked by whoever is about to
@@ -305,7 +331,9 @@ operator fun LedgerSnapshot.plus(delta: LedgerDelta): LedgerSnapshot =
  * **The counter alone answers it, and that is a property of [plus] rather than a shortcut**: a
  * commit that adds an entry allocated a number to put in it, so the ledger cannot gain an entry
  * without the counter having moved. It cannot go backwards either, since [LedgerDelta.nextNumber] is
- * where an allocator that only ever counted up finished.
+ * where an allocator that only ever counted up finished. A stem is recorded at the moment a
+ * placeholder is minted under it, so [LedgerDelta.mintedStems] cannot grow without the counter
+ * having moved either.
  */
 fun LedgerSnapshot.isStill(latest: LedgerSnapshot): Boolean = nextNumber == latest.nextNumber
 

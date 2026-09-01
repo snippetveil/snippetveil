@@ -76,9 +76,14 @@ import javax.swing.table.TableRowSorter
  * What the stem does disclose is whatever meaning the user typed into it, and `THREAT-MODEL.md`
  * names that as a chosen disclosure.
  *
- * It is also written down nowhere. A qualified key's renamed placeholder reaches next week's paste
- * through the ledger row this invocation commits, exactly like a default-stemmed one — **no new
- * persistence surface at all** — and everything else is forgotten with the dialog.
+ * **What is written down is the stem, and only the stem.** A qualified key's renamed placeholder
+ * reaches next week's paste through the ledger row this invocation commits, exactly like a
+ * default-stemmed one. Beside the rows, the mapping also records the *word* — a set of stems this
+ * project has minted under, filed under no key and standing for no symbol — because a reversal
+ * cannot recognise `theFilter7` as a placeholder unless it was told the word, and guessing at it by
+ * shape would claim `sha256` out of a model's prose. See `LedgerDelta.mintedStems`, and
+ * `PlaceholderLedger.clear` for the one thing that takes it away. Everything else the dialog holds —
+ * which key was renamed to what — is forgotten with the dialog.
  *
  * **Modal, not a tool window**, because a cancelled preview must burn nothing and that needs an
  * unambiguous commit point. A tool window has no Cancel, and *"did that invocation reach the
