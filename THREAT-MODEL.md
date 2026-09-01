@@ -187,6 +187,14 @@ release note because a trust document that lists only its strengths is not a tru
   was considered and rejected for exactly that reason: `Filter` would be indistinguishable from a
   name, which is a different product with a worse property. Renaming is per-invocation input, and
   what makes a rename come back next week is the mapping row that was already being written.
+
+  **The word itself is recorded, and that is the one thing the feature adds to what is at rest.**
+  The mapping keeps a set of the stems this project has minted under — words, filed under no key and
+  standing for no symbol — because `De-anonymize Clipboard and Paste` refuses to write a reply it
+  could not restore in full, and it cannot tell `theFilter7` from ordinary prose unless it was told
+  the word. It is strictly less than the rows beside it, which hold real names in plaintext against
+  their placeholders, and it is a word you chose and already sent to the model. `Reset Mappings…`
+  clears it with the rest, and the cost of that is stated where the button is.
 - **A selection inside a non-project file is preserved.** Anonymization replaces names your project
   owns. Select code in a decompiled library, a dependency's sources, or a file outside the analysed
   project, and there is nothing project-owned in it to replace — the output is the input.

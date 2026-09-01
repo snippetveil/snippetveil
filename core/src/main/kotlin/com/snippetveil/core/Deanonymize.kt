@@ -17,7 +17,7 @@ package com.snippetveil.core
  * engine created and wrote down, so an exact hit against the recorded table is **total, not
  * heuristic** — the opposite situation, and the reason the match may be exact rather than clever.
  *
- * It is why the restore pass is driven by *the table* rather than by [MINTED]: every word of the
+ * It is why the restore pass is driven by *the table* rather than by [isMinted]: every word of the
  * reply is looked up, and a word that is in the table is by definition a string we minted. The shape
  * recogniser is used for one thing only, which is deciding what a word that did **not** decode was —
  * see [Unrestored].
@@ -57,7 +57,7 @@ fun deanonymize(text: String, sidecar: Sidecar, mapping: LedgerSnapshot): Revers
         val original = sidecar.originalOf(token) ?: mapping.originalOf(token)
 
         if (original == null) {
-            if (MINTED.matches(token)) {
+            if (isMinted(token, mapping.mintedStems)) {
                 unrestored.getOrPut(token) { Unrestored(token, reasonFor(token, mapping.nextNumber)) }
             }
             continue
@@ -171,7 +171,8 @@ private fun reasonFor(placeholder: String, nextNumber: Int): UnrestoredReason {
 private val WORD = Regex("""[\p{L}\p{N}_$]+""")
 
 /**
- * **What a placeholder looks like** — every namespace this engine mints from, and nothing else.
+ * **What a placeholder looks like by default** — every namespace this engine mints from unasked, and
+ * nothing else.
  *
  * Read off [SymbolRole] rather than written out, so that a role added later cannot leave a namespace
  * this cannot recognise.
@@ -192,29 +193,9 @@ private val WORD = Regex("""[\p{L}\p{N}_$]+""")
  * — and would merely go uncounted when they fell past the horizon. Under-recovery, never a wrong
  * name, which is the direction everything here errs in.
  *
- * **A custom stem is outside it, and by construction rather than by omission.** A placeholder the
- * user renamed — `FilterType1` — is restored exactly like any other, because restoring is the table
- * and the table is exact. What this cannot do is *recognise* one: a stem is arbitrary text the user
- * typed, so a pattern wide enough to catch it would catch `count2` and `sha256` in the model's own
- * prose and report them as ours. The consequence is that a renamed placeholder which has fallen past
- * the horizon goes uncounted where a default-stemmed one would be reported [UnrestoredReason.EVICTED]
- * — and, in `De-anonymize Clipboard and Paste`, written into source rather than refused. It is
- * bounded: a **qualified** key's rename is in the mapping for the life of the project and therefore
- * always restores, so the gap is a renamed local, parameter or type parameter in a reply older than
- * the sidecar window — and every renamed placeholder after a reset, which clears both stores at
- * once. Recognising by shape is what the product refuses everywhere else, and this is the one place
- * the refusal costs something.
- *
- * **Something now depends on that count being exhaustive, which it did not when this was written.**
- * `De-anonymize Clipboard and Paste` refuses to write anything it did not restore in full, and asks
- * [Reversal.unrestored] to decide — so a word that goes uncounted there is not a gap a reader can
- * see but a placeholder written silently into source. The tolerance argued above was priced against
- * a clipboard the user reads before it lands anywhere. Adding a namespace without adding it here is
- * therefore no longer a cosmetic omission, and the derivation from [SymbolRole] is what keeps it
- * from being possible by accident — which is a guarantee about the *default* namespaces, and all
- * this can offer. What to do about the custom stem above is snippetveil/snippetveil#74.
+ * **A custom stem is not in it, and is not guessed at either — it is looked up.** See [isMinted].
  */
-private val MINTED = Regex(
+private val DEFAULT_NAMESPACES = Regex(
     (SymbolRole.entries.map { it.placeholderPrefix } +
         UNKNOWN_PREFIX +
         LITERAL_PREFIX +
@@ -222,3 +203,47 @@ private val MINTED = Regex(
         .distinct()
         .joinToString("|", prefix = "(?:", postfix = """)\d+""") { Regex.escape(it) },
 )
+
+/**
+ * **Whether [token] is a word this project could have minted** — the default namespaces, plus the
+ * stems it has actually minted under.
+ *
+ * ### The stems are read rather than guessed at, which is the whole of why this is allowed
+ *
+ * A stem is arbitrary text the user typed in the preview, so no *pattern* can recognise one:
+ * anything wide enough to catch `theFilter7` catches `sha256` and `count2` out of the model's own
+ * prose, and *do not guess at names by shape* is the rule this product refuses to break everywhere
+ * else. **Recording the words this project minted under turns the question back into a lookup**, and
+ * a lookup against a table this engine wrote is the same total, non-heuristic answer the restore
+ * pass gives — see the reversal contract on [deanonymize]. A stem nobody minted under is not a
+ * placeholder here, however much it looks like one; `sha256` is left alone by a project that renamed
+ * nothing to `sha`, and by a project that renamed something to `theFilter`.
+ *
+ * ### Why the count has to reach a renamed placeholder at all
+ *
+ * `De-anonymize Clipboard and Paste` refuses to write anything it did not restore in full, and asks
+ * [Reversal.unrestored] to decide. Under-recovery on a clipboard is a gap the user reads before it
+ * lands anywhere; the same word going uncounted *there* is a placeholder written silently into
+ * source, where it compiles as an identifier and reads as a name somebody chose. So a renamed
+ * placeholder past the horizon is reported [UnrestoredReason.EVICTED] like any other, rather than
+ * passed over because the word was the user's rather than this engine's.
+ *
+ * ### Where it stops, stated rather than discovered
+ *
+ * The stems are in the mapping and `Reset Mappings…` clears them, because a stem is a word the user
+ * chose to describe their own symbol — vocabulary in exactly the sense that button exists to remove,
+ * where the counter it keeps is one integer that names nobody. So after a reset a reply holding
+ * **only** renamed placeholders decodes to nothing and matches nothing, and is pasted. A reply
+ * holding any default-stemmed placeholder is still refused, since the counter survives the reset and
+ * a number below it is still recognisably ours.
+ *
+ * The default half is derived from [SymbolRole] rather than written out, so a role added later
+ * cannot leave a namespace this cannot recognise. The custom half is derived from what was minted,
+ * so a stem accepted later cannot either.
+ *
+ * @param mintedStems what this project has minted under, from [LedgerSnapshot.mintedStems]. A stem
+ *   may not end in a digit, so splitting [token] at its trailing digits recovers a stem exactly when
+ *   there was one — see [stemOf].
+ */
+private fun isMinted(token: String, mintedStems: Set<String>): Boolean =
+    DEFAULT_NAMESPACES.matches(token) || (numberOf(token).isNotEmpty() && stemOf(token) in mintedStems)

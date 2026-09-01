@@ -219,16 +219,29 @@ says why when you hover it:
 - An **`Unknown`** keeps its namespace, which is load-bearing: `Unknown1` tells the model the IDE
   could not resolve this. A **literal** has no symbol to key a rename to, like the Preserve column.
 
-**Nothing new is stored for it.** A rename is input to one invocation. What makes `FilterType1` come
-back on next week's paste is the mapping row this invocation was already going to write — so a
-renamed class stays renamed, while a renamed local, parameter or type parameter lasts for the
-snippet it mattered in and re-mints under the default stem next time.
+**The stem is stored; which row you typed it on is not.** A rename is input to one invocation, and
+what makes `FilterType1` come back on next week's paste is the mapping row this invocation was
+already going to write — so a renamed class stays renamed, while a renamed local, parameter or type
+parameter lasts for the snippet it mattered in and re-mints under the default stem next time.
+
+What *is* written down beside the mapping is the **word**: a set of the stems this project has
+minted under, filed under no key and standing for no symbol. It is there because
+`De-anonymize Clipboard and Paste` refuses to write a reply it could not restore in full, and it has
+no way to tell `theFilter7` from ordinary prose unless it was told the word — guessing by shape
+would claim `sha256` and `count2` out of a model's own writing and refuse most replies. So a reply
+quoting a renamed local weeks later, once the recent-history window has forgotten the snippet, is
+still recognised as SnippetVeil's and refused rather than written into your source.
+
+`Reset Mappings…` clears those words with everything else, because a stem is a word you chose to
+describe your own symbol. The cost is that after a reset, a reply holding *only* renamed
+placeholders matches nothing and is pasted — one holding any default-stemmed placeholder is still
+refused, because the counter is not rewound.
 
 ## Where things are stored
 
 - **The durable mapping** — the IDE config directory, partitioned by project. Not `.idea/` (which
   gets committed), not the cache directory (which *Invalidate Caches* destroys), and **never
-  roaming**, so Settings Sync does not copy it anywhere.
+  roaming**, so Settings Sync does not copy it anywhere. Beside the rows it holds the stems above.
 - **The sidecar** — the same posture, bounded as above.
 - Both are plaintext, deliberately. They hold names already sitting in plaintext `.java` files on the
   same disk, and a compromised local machine is out of scope. The real risks are accidental commit

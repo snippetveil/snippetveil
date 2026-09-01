@@ -1,6 +1,7 @@
 package com.snippetveil.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -350,6 +351,243 @@ class RenamedStemTest {
 
         assertEquals("Payment caches merchantId, so getMerchantId never reloads it.", back.text)
         assertEquals(emptyList<Unrestored>(), back.unrestored)
+    }
+
+    /**
+     * **A renamed placeholder past the horizon is counted rather than passed over**, which is the
+     * whole of what recording the stems buys: the tables have forgotten what `theFilter1` stood for,
+     * and the reversal still knows it was ours and says so.
+     *
+     * The local is the case the gap was made of. Its key is unqualified, so no row carries it and
+     * the sidecar is the only thing that ever knew it — and a reply older than the window meets
+     * neither table. `EVICTED` rather than `FOREIGN` because the number is below the counter, which
+     * is the same reading a default-stemmed placeholder gets.
+     */
+    @Test
+    fun `a renamed placeholder the tables have forgotten is reported unrestored`() {
+        val filter = symbol("filter", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT, key = "local:filter")
+
+        val result = anonymize(planOf("int filter = 0;", filter), renaming(filter.key to "theFilter"), LedgerSnapshot.EMPTY)
+        val committed = LedgerSnapshot.EMPTY + result.delta
+
+        // Nothing in either table: the sidecar is empty, which is what past the horizon means, and
+        // an unqualified key was never written into the mapping in the first place.
+        val back = deanonymize("`theFilter1` is null before you validate.", Sidecar.EMPTY, committed)
+
+        assertEquals("int theFilter1 = 0;", result.text)
+        assertEquals(listOf(Unrestored("theFilter1", UnrestoredReason.EVICTED)), back.unrestored)
+    }
+
+    /**
+     * **The stem is recorded even though the key is not**, and that asymmetry is the point rather
+     * than an accident: an unqualified key has nothing stable to be filed under, so what goes into
+     * the mapping is the *word*, which is all recognising it later needs.
+     */
+    @Test
+    fun `an unqualified key's stem is recorded without the key being ledgered`() {
+        val filter = symbol("filter", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT, key = "local:filter")
+
+        val result = anonymize(planOf("int filter = 0;", filter), renaming(filter.key to "theFilter"), LedgerSnapshot.EMPTY)
+
+        assertEquals(emptyMap<String, MintedName>(), result.delta.placeholders, "an unqualified key was ledgered")
+        assertEquals(setOf("theFilter"), result.delta.mintedStems)
+    }
+
+    /**
+     * **A renamed field's accessor is recognised too, and by the same route** — the derived name is a
+     * word of its own, so it is written down as one.
+     *
+     * `merchantField1` under `get` renders `getMerchantField1`, whose stem is `getMerchantField` and
+     * is in no set built from what the user typed. The default form needs no help — `getField1` is
+     * read off the roles — so this is the half that only recording can reach, and the fixture keys
+     * both symbols unqualified so that nothing is ledgered and the shape recogniser is the only
+     * thing left answering.
+     */
+    @Test
+    fun `a renamed field's derived accessor past the horizon is reported unrestored`() {
+        val field = symbol("merchantId", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:merchantId")
+        val plan = planOf(
+            "String merchantId; String getMerchantId() { return merchantId; }",
+            field,
+            symbol(
+                "getMerchantId", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT,
+                key = "method:getMerchantId",
+                accessor = AccessorEvidence(field.key, field.declaredName, "get"),
+            ),
+        )
+
+        val result = anonymize(plan, renaming(field.key to "merchantField"), LedgerSnapshot.EMPTY)
+        val committed = LedgerSnapshot.EMPTY + result.delta
+        val back = deanonymize("getMerchantField1 never reloads it.", Sidecar.EMPTY, committed)
+
+        assertEquals("String merchantField1; String getMerchantField1() { return merchantField1; }", result.text)
+        assertEquals(setOf("merchantField", "getMerchantField"), committed.mintedStems)
+        assertEquals(listOf(Unrestored("getMerchantField1", UnrestoredReason.EVICTED)), back.unrestored)
+    }
+
+    /**
+     * **A field named by an earlier snippet still carries its accessor's word**, which is the case
+     * the obvious guard gets wrong.
+     *
+     * The field is renamed and ledgered in the first invocation, where no accessor is in the snippet
+     * at all — so `getMerchantField` is minted by nothing and recorded by nothing. The second
+     * invocation reads the field's placeholder back out of the mapping rather than minting it, and
+     * is nonetheless the first thing ever to write `getMerchantField1`. A check that asked only what
+     * *this* invocation renamed would answer no and leave the word unrecognised for good.
+     */
+    @Test
+    fun `an accessor over a field named by an earlier snippet records the derived stem`() {
+        val field = symbol(
+            "merchantId", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT,
+            key = "field:class:com.acme.Payment#merchantId", keyIsQualified = true,
+        )
+        val accessor = symbol(
+            "getMerchantId", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT,
+            key = "method:getMerchantId",
+            accessor = AccessorEvidence(field.key, field.declaredName, "get", fieldKeyIsQualified = true),
+        )
+
+        val first = anonymize(planOf("String merchantId;", field), renaming(field.key to "merchantField"), LedgerSnapshot.EMPTY)
+        val second = anonymize(
+            planOf("String getMerchantId() { return null; }", accessor),
+            AnonymizationSettings.DEFAULTS,
+            LedgerSnapshot.EMPTY + first.delta,
+        )
+        val committed = LedgerSnapshot.EMPTY + first.delta + second.delta
+
+        assertEquals("String merchantField1;", first.text)
+        assertEquals("String getMerchantField1() { return null; }", second.text)
+        assertEquals(setOf("merchantField", "getMerchantField"), committed.mintedStems)
+        assertEquals(
+            listOf(Unrestored("getMerchantField1", UnrestoredReason.EVICTED)),
+            deanonymize("getMerchantField1 never reloads it.", Sidecar.EMPTY, committed).unrestored,
+        )
+    }
+
+    /**
+     * **A default-stemmed accessor records no stem**, because the roles already recognise it: the
+     * derived form of a namespace this engine mints from is in the shape recogniser by construction,
+     * and writing `getField` into the mapping as well would put a word there that names nothing the
+     * user chose.
+     */
+    @Test
+    fun `a default-stemmed accessor records no stem`() {
+        val field = symbol("merchantId", SymbolRole.FIELD, SymbolOrigin.IN_CONTENT, key = "field:merchantId")
+        val plan = planOf(
+            "String merchantId; String getMerchantId() { return merchantId; }",
+            field,
+            symbol(
+                "getMerchantId", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT,
+                key = "method:getMerchantId",
+                accessor = AccessorEvidence(field.key, field.declaredName, "get"),
+            ),
+        )
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+        val back = deanonymize("getField1 never reloads it.", Sidecar.EMPTY, LedgerSnapshot.EMPTY + result.delta)
+
+        assertEquals("String field1; String getField1() { return field1; }", result.text)
+        assertEquals(emptySet<String>(), result.delta.mintedStems)
+        assertEquals(listOf(Unrestored("getField1", UnrestoredReason.EVICTED)), back.unrestored)
+    }
+
+    /**
+     * **A stem nobody minted is not a placeholder**, which is the half of this that keeps the action
+     * usable: `sha256`, `utf8` and `count2` are how a model writes ordinary prose, and a recogniser
+     * wide enough to claim them would refuse most replies outright.
+     *
+     * Asserted against a mapping that *has* recorded a stem, so that what is being tested is the
+     * recorded set rather than an empty one — a project that had renamed nothing would pass this
+     * however wide the rule was.
+     */
+    @Test
+    fun `a word the project never minted a stem for is left alone`() {
+        val mapping = LedgerSnapshot(emptyMap(), nextNumber = 300, mintedStems = setOf("theFilter"))
+
+        val back = deanonymize("Hash it with sha256, in utf8, and count2 is the loop bound.", Sidecar.EMPTY, mapping)
+
+        assertEquals(emptyList<Unrestored>(), back.unrestored)
+        assertFalse(back.found)
+    }
+
+    /**
+     * **A recorded stem is a namespace like any other**, so a number this project never handed out
+     * reads as [UnrestoredReason.FOREIGN] there exactly as it does under `Type`. The counter is what
+     * answers *was it ours*, and recording the stem is only what let the question be asked at all.
+     */
+    @Test
+    fun `a recorded stem above the counter is foreign rather than evicted`() {
+        val mapping = LedgerSnapshot(emptyMap(), nextNumber = 5, mintedStems = setOf("theFilter"))
+
+        val back = deanonymize("theFilter2 and theFilter9 and Type9", Sidecar.EMPTY, mapping)
+
+        assertEquals(
+            listOf(
+                Unrestored("theFilter2", UnrestoredReason.EVICTED),
+                Unrestored("theFilter9", UnrestoredReason.FOREIGN),
+                Unrestored("Type9", UnrestoredReason.FOREIGN),
+            ),
+            back.unrestored,
+        )
+    }
+
+    /**
+     * **A stem the engine refused is never recorded**, because it was never minted with: an invalid
+     * stem falls back to the default namespace, and recording the word the user typed would make the
+     * reversal claim a namespace nothing in the output uses.
+     */
+    @Test
+    fun `a stem the engine fell back from is not recorded`() {
+        val payment = symbol("Payment", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.Payment")
+
+        for (stem in listOf("Filter2", "9Filter", "my filter", "", "Unknown", "str")) {
+            val result = anonymize(planOf("Payment p;", payment), renaming(payment.key to stem), LedgerSnapshot.EMPTY)
+
+            assertEquals(emptySet<String>(), result.delta.mintedStems, "the stem `$stem` was recorded")
+        }
+    }
+
+    /**
+     * **The stems accumulate across invocations**, like the counter and unlike the rows: a project
+     * that renamed something in March still recognises it in September, which is the span the gap
+     * this closes was measured over.
+     */
+    @Test
+    fun `stems from earlier invocations survive into the snapshot`() {
+        val filter = symbol("filter", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT, key = "local:filter")
+        val payment = symbol("Payment", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, key = "class:com.acme.Payment")
+
+        val first = anonymize(planOf("int filter = 0;", filter), renaming(filter.key to "theFilter"), LedgerSnapshot.EMPTY)
+        val second = anonymize(
+            planOf("Payment p;", payment),
+            renaming(payment.key to "FilterType"),
+            LedgerSnapshot.EMPTY + first.delta,
+        )
+
+        assertEquals(setOf("theFilter", "FilterType"), (LedgerSnapshot.EMPTY + first.delta + second.delta).mintedStems)
+    }
+
+    /**
+     * **A recorded stem is read by the reversal and never by the anonymiser**, which is what keeps
+     * renaming a per-invocation input rather than a setting that was quietly persisted.
+     *
+     * The failure it forbids is a rename that outlives the dialog it was typed in: a later snippet
+     * naming the same local under `theFilter` because the word was in the mapping would be a
+     * reduction nobody re-confirmed, and every argument for the number staying is an argument for
+     * this staying too.
+     */
+    @Test
+    fun `a recorded stem does not rename anything on the next invocation`() {
+        val filter = symbol("filter", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT, key = "local:filter")
+        val plan = planOf("int filter = 0;", filter)
+
+        val first = anonymize(plan, renaming(filter.key to "theFilter"), LedgerSnapshot.EMPTY)
+        val committed = LedgerSnapshot.EMPTY + first.delta
+        val second = anonymize(plan, AnonymizationSettings.DEFAULTS, committed)
+
+        assertEquals(setOf("theFilter"), committed.mintedStems, "the stem was not recorded at all")
+        assertEquals("int local2 = 0;", second.text)
+        assertEquals(emptySet<String>(), second.delta.mintedStems, "a stem was re-recorded by an invocation that renamed nothing")
     }
 
     /**

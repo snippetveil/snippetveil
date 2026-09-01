@@ -169,6 +169,57 @@ class PlaceholderLedgerTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **The stems survive the restart too**, which is the only reason to write them down at all: the
+     * gap they close is a reply *older than the sidecar window*, so a set that lived in memory would
+     * be empty by the time it was ever asked.
+     *
+     * The unqualified key is the point of the assertion beside it. Nothing about the local was
+     * ledgered — that rule is untouched — and the word it was named under still is.
+     */
+    fun `test the minted stems survive being written out and read back`() {
+        val ledger = PlaceholderLedger.getInstance()
+        ledger.commit(project, LedgerDelta(emptyMap(), nextNumber = 4, mintedStems = setOf("theFilter")))
+
+        val snapshot = restart(ledger).snapshotOf(project)
+
+        assertEquals(setOf("theFilter"), snapshot.mintedStems)
+        assertEmpty("an unqualified key was ledgered to carry its stem", snapshot.placeholders.entries.toList())
+    }
+
+    /**
+     * **Stems accumulate across commits like the rows and unlike the counter.** A project that
+     * renamed something in March still has to recognise it in September, which is the span the gap
+     * this closes is measured over — and a commit that replaced the set would erase it on the next
+     * paste that renamed nothing.
+     */
+    fun `test a later commit adds stems and never drops the earlier ones`() {
+        val ledger = PlaceholderLedger.getInstance()
+
+        ledger.commit(project, LedgerDelta(emptyMap(), nextNumber = 2, mintedStems = setOf("theFilter")))
+        ledger.commit(project, LedgerDelta(emptyMap(), nextNumber = 3, mintedStems = setOf("merchantField")))
+        ledger.commit(project, LedgerDelta(emptyMap(), nextNumber = 4))
+
+        assertEquals(setOf("theFilter", "merchantField"), ledger.snapshotOf(project).mintedStems)
+    }
+
+    /**
+     * **An entry written before stems were recorded loads with none**, and that is the whole of the
+     * migration: such a project goes back to not recognising a renamed placeholder past the horizon,
+     * which is exactly where it already was. Under-recovery, never a wrong name.
+     */
+    fun `test an entry written before stems were recorded loads without them`() {
+        val ledger = PlaceholderLedger.getInstance()
+        val old = PlaceholderLedger.State()
+        old.projects += PlaceholderLedger.ProjectEntry().also { entry ->
+            entry.project = project.locationHash
+            entry.nextNumber = 5
+        }
+        ledger.loadState(old)
+
+        assertEquals(emptySet<String>(), ledger.snapshotOf(project).mintedStems)
+    }
+
+    /**
      * **A row written before the mapping held names still names its placeholder.**
      *
      * This is the whole of the migration, and it is worth a test rather than a sentence because the

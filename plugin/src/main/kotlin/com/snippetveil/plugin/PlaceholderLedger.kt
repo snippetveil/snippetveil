@@ -107,11 +107,22 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
      * @param nextNumber where this project's counter stands. **Persisted alongside the entries and
      *   not derived from them**, because numbers burnt by symbols that were never written down are
      *   exactly the ones no entry records — and re-deriving would hand them out a second time.
+     * @param stems **the words this project has minted placeholders under**, and the one thing in
+     *   this file that is not filed under a key. It is not a mapping row and it is not a tier of
+     *   one: a stem stands for no symbol and carries no number, and it is here because the
+     *   placeholder that most needs recognising later is a renamed **local's**, whose key is exactly
+     *   the kind this file refuses to hold. See [com.snippetveil.core.LedgerDelta.mintedStems] for
+     *   what it buys, and [clear] for the one operation that takes it away.
+     *
+     *   Empty on a row written before this field existed, and that is the whole of the migration:
+     *   such a project goes back to not recognising a renamed placeholder past the horizon, which is
+     *   where it already was. Under-recovery, never a wrong name.
      */
     class ProjectEntry {
         var project: String = ""
         var nextNumber: Int = LedgerSnapshot.EMPTY.nextNumber
         var placeholders: MutableList<Naming> = mutableListOf()
+        var stems: MutableList<String> = mutableListOf()
     }
 
     /**
@@ -176,6 +187,7 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
         val entry = ProjectEntry().also {
             it.project = project.locationHash
             it.nextNumber = committed.nextNumber
+            it.stems = committed.mintedStems.toMutableList()
             it.placeholders = committed.placeholders.mapTo(mutableListOf()) { (key, minted) ->
                 Naming().also { naming ->
                     naming.key = key
@@ -198,6 +210,15 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
      * the disk, and what they are told they are paying is that outstanding snippets stop decoding;
      * both are true of the rows, which is why the rows go.
      *
+     * **The stems go with the rows, and the counter does not.** A stem is a word the user typed to
+     * describe one of their own symbols, so it is vocabulary in exactly the sense this button exists
+     * to remove — where the counter it keeps is one integer that names nobody. The cost is stated
+     * rather than discovered and is the narrow half of the same coin: after a reset, a reply holding
+     * only renamed placeholders matches nothing and `De-anonymize Clipboard and Paste` writes it,
+     * where one holding any default-stemmed placeholder is still refused because the counter
+     * survived. Keeping the words would close that and would keep the vocabulary the user just asked
+     * this project to forget.
+     *
      * **The counter stays where it stood, and that is not a leftover.** The invariant the whole
      * design rests on is that no two symbols in a project's history ever render to the same
      * placeholder — a number that comes back into circulation makes an old `Type1` stand for a new
@@ -215,6 +236,9 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
     @Synchronized
     fun clear(project: Project) {
         val current = state
+        // The counter and nothing else: a fresh entry has no rows and no stems, which is the whole
+        // of what this operation is. It is spelled as a new entry rather than as two clears so that
+        // a field added to [ProjectEntry] later is dropped by default rather than kept by omission.
         val emptied = ProjectEntry().also {
             it.project = project.locationHash
             it.nextNumber = snapshotOf(current, project).nextNumber
@@ -236,6 +260,7 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
         return LedgerSnapshot(
             entry.placeholders.associate { it.key to MintedName(it.placeholder, it.original) },
             entry.nextNumber,
+            entry.stems.toSet(),
         )
     }
 

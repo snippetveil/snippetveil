@@ -6,6 +6,8 @@ import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.testFramework.TestActionEvent
+import com.snippetveil.core.AnonymizationSettings
+import com.snippetveil.core.stemOf
 
 /**
  * **The one-shot: the reversal and the paste as a single gesture.**
@@ -338,6 +340,90 @@ class DeanonymizeClipboardAndPasteActionTest : JavaSnippetTestCase() {
         val balloon = notifications.single()
         assertEquals("Paste failed — the reply may be partly inserted. Your clipboard was not changed.", balloon.content)
         assertEquals(NotificationType.ERROR, balloon.type)
+    }
+
+    /**
+     * **A renamed placeholder past the horizon is refused, not written into the document** — the
+     * failure this action exists to prevent, closed on the one shape that used to escape it.
+     *
+     * The local is what makes it the gap rather than a hypothetical. Its key is unqualified, so the
+     * mapping never held it and the sidecar was the only thing that ever knew it; a reply older than
+     * the window meets neither table. What is left is the *word* — recorded when the placeholder was
+     * minted under it — and that is what tells the reversal `theFilter2` was ours. Without it the
+     * reply reads as ordinary prose and lands in the file, where it compiles as an identifier and
+     * reads as a name somebody chose.
+     */
+    fun `test a renamed placeholder past the horizon is refused rather than pasted`() {
+        val minted = anonymizedWithARenamedLocal()
+
+        // Past the horizon, which is what the count and age caps do to a conversation resumed weeks
+        // later — and what `Reset Mappings…` does to the window on the spot. The method's key is
+        // qualified, so the mapping still decodes it; the local's never was.
+        PlaceholderSidecar.getInstance(project).clear()
+
+        // **A reply that partly restores is the shape of the failure**, and the only shape that
+        // reaches the write: a reply holding the renamed word alone restores nothing, and *nothing
+        // found* has always been reported rather than pasted. Here everything around it reads
+        // correctly, which is exactly why the one word that did not would not be noticed.
+        myFixture.configureByText("notes.md", "Before\n<caret>\nAfter")
+        invokeDeanonymizeAndPaste(FakeClipboard("`${minted("settle")}` leaves `${minted("owed")}` null."))
+
+        assertEquals("a renamed placeholder was written into the document", "Before\n\nAfter", myFixture.editor.document.text)
+        assertEquals("Nothing pasted — 1 placeholder did not restore.", notifications.single().title)
+    }
+
+    /**
+     * **And a reply that merely says `sha256` still pastes**, which is the half that keeps the action
+     * usable rather than merely safe.
+     *
+     * The stems are *looked up*, never guessed at by shape: this project has minted `theFilter`, and
+     * that buys recognition of `theFilter2` and of nothing else. A recogniser wide enough to claim
+     * any word ending in digits would refuse most replies a model writes — `sha256`, `utf8`, `count2`
+     * — and a false refusal on every second reply is not a safer failure, it is an unusable action.
+     */
+    fun `test a reply naming sha256 in its prose is still pasted`() {
+        val minted = anonymizedWithARenamedLocal()
+
+        myFixture.configureByText("notes.md", "<caret>")
+        invokeDeanonymizeAndPaste(
+            FakeClipboard("Hash ${minted("owed")} with sha256, in utf8, and count2 is the bound."),
+        )
+
+        assertEquals("Hash owed with sha256, in utf8, and count2 is the bound.", myFixture.editor.document.text)
+        assertEquals("Reply pasted, de-anonymized", notifications.single().title)
+        assertEquals("1 placeholder restored · clipboard unchanged", notifications.single().content)
+    }
+
+    /**
+     * Copies [REVERSAL_SNIPPET] with its `owed` local renamed, the way a preview the user typed into
+     * would — and hands back a lookup from a real name to the placeholder that went out, which is how
+     * the replies below quote them.
+     *
+     * The rename goes through [Analysis.rendered] rather than through the dialog's table, because
+     * *what a double-click commits* is pinned in `PlaceholderRenameTest` and what is under test here
+     * is what happens to the word weeks later. The delivery is the real one either way: `deliver`
+     * commits the delta and records the sidecar exactly as it does for the fast path.
+     */
+    private fun anonymizedWithARenamedLocal(): (String) -> String {
+        assertTheHarnessResolves()
+        myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
+
+        var minted = emptyMap<String, String>()
+        invokeWithPreview { _, analysis ->
+            val key = analysis.result.names.single { it.original == "owed" }.key
+            assertNotNull("the local has no key to aim a rename at", key)
+            analysis.rendered(settings = AnonymizationSettings(renamedStems = mapOf(key!! to "theFilter")))
+                .also { rendered ->
+                    minted = rendered.result.names.mapNotNull { name ->
+                        name.placeholder?.let { name.original to it }
+                    }.toMap()
+                }
+        }
+        awaitBackgroundWork()
+
+        assertEquals("the rename did not reach the output", "theFilter", stemOf(minted.getValue("owed")))
+        assertTrue("the rename is not on the clipboard: " + clipboard(), minted.getValue("owed") in clipboard())
+        return minted::getValue
     }
 
     /**

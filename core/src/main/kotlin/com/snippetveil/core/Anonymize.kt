@@ -62,6 +62,12 @@ fun anonymize(
     fun isReplaced(symbol: SymbolEvidence): Boolean =
         wouldReplace(symbol) && sharedKeyOf(symbol) !in settings.preservedSymbols
 
+    // The custom stems this invocation actually minted under — a set of words rather than a third
+    // tier of key, and the only thing a renamed **local** leaves behind. See [LedgerDelta]. It is
+    // written by [stemFor] and by the derived-accessor branch of [placeholderFor], which are the two
+    // places a word of the user's becomes a placeholder.
+    val mintedStems = LinkedHashSet<String>()
+
     // **The stem a key is named with, or the namespace it falls into by default.** A rename
     // substitutes the namespace and nothing else: the number still comes from the shared counter,
     // is still checked against the same reserved set, and still burns on collision — so a renamed
@@ -70,8 +76,25 @@ fun anonymize(
     // **An invalid stem is dropped here rather than rejected**, which is what keeps the invariant
     // off the dialog: the engine falls back to the default namespace, and a caller that validated
     // nothing gets `Type1` rather than a placeholder that breaks reverse mapping. See [usableStem].
-    fun stemFor(key: String, namespace: String): String =
-        settings.renamedStems[key]?.let(::usableStem) ?: namespace
+    //
+    // **A stem the engine will use is written down as it is used**, which is why the recording sits
+    // here rather than over `settings.renamedStems`: every caller below is at the moment a
+    // placeholder is being minted, so the set is the words the engine *named something* with rather
+    // than the words the dialog sent. That is not quite *the words in the output* — a Lombok field's
+    // placeholder is allocated whether or not the field is in the snippet — and [LedgerDelta] argues
+    // why that is the right way round.
+    fun stemFor(key: String, namespace: String): String {
+        val stem = settings.renamedStems[key]?.let(::usableStem) ?: return namespace
+        mintedStems += stem
+        return stem
+    }
+
+    // **Whether [stem] is a word the user chose rather than a namespace this engine put there** —
+    // asked of a *field's* stem, by the accessor branch of [placeholderFor], and asked over both
+    // sets because a field's placeholder is frequently not this invocation's: it comes back out of
+    // the ledger whenever the field was named by an earlier snippet, and the accessor derived from
+    // it can still be the first thing to mint `getMerchantField1`.
+    fun isChosen(stem: String): Boolean = stem in mintedStems || stem in ledger.mintedStems
 
     fun namespaceFor(symbol: SymbolEvidence): String {
         val namespace = namespaceOf(symbol)
@@ -157,6 +180,18 @@ fun anonymize(
             val fromField = derivedAccessorPlaceholder(accessor.prefix, field)
             if (allocator.isFree(fromField)) {
                 derivedKeys += key
+
+                // **A derived name is a word of its own, and is recorded as one.** `merchantField1`
+                // under `get` renders `getMerchantField1`, whose stem is `getMerchantField` — a word
+                // that appears in no set built from what the user typed, so a reversal reading only
+                // those would not recognise it. Recorded here, where it is made, on the same rule as
+                // every other stem: the word that reached the output is the word written down.
+                //
+                // Only over a stem the user chose. A default-stemmed accessor renders `getField1`,
+                // which the reversal already recognises from the roles alone — and putting `getField`
+                // in this set would file a namespace the engine chose among the words the user did.
+                if (isChosen(stemOf(field))) mintedStems += stemOf(fromField)
+
                 fromField
             } else {
                 allocator.next(namespaceFor(symbol))
@@ -310,7 +345,7 @@ fun anonymize(
             prose = stripped.count { it.verdict == CommentVerdict.PROSE },
             code = stripped.count { it.verdict == CommentVerdict.CODE },
         ),
-        delta = LedgerDelta(persisted, allocator.nextNumber),
+        delta = LedgerDelta(persisted, allocator.nextNumber, mintedStems),
     )
 }
 

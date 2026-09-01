@@ -26,7 +26,7 @@ Three files, all of them local, all plaintext, none of them synced.
 
 | What | Where | Why there |
 |---|---|---|
-| **The placeholder mapping** — every placeholder and the name it stands for, filed under the project it belongs to | `snippetveil-placeholders.xml` in the IDE's configuration directory | Outside the project tree, so it cannot be committed; outside the cache tier, so *Invalidate Caches* cannot destroy your ability to read an old reply |
+| **The placeholder mapping** — every placeholder and the name it stands for, filed under the project it belongs to, plus the words SnippetVeil has named a placeholder with — the stems you typed in the preview and accepted, and nothing about which name each one stood for | `snippetveil-placeholders.xml` in the IDE's configuration directory | Outside the project tree, so it cannot be committed; outside the cache tier, so *Invalidate Caches* cannot destroy your ability to read an old reply |
 | **The recent-history sidecar** — the symbol table of roughly the last 50 invocations, including the text of replaced string literals, capped at 30 days | the platform's per-project cache slot, `cache-state.xml` | It is cache: losing it costs recovery of recent detail, never a wrong name |
 | **The one remembered setting** — whether libraries under the project's root package count as project code, and the package prefixes that correct it | `snippetveil.xml` in the IDE's configuration directory | It is a setting, and it holds package prefixes rather than a vocabulary |
 
