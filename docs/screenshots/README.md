@@ -53,11 +53,11 @@ the anonymized code beside its mapping table, with the counts strip along the bo
 This is the shot that carries the product. The mapping table should be scrolled to the top, so that
 the first rows are the type and method names a reader recognises from the code beside them.
 
-**The committed frame predates the unlock and has to be re-shot.** It shows the dialog with nothing
-under the mapping table, and the shipped dialog carries the `Unlock Preserve for resolved names…`
-link there. A listing image missing a control the reader will find on their own screen is the exact
-failure this directory exists to prevent, and it is worse than a missing image: it is a picture of a
-product that no longer exists.
+**The frame this replaced predated the unlock**, and showed the dialog with nothing under the
+mapping table. That is the failure this directory exists to prevent and it is worse than a missing
+image — a listing frame missing a control the reader will find on their own screen is a picture of a
+product that no longer exists. It is the reason to re-shoot 3 whenever the dialog grows or loses
+anything, rather than only when the shot looks old.
 
 **Shoot 3, 4, 5 and 6 from one opening of the dialog, in that order.** They are four states of one
 preview, and the numbers make that a requirement rather than a preference — a placeholder's number
@@ -91,6 +91,11 @@ a model which symbol the question is about, and neither is the name that was rep
 placeholder renamed back to the identifier it stands for would illustrate a use the product does not
 have — the real name never leaves the machine, and a listing image is a poor place to suggest
 otherwise.
+
+**The Placeholder cell truncates the committed stem to `OverdueTyp…`, and that is not worth
+correcting.** The code pane beside it carries `OverdueType154` in full, which is where a reader reads
+a placeholder anyway, and the column could only be widened by dragging it — which would give this
+frame a different table from the three shot either side of it in the same opening.
 
 **Do not quote the numbers in this file.** Which number each row carries depends on how many
 placeholders the sandbox IDE has minted before the shot, and the counter never rewinds. The rows are
@@ -216,22 +221,15 @@ All nine stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800
 fit and centred on a ground sampled from its own edge, so the letterboxing is invisible and the set
 reads as one product rather than as nine window sizes.
 
-**Two of them are known to be wrong, and one opening of the dialog fixes both.** Neither has been
-uploaded to the listing yet:
+**Shots 3 to 6 are one opening of the dialog**, in the order this file gives, so the four frames
+carry one mapping table between them: `feeFor` is `method153` in shot 3, is being typed over in shot
+4, and is `charge153` in shot 6 because that is the same row a moment later. The only numbers that
+move are the ones a preserve tick re-mints.
 
-- **`preview-dialog.png` predates the unlock**, as shot 3 says. It is the only frame that
-  misrepresents the dialog rather than merely aging, and the listing must not be updated while it is
-  the frame carrying the product.
-- **`preview-rename-placeholder.png` renames the row below the one it meant to.** `OverdueType`
-  landed on the `invoice` parameter instead of on the `Invoice` type, so a parameter carries a stem
-  naming a type while the type above it still reads `Type154`. What the frame is for it does show
-  correctly — that the cell takes typing, and that the number sits outside the editable text where
-  it cannot be typed over.
-
-**The numbers in the three preview frames start at 153, and that is not a defect.** The sandbox they
-were shot in had minted that many already, and a number is burnt when it is handed out. A mature
-project's preview looks like these frames rather than like the `1`-to-`19` ones shot in August, so
-re-shooting for lower numbers would be making the product look newer than it is.
+**They start at 153, and that is not a defect.** The sandbox had minted that many already and a
+number is burnt when it is handed out. A mature project's preview looks like these frames rather
+than like the `1`-to-`19` ones shot in August, so re-shooting for lower numbers would be making the
+product look newer than it is.
 
 `assertBothPluginIconsShip` fails the build if any image other than the two icons reaches the
 distribution. That rule exists because of how these were made: a screenshot has to live somewhere
