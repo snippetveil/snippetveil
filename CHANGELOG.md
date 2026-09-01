@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-01
+
 - Placeholders can be renamed in Anonymize with Preview, so a snippet can carry the word the
   question is about: double-click the Placeholder cell and `Type1` becomes `FilterType1`. The stem
   is yours and the number always stays — a name cannot end in a digit and cannot lose its number, so
@@ -58,6 +60,7 @@
 - The plugin makes no network calls and starts no subprocesses. `./gradlew check` asserts both
   against the built distribution rather than against the sources.
 
-[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/snippetveil/snippetveil/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/snippetveil/snippetveil/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/snippetveil/snippetveil/commits/v1.0.0
