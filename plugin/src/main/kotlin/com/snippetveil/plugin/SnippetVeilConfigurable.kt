@@ -40,6 +40,19 @@ import javax.swing.table.AbstractTableModel
  * person can check, and a user can verify in two seconds that the mapping is not in `.idea/` and not
  * roaming — instead of taking our word for it. See [PlaceholderLedger.storagePath].
  *
+ * **And the file is at that path to be read, which is a second claim and was once not true.** A
+ * `@State` component is written when the platform's write-behind gets round to it, and this page was
+ * observed reading `5 placeholders` over a path holding no file at all, in an IDE four days into a
+ * session that had written nothing since its first minute. Every reading available to a person who
+ * goes and looks is then a bad one — *it is storing this somewhere it is not telling me* being the
+ * obvious one — and it fails worst for the most suspicious user, who is the only user this line is
+ * for. So the mapping is written whenever it moves; [PlaceholderLedger.commit] and
+ * [PlaceholderLedger.clear] carry the reasoning, and `LedgerDurabilityTest` holds them to it by
+ * asserting the file rather than the intention.
+ *
+ * **`Entries: 0 placeholders` over a path with no file at it is not that failure.** It is one fact
+ * said twice: nothing has been copied in this project yet, so there is nothing to have written.
+ *
  * ### The orphan count is deliberately not shown
  *
  * Orphans — entries for symbols that no longer exist — are non-actionable **by construction**, since

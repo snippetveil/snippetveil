@@ -143,6 +143,10 @@ class PlaceholderLedgerTest : JavaSnippetTestCase() {
      * file the platform is not using. Both halves are checked against the `@State` itself rather than
      * against a second spelling of it: the file name, and the directory a bare name on an
      * application-level component resolves in.
+     *
+     * **What this cannot assert is that a file is there**, which is a separate claim and a separate
+     * test: see `LedgerDurabilityTest`. Both halves being individually true is what let a reader draw
+     * a conjunction from them that a running IDE did not honour.
      */
     fun `test the path shown on the settings page is the file the platform writes`() {
         val storage = PlaceholderLedger::class.java.getAnnotation(State::class.java).storages.single()

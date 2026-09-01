@@ -18,6 +18,13 @@
   unlock is locked again on every open: neither it nor any tick is stored anywhere, and Copy
   Anonymized still reads no reduction at all. Literals stay non-preservable, and a preserved type
   keeps its simple name while its package renames around it.
+- The mapping file is written when the mapping changes, rather than whenever the IDE next gets round
+  to saving its settings. The settings page shows that file's path and invites you to go and look,
+  and an IDE can run for days without writing it — so the page could name a path holding no file
+  while the count above it said five. The same delay could rewind the placeholder counter if a
+  session ended in a crash or a force-quit, handing a number that had already been pasted into a
+  conversation to a different symbol later; the mapping file is now written on every copy and on
+  Reset Mappings, in the background, so a copy is not slowed down by it.
 - The settings page carries a Report a problem link. SnippetVeil collects no telemetry, so a problem
   only reaches the maintainer if it is reported, and every other route to the tracker appears on an
   error balloon after something has already gone wrong.

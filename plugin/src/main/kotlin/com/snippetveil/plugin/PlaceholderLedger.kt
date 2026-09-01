@@ -9,6 +9,7 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.util.ThreeState
 import com.snippetveil.core.LedgerDelta
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.MintedName
@@ -54,6 +55,21 @@ import java.nio.file.Path
  * which `NoPersistentStateIsRoamableTest` holds as an absolute rule. Roaming off also keeps the file
  * out of **Export Settings**, which collects roamable components only.
  *
+ * ### `useSaveThreshold = NO`, which is the price of (2)
+ *
+ * **A non-roamable component is written by an ordinary settings save at most once every five
+ * minutes.** `NOT_ROAMABLE_COMPONENT_SAVE_THRESHOLD` is the platform's own throttle and it is aimed
+ * at exactly this shape of component: roaming off means nothing else is waiting on the file, so the
+ * platform spares the disk. Turning roaming off for the reason above therefore bought a five-minute
+ * staleness nobody asked for, and it is invisible — the save runs, the component is skipped, and
+ * nothing is logged above debug.
+ *
+ * That is not survivable for a file whose path is on a settings page under a live count, and it is
+ * not survivable for a counter a crash can rewind. `ThreeState.NO` opts out of the throttle and
+ * nothing else: the storage stays exactly as non-roaming, out-of-tree and out-of-cache as it was.
+ * **It was found in a sandbox IDE and not in review** — see [askTheApplicationToWriteItsSettings] —
+ * and `LedgerDurabilityTest` fails without it.
+ *
  * ### Plaintext, deliberately
  *
  * The file holds names that are already sitting in plaintext `.java` files on the same disk, and **a
@@ -74,7 +90,7 @@ import java.nio.file.Path
 @Service(Service.Level.APP)
 @State(
     name = "SnippetVeilPlaceholders",
-    storages = [Storage(LEDGER_FILE, roamingType = RoamingType.DISABLED)],
+    storages = [Storage(LEDGER_FILE, roamingType = RoamingType.DISABLED, useSaveThreshold = ThreeState.NO)],
 )
 internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.State> {
 
@@ -178,6 +194,11 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
      * closed in `CopyAnonymizedAction.deliver` by reading the ledger again on the EDT and re-running
      * the engine if it moved. This lock is what makes that read-again see a whole ledger rather than
      * half of one.
+     *
+     * **And it asks for the file to be written**, rather than leaving that to the platform's own
+     * schedule: a number this hands out has already been pasted into somebody's conversation by the
+     * time it gets here, so a commit that is still only in memory is one a crash turns into a
+     * plausible wrong name. See [askTheApplicationToWriteItsSettings].
      */
     @Synchronized
     fun commit(project: Project, delta: LedgerDelta) {
@@ -201,6 +222,8 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
             it.projects = current.projects.filterTo(mutableListOf()) { other -> other.project != entry.project }
             it.projects += entry
         }
+
+        askTheApplicationToWriteItsSettings()
     }
 
     /**
@@ -208,7 +231,9 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
      *
      * Nothing else here deletes a row. What the user is buying is that the vocabulary stops being on
      * the disk, and what they are told they are paying is that outstanding snippets stop decoding;
-     * both are true of the rows, which is why the rows go.
+     * both are true of the rows, which is why the rows go. **The first of those is a claim about a
+     * file**, so this asks for the file to be rewritten rather than leaving the old one lying there
+     * until the platform gets round to it — see [askTheApplicationToWriteItsSettings].
      *
      * **The stems go with the rows, and the counter does not.** A stem is a word the user typed to
      * describe one of their own symbols, so it is vocabulary in exactly the sense this button exists
@@ -248,6 +273,71 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
             it.projects = current.projects.filterTo(mutableListOf()) { other -> other.project != emptied.project }
             it.projects += emptied
         }
+
+        askTheApplicationToWriteItsSettings()
+    }
+
+    /**
+     * **Puts the mapping on the disk now, rather than whenever the platform gets round to it.**
+     *
+     * A `@State` component is written when the platform decides to write it, and that decision is
+     * ordinary write-behind: an IDE four days into a session was observed with nothing in its whole
+     * `options/` directory newer than its first minute. Two claims this file makes are false for as
+     * long as that window is open, and they fail in opposite directions.
+     *
+     *  1. **The settings page shows this file's path and invites a sceptic to go and look**, which is
+     *     the only auditability evidence the product hands over. A page reading `5 placeholders` over
+     *     a path holding no file at all reads as *it is storing this somewhere it is not telling me*
+     *     — the exact suspicion the line exists to defuse, and it fails worst for the most suspicious
+     *     user, who is the only user the line is for.
+     *  2. **[ProjectEntry.nextNumber] is persisted in the same bean as the rows**, so a session that
+     *     ends without a write — a crash, a force-quit, an OOM kill — does not merely lose entries:
+     *     the counter rolls back with them, and numbers already handed out and already pasted into a
+     *     conversation get handed out a second time to different symbols. A reply quoting `Type3`
+     *     from before the crash then decodes to whatever `Type3` means after it, which is a
+     *     **plausible wrong name** — the one failure this whole design refuses outright, and the one
+     *     it errs towards under-recovery everywhere else to avoid.
+     *
+     * **What this closes and what it does not.** The window becomes the length of one file write
+     * instead of the platform's own schedule; a crash inside that write still loses the commit, and
+     * `LedgerDurabilityTest` is where that residue is written down rather than implied.
+     *
+     * **The application is asked to write its settings — and two other spellings were tried in a
+     * real IDE before this one, which is the only reason this one is here.**
+     *
+     * `SaveAndSyncHandler.scheduleSave` is the obvious spelling and it is **actively harmful**. The
+     * task goes onto the platform's shared save queue, where it was never processed: the mapping sat
+     * unwritten for ten minutes, **and the IDE's own save on frame deactivation stopped happening
+     * too**, because `scheduleSave` calls `requestSave` only when `addToSaveQueue` returns true and
+     * that method dedups against whatever is already queued. One task of ours in that queue is enough
+     * to make the platform's settings save a no-op. A save requested wrongly does not merely fail to
+     * help; it starves the scheduler.
+     *
+     * [com.intellij.openapi.application.Application.saveSettings] goes straight to the store instead,
+     * with no queue in between — and on its own it did nothing either, because a non-roamable
+     * component is throttled to one write every five minutes. That is the `useSaveThreshold` argued
+     * above; **the save call and the opt-out are one fix in two places**, and either alone leaves the
+     * file stale.
+     *
+     * Public API throughout, which is not a preference: `verifyPlugin` fails this build on internal
+     * API, and the narrower `IComponentStore.saveComponent` — which writes this one component and
+     * would have been cheaper — is internal.
+     *
+     * **Off the EDT**, because [commit] runs on it inside the user's copy gesture — see `deliver` —
+     * and this is a file write; a whole-application settings save was measured at ~3s in a sandbox.
+     * Two invocations at once ask twice; each save reads [getState] when it runs rather than when it
+     * was asked for, and the bean is copy-on-write, so each writes a whole ledger and the later
+     * commit is the one that survives.
+     *
+     * **What it reaches is wider than this file**, which is the accepted cost of a public API: every
+     * dirty application component is written with ours, the same work the IDE does whenever it loses
+     * focus. Project settings are not this save's business, so the sidecar keeps the platform's
+     * ordinary write-behind — right for the cache tier, where losing a row costs recovery and never
+     * correctness.
+     */
+    private fun askTheApplicationToWriteItsSettings() {
+        val application = ApplicationManager.getApplication()
+        application.executeOnPooledThread { application.saveSettings() }
     }
 
     /**
@@ -282,6 +372,10 @@ internal class PlaceholderLedger : PersistentStateComponent<PlaceholderLedger.St
          * application-level `@State` resolves under `$APP_CONFIG$`, which is
          * [PathManager.getOptionsPath]; `PlaceholderLedgerTest` holds the platform to that step
          * rather than assuming it.
+         *
+         * **That the path is right and that a file is at it are two claims**, and the second one is
+         * [askTheApplicationToWriteItsSettings]'s: a path resolving correctly is worth nothing to somebody who
+         * looks there and finds nothing.
          */
         fun storagePath(): Path = Path.of(PathManager.getOptionsPath()).resolve(LEDGER_FILE)
     }

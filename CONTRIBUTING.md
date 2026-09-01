@@ -195,14 +195,68 @@ row beside it.
 component level, and the resolved path being neither under the project nor under the system
 directory.
 
-**Two costs, written down rather than left to be discovered.** Entries are filed under the project's
-location hash, which is derived from its path — so moving or renaming the project directory reads as
-a new project and the mapping starts from empty. A file in `.idea/` would have travelled with the
-tree. Nothing decodes to the wrong name when that happens; what is lost is stability across the move.
-And a mapping that survives an IDE restart also means a placeholder issued weeks ago is emitted even
-when today's snippet preserves a library name spelled the same way, so that word can appear twice
-standing for two things. Both are argued where they live, in `PlaceholderLedger` and in
-`Anonymize.placeholderFor`, and both are pinned by a test.
+**When the file is written, and why the plugin asks for it.** A `@State` component is written when
+the platform's ordinary write-behind gets round to it, and that window is not small: an IDE four
+days into a session was found with nothing in its whole `options/` directory newer than its first
+minute. Two claims are false for as long as it is open, and they fail in opposite directions. The
+settings page shows this file's path and invites a sceptic to go and look, and a page reading
+`5 placeholders` over a path holding no file reads as *it is storing this somewhere it is not
+telling me* — the exact suspicion the line exists to defuse. And `nextNumber` is persisted **in the
+same bean as the rows**, so a session that ends without a write — a crash, a force-quit, an OOM kill
+— does not merely lose entries: the counter rolls back with them, and numbers already handed out and
+already pasted into a conversation are handed out again to different symbols. A reply quoting `Type3`
+from before the crash then decodes to whatever `Type3` means after it, which is a **plausible wrong
+name**, the one failure this design refuses outright.
+
+So **the mapping is written on every commit and every reset**, and that took three attempts in a
+real IDE — the first two of which passed a green test suite.
+
+**`SaveAndSyncHandler.scheduleSave` is the obvious spelling and it is actively harmful.** The task
+goes onto the platform's shared save queue, where it was never processed: the mapping sat unwritten
+for ten minutes, **and the IDE's own save on frame deactivation stopped happening too**, because
+`scheduleSave` calls `requestSave` only when `addToSaveQueue` returns true and that method dedups
+against whatever is already queued. One task of ours in that queue is enough to make the platform's
+settings save a no-op. A save requested wrongly does not merely fail to help; it starves the
+scheduler, which is the hazard the ticket named.
+
+**`Application.saveSettings()` on its own does nothing for this component either**, and the reason is
+the sharp one: `NOT_ROAMABLE_COMPONENT_SAVE_THRESHOLD` writes a non-roamable component at most once
+every five minutes. Roaming is off here for the reason argued above — it is the densest collection of
+employer vocabulary the product holds — so **the security decision is what bought the staleness**,
+and it is invisible: the save runs, the component is skipped, nothing is logged above debug.
+`@Storage(useSaveThreshold = ThreeState.NO)` opts out of the throttle and changes nothing else about
+where the file lives. **The save call and the opt-out are one fix in two places**; either alone
+leaves the file stale, and `LedgerDurabilityTest` fails without either.
+
+It runs on a pooled thread because a commit is on the EDT inside the user's copy gesture and this is a
+file write — a full application settings save was measured at ~3s in a sandbox. Everything here is
+public API, which is not a preference: `verifyPlugin` fails this build on internal API, and the
+narrower `IComponentStore.saveComponent` is internal. The sidecar keeps the platform's ordinary
+write-behind, which is right for the cache tier where a lost row costs recovery and never
+correctness.
+
+**What closes and what does not.** The window becomes the length of one write instead of the
+platform's own schedule; a crash inside that write still loses the commit, and `LedgerDurabilityTest`
+is where that residue is written down rather than implied.
+
+#### Every test here reads the real file, and that is not a style choice
+
+The first version of this change was asserted by a test that watched the **request** rather than the
+file. The request was made on every commit, the suite was green, and a real IDE wrote nothing — twice
+over, for two different reasons. So `LedgerDurabilityTest` drives the real application store and reads
+the real file at the path the settings page names, and it goes red if either half of the fix is
+removed.
+
+To confirm by hand in a real IDE:
+
+```
+./gradlew runIde
+watch -n1 ls -l .intellijPlatform/sandbox/plugin/IC-*/config/options/snippetveil-placeholders.xml
+```
+
+Copy in a Java file and **keep the IDE focused** — switching away triggers the platform's own save on
+frame deactivation and proves nothing. The file must move within a second or two. Two copies a minute
+apart is the stronger check: the second one is what the five-minute throttle used to swallow.
 
 ### And where the sidecar lives
 
@@ -247,7 +301,13 @@ It shows **the mapping's storage path in full**, and that is the cheapest possib
 auditability there is: the four properties argued above are claims about *where the file is*, and a
 suspicious person can check all four by reading one line instead of taking our word for it. The whole
 no-network claim rests on evidence a sceptic can check, and this is the same bargain one directory
-down. `PlaceholderLedgerTest` asserts that the line names the file the platform actually writes.
+down. `PlaceholderLedgerTest` asserts that the line names the file the platform actually writes, and
+`LedgerDurabilityTest` asserts that a commit puts a file there — which is what makes the invitation
+good. **The two are separate claims and only the first was ever tested**: the path
+resolving to the right place says nothing about a file being at it, and a reader who drew the
+conjunction from them drew something that was not true of a running IDE. A page reading `0
+placeholders` over a path with no file at it is not that failure; it is one fact said twice, and
+nothing has been copied yet.
 
 **The orphan count is deliberately not shown.** Orphans — entries for symbols that no longer exist —
 are non-actionable *by construction*, since pruning is forbidden and they are retained on purpose.
