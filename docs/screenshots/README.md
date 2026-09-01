@@ -53,6 +53,21 @@ the anonymized code beside its mapping table, with the counts strip along the bo
 This is the shot that carries the product. The mapping table should be scrolled to the top, so that
 the first rows are the type and method names a reader recognises from the code beside them.
 
+**The committed frame predates the unlock and has to be re-shot.** It shows the dialog with nothing
+under the mapping table, and the shipped dialog carries the `Unlock Preserve for resolved names…`
+link there. A listing image missing a control the reader will find on their own screen is the exact
+failure this directory exists to prevent, and it is worse than a missing image: it is a picture of a
+product that no longer exists.
+
+**Shoot 3, 4 and 5 from one opening of the dialog, in that order.** They are three states of one
+preview, and the numbers make that a requirement rather than a preference — a placeholder's number is
+burnt when it is handed out, so a second invocation on the same selection re-mints every local and
+parameter while the types, methods and fields keep the numbers they already have. Three frames from
+three openings would disagree with each other down the middle of the table. One opening: capture the
+dialog, click the unlock and capture the warning, **Cancel** it, then rename two rows and capture
+that. Cancelling is what leaves the Preserve column in shot 4 looking the way it does in shot 3, so
+the only thing that changes between any two frames is the thing the frame is about.
+
 ### 4. `preview-rename-placeholder.png`
 
 The same preview, on the same selection, with the **Placeholder** column being edited: one row
@@ -66,9 +81,9 @@ rename is only a word in a table — nothing in it tells a reader they could hav
 editor says the cell takes typing, and shows the number sitting outside the editable text, which is
 the promise the whole feature rests on: the stem is yours and the number always stays.
 
-**Rename to a hint, never to the real name.** The suggested pair is the `Invoice` row committed as
-`OverdueType…` and the `feeFor` row open with `charge` typed into it: both are words that tell a
-model which symbol the question is about, and neither is the name that was replaced. A shot of a
+**Rename to a hint, never to the real name.** The pair to type is `OverdueType` on the `Invoice`
+row, committed, and `chargeMethod` on the `feeFor` row, left open in its editor: both are words that
+tell a model which symbol the question is about, and neither is the name that was replaced. A shot of a
 placeholder renamed back to the identifier it stands for would illustrate a use the product does not
 have — the real name never leaves the machine, and a listing image is a poor place to suggest
 otherwise.
