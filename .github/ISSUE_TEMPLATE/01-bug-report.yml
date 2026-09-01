@@ -25,7 +25,7 @@ body:
         `Settings | Plugins | SnippetVeil` for the first, `Help | About` for the second. SnippetVeil
         does not fill this in for you: it collects nothing about your machine, and a field it
         filled would suggest it had.
-      placeholder: SnippetVeil 1.1.0 · IntelliJ IDEA 2025.2.1 (IU-252.23892.409)
+      placeholder: SnippetVeil 1.2.0 · IntelliJ IDEA 2025.2.1 (IU-252.23892.409)
     validations:
       required: true
 
