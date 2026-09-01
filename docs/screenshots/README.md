@@ -1,6 +1,6 @@
 # The Marketplace screenshots
 
-Six shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
+Eight shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
 commit by anyone.
 
 They are committed here rather than living only in the Marketplace listing, for the reason the demo
@@ -9,7 +9,7 @@ that cannot be reproduced cannot be corrected when the dialog it shows moves on.
 
 ## Rules every shot has to meet
 
-- **1280 × 800**, and the same aspect for all six. The Marketplace scales them together; one odd
+- **1280 × 800**, and the same aspect for all eight. The Marketplace scales them together; one odd
   shot reads as a mistake in the listing rather than as a difference in the product.
 - **No window chrome.** Capture the IDE's content, not the title bar, the traffic lights or the
   desktop behind them.
@@ -34,8 +34,8 @@ the open submenu together: the point of it is that the entry point is the menu y
 using.
 
 **The javadoc is inside the selection deliberately.** It is what makes the stripped-comment count
-non-zero in shots 2 and 4, and a listing that showed a zero there would be illustrating the one
-disclosure this product most wants read.
+non-zero in `preview-dialog.png` and `copy-balloon-with-counts.png`, and a listing that showed a
+zero there would be illustrating the one disclosure this product most wants read.
 
 ### 2. `right-click-anonymize-with-preview.png`
 
@@ -53,7 +53,55 @@ the anonymized code beside its mapping table, with the counts strip along the bo
 This is the shot that carries the product. The mapping table should be scrolled to the top, so that
 the first rows are the type and method names a reader recognises from the code beside them.
 
-### 4. `preview-fidelity-notice.png`
+### 4. `preview-rename-placeholder.png`
+
+The same preview, on the same selection, with the **Placeholder** column being edited: one row
+already carrying a stem of its own, and one open in its cell editor with the caret in it.
+
+**Selection: `LateFeeCalculator.java`, lines 30–59**, as in shot 3, so the two frames read as one
+dialog a moment apart rather than as two dialogs.
+
+**Two rows in two states, because one frame has to carry both halves of the feature.** A committed
+rename is only a word in a table — nothing in it tells a reader they could have typed it. An open
+editor says the cell takes typing, and shows the number sitting outside the editable text, which is
+the promise the whole feature rests on: the stem is yours and the number always stays.
+
+**Rename to a hint, never to the real name.** The suggested pair is the `Invoice` row committed as
+`OverdueType…` and the `feeFor` row open with `charge` typed into it: both are words that tell a
+model which symbol the question is about, and neither is the name that was replaced. A shot of a
+placeholder renamed back to the identifier it stands for would illustrate a use the product does not
+have — the real name never leaves the machine, and a listing image is a poor place to suggest
+otherwise.
+
+**Do not quote the numbers in this file.** Which number each row carries depends on how many
+placeholders the sandbox IDE has minted before the shot, and the counter never rewinds. The rows are
+named here by the symbol they stand for for exactly that reason.
+
+### 5. `preview-unlock-preserve-warning.png`
+
+The unlock's confirmation, open over the preview, with the empty **Preserve** column and the
+`Unlock Preserve for resolved names…` link visible behind it.
+
+**Selection: `LateFeeCalculator.java`, lines 30–59**, again. Every name in `demo/` resolves, so the
+Preserve column behind the warning is empty — which is not a flat shot but the exact case the unlock
+exists for: nothing in this table can be preserved until you ask for it.
+
+**The sentence is the subject.** Frame it so all three lines are readable — *Preserved names are sent
+exactly as written in your code. SnippetVeil will not conceal a name you tick. Only preserve names
+you would be comfortable typing into the chat yourself.* — together with the two buttons, `I
+understand, unlock` and `Cancel`. The button that carries it out is named for the decision rather
+than `OK`, and that is half of what the shot is showing.
+
+**The modal's own title bar is in frame, and that is not the chrome the rules bar.** The platform
+puts the question — *Unlock Preserve for all names?* — in the dialog's title, so it is the only place
+the frame says which column is being unlocked. The rule above is about the IDE window, its traffic
+lights and the desktop behind them.
+
+**A warning is an odd thing to put in a listing, and it is the strongest frame in the set.** The
+product's claim is that it never quietly reduces what it conceals; a shot of it stopping to say so,
+in a dialog that has no *don't warn me again*, demonstrates that claim instead of asserting it.
+
+### 6. `preview-fidelity-notice.png`
 
 The preview again, on a selection that makes a fidelity notice fire.
 
@@ -62,7 +110,7 @@ class below it. `customer`, `overdue` and `fees` are each both a field and a met
 renamed symbols share one source name and the preview says so. The notice is the subject of the shot
 — frame it so the sentence is readable rather than implied.
 
-### 5. `copy-balloon-with-counts.png`
+### 7. `copy-balloon-with-counts.png`
 
 The balloon after a plain **Copy Anonymized**, showing the counts and the **Show mapping** action.
 
@@ -75,7 +123,7 @@ beside the method signature. In shots 1 and 2 the context menu happens to cover 
 it here, and a real person's name in a listing image is the one rule in this file with no judgement
 in it.
 
-### 6. `right-click-deanonymize-and-paste.png`
+### 8. `right-click-deanonymize-and-paste.png`
 
 The same popup, with **De-anonymize Clipboard and Paste** highlighted.
 
@@ -87,12 +135,12 @@ in the submenu that **writes into a source file** rather than onto the clipboard
 deciding whether to install has to be able to see that the plugin has a row that does that. The
 ellipsis distinction in shot 2 is a smaller difference than this one.
 
-**Last among the stills rather than third, because the set is a round trip.** Shots 1-5 go out —
-select, preview, copy, read the counts — and this is the return leg, the reply coming back into the
+**Last among the stills rather than third, because the set is a round trip.** Shots 1-7 go out —
+select, preview, edit the preview, copy, read the counts — and this is the return leg, the reply coming back into the
 editor. Grouped with the other menu shots it would put three near-identical frames at the front of
 the listing, which is where a reader decides whether to keep looking.
 
-### 7. `walkthrough.gif` (optional)
+### 9. `walkthrough.gif` (optional)
 
 Roughly ten seconds, no audio: select, **Copy Anonymized**, paste into a scratch buffer, then
 **De-anonymize Clipboard** on a reply pasted back. Same window, same theme, same rules as above.
@@ -113,14 +161,20 @@ screencapture -T 8 -R <x>,<y>,1280,800 docs/screenshots/<name>.png
 sips -z 800 1280 docs/screenshots/<name>.png
 ```
 
-Keep `<x>,<y>` the same for all six so the shots line up, and place the region well inside the
+Keep `<x>,<y>` the same for all eight so the shots line up, and place the region well inside the
 editor area rather than against the window's edges.
 
 ## What is here
 
-All six stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each scaled to fit
-and centred on a ground sampled from its own edge, so the letterboxing is invisible and the set
-reads as one product rather than as six window sizes.
+Six of the eight stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each
+scaled to fit and centred on a ground sampled from its own edge, so the letterboxing is invisible
+and the set reads as one product rather than as eight window sizes.
+
+**`preview-rename-placeholder.png` and `preview-unlock-preserve-warning.png` are specified above and
+have not been shot yet.** They are the two frames the rename and the Preserve unlock add, and the
+Marketplace listing carries the set it has until they exist — an out-of-date listing is a smaller
+problem than a listing whose images do not match the plugin a reader just installed. Delete this
+paragraph in the commit that adds them.
 
 `assertBothPluginIconsShip` fails the build if any image other than the two icons reaches the
 distribution. That rule exists because of how these were made: a screenshot has to live somewhere

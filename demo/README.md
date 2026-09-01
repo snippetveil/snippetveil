@@ -68,5 +68,5 @@ Every name in here is invented. There is no Harborlight.
 
 ## Shooting the screenshots
 
-See [`docs/screenshots/README.md`](../docs/screenshots/README.md), which lists the five shots, the
+See [`docs/screenshots/README.md`](../docs/screenshots/README.md), which lists the eight shots, the
 selection each one is taken from, and the rules they all have to meet.
