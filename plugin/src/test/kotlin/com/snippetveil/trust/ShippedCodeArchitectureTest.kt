@@ -82,6 +82,36 @@ class ShippedCodeArchitectureTest {
             .check(SHIPPED_CLASSES)
     }
 
+    /**
+     * **The isolation rule that keeps SnippetVeil loading on an IDE with Kotlin switched off.**
+     *
+     * The Kotlin dependency is declared `optional="true"`, so the Kotlin plugin's classes may simply
+     * not be on the classloader — and **linkage is per class, at the moment that class is loaded**.
+     * A class whose constant pool names `org.jetbrains.kotlin.*` fails to link when it is touched, so
+     * the isolation holds only if no class reachable from the *main* descriptor mentions one. Break
+     * it and the failure is not a missing feature: it is the source-file gate, the actions, or the
+     * plugin itself failing to load, taking Java anonymization down with the language it never needed.
+     *
+     * **Scoped by package, and the package boundary is the mechanism.** Everything the main
+     * descriptor registers lives in `com.snippetveil.plugin`; the Kotlin half lives below it, in
+     * `com.snippetveil.plugin.kotlin`, and is registered only from the optional descriptor. So the
+     * rule is *the main package may not reach Kotlin*, with the sub-package deliberately outside it —
+     * which is why the exclusion is written into the predicate rather than left as an exception list.
+     *
+     * This is the static half. The dynamic half is the Kotlin-disabled boot, which asserts the
+     * consequence — the plugin loads and the Java actions work — rather than the rule.
+     */
+    @Test
+    fun `the main descriptor's packages do not reach for Kotlin plugin classes`() {
+        noClasses().that(MAIN_DESCRIPTOR_CODE)
+            .should().dependOnClassesThat().resideInAnyPackage("org.jetbrains.kotlin..")
+            .because(
+                "the Kotlin dependency is optional, so a class naming a Kotlin type fails to link " +
+                    "on an IDE with Kotlin disabled — and it takes Java anonymization down with it"
+            )
+            .check(SHIPPED_CLASSES)
+    }
+
     /** The claim on the Marketplace listing, checked. */
     @Test
     fun `nothing shipped can open a socket`() {
@@ -175,6 +205,21 @@ class ShippedCodeArchitectureTest {
  * deliberately separate implementations of one policy over different inputs, and the
  * `java.nio.channels` pattern is written identically in both so that they can be diffed by eye.
  */
+/**
+ * **Everything the main plugin descriptor can reach**, which is every shipped class except the
+ * Kotlin half.
+ *
+ * The Kotlin half is registered only from the optional descriptor, so its classes are loaded only
+ * where the Kotlin plugin is — and they are the one place in this codebase where naming
+ * `org.jetbrains.kotlin.*` is correct rather than fatal. Expressed as *not in that package* rather
+ * than as an exception list, because an exception list is where a violation eventually hides.
+ */
+private val MAIN_DESCRIPTOR_CODE: DescribedPredicate<JavaClass> =
+    object : DescribedPredicate<JavaClass>("reachable from the main plugin descriptor") {
+        override fun test(javaClass: JavaClass): Boolean =
+            !javaClass.packageName.startsWith("com.snippetveil.plugin.kotlin")
+    }
+
 private val NETWORKING_CLASSES: DescribedPredicate<JavaClass> =
     resideInAnyPackage(
         "java.net..",

@@ -33,23 +33,50 @@ import java.util.concurrent.Callable
  */
 
 /**
- * **Anonymization is unavailable outside Java files: no menu item, and the clipboard is never
- * touched.**
+ * **Anonymization is unavailable outside supported source files: no menu item, and the clipboard is
+ * never touched.**
  *
  * This closes a fail-open that no semantic rule owns. A user who has internalised *"SnippetVeil
  * protects me"* will eventually select `application.properties` and reach for it. The principle is
  * *anything it cannot anonymize, it does not offer* — which teaches the boundary at the moment it
  * matters, and asks nobody to read a warning.
  *
- * Rejected: visible but refusing with a message, because a dead menu item that explains itself is
- * still a dead menu item; and visible and copying verbatim, because a privacy tool silently
+ * Rejected, and still rejected: **visible and copying verbatim**, because a privacy tool silently
  * returning an un-anonymized config file is the worst outcome on the table.
+ *
+ * **Distinguished, not overturned: visible, refuses with a message.** That rejection was about files
+ * the tool genuinely has nothing to say about — a dead menu item that explains itself is still a dead
+ * menu item, and silence is the stronger signal. It was a case Java could never produce, because Java
+ * support cannot fail to load. A supported language whose support is *unavailable in this IDE right
+ * now* is a different case, and it is separated structurally rather than by wording: an unsupported
+ * file has **no menu item at all**, and a Kotlin-unavailable file has an item that **speaks when
+ * used**. The user never compares two similar-looking negatives, because one of them is not there.
+ *
+ * So [GateVerdict.Refuse] is enabled and visible here, exactly like [GateVerdict.Offer]. What tells
+ * them apart is what happens on invoke — see [refuseIfUnsupported].
  */
-internal fun offerOnlyOnJava(event: AnActionEvent) {
+internal fun offerOnGatedSource(event: AnActionEvent) {
+    val hasEditor = event.project != null && event.getData(CommonDataKeys.EDITOR) != null
     event.presentation.isEnabledAndVisible =
-        event.project != null &&
-        event.getData(CommonDataKeys.EDITOR) != null &&
-        event.getData(CommonDataKeys.PSI_FILE).isAnonymizable()
+        hasEditor && gate(event.getData(CommonDataKeys.PSI_FILE)) != GateVerdict.Absent
+}
+
+/**
+ * **The refusal, on invoke** — and it is the whole of what separates the gate's third outcome from
+ * its first.
+ *
+ * Returns `true` when the invocation was refused and the caller must stop. Nothing has been read and
+ * nothing written at this point, so the clipboard clause the message carries is true by construction
+ * rather than by inspection.
+ *
+ * **Refusing inside the preview modal was rejected** as heavier and reachable on only one action's
+ * path; this sits on both.
+ */
+internal fun refuseIfUnsupported(event: AnActionEvent): Boolean {
+    val verdict = gate(event.getData(CommonDataKeys.PSI_FILE))
+    if (verdict !is GateVerdict.Refuse) return false
+    SnippetVeilNotifications.kotlinUnavailable(event.project, verdict.cause)
+    return true
 }
 
 /**
@@ -61,7 +88,7 @@ internal fun offerOnlyOnJava(event: AnActionEvent) {
  * EDT   capture the file and the selected ranges, commitAllDocuments()
  *  ↓
  * BGT   a cancellable background task, then
- *       ReadAction.nonBlocking { JavaPlanBuilder.build() }.inSmartMode(project).expireWith(project)
+ *       ReadAction.nonBlocking { plans.build() }.inSmartMode(project).expireWith(project)
  *  ↓       -> SnippetPlan, then the pure anonymize() over it
  * EDT   proceed: the clipboard, or the dialog and then the clipboard
  * ```
@@ -85,7 +112,7 @@ internal fun offerOnlyOnJava(event: AnActionEvent) {
 internal fun startAnonymizing(event: AnActionEvent, plans: PlanBuilder, proceed: (Project, Analysis) -> Unit) {
     val project = event.project ?: return
     val editor = event.getData(CommonDataKeys.EDITOR) ?: return
-    val file = event.getData(CommonDataKeys.PSI_FILE)?.takeIf { it.isAnonymizable() } ?: return
+    val file = event.getData(CommonDataKeys.PSI_FILE)?.takeIf { gate(it) == GateVerdict.Offer } ?: return
 
     // On the EDT, and only here: read the editor's state, then make the PSI agree with the document
     // that state was read from. Everything after this point works from plain offsets, so a caret

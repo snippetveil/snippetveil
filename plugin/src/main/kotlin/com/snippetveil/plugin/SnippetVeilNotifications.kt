@@ -4,8 +4,11 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroup
 import com.intellij.notification.NotificationGroupManager
+import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.options.SearchableConfigurable
+import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.snippetveil.core.Reversal
 import com.snippetveil.core.Unrestored
@@ -31,6 +34,9 @@ internal object SnippetVeilNotifications {
 
     /** The group id, matching the `notificationGroup` extension in plugin.xml. */
     private const val GROUP = "SnippetVeil"
+
+    /** The Kotlin settings page, as a string id — see [fixFor] for why it cannot be a class. */
+    private const val KOTLIN_CONFIGURABLE_ID = "preferences.language.Kotlin"
 
     private val LOG = Logger.getInstance(SnippetVeilNotifications::class.java)
 
@@ -345,6 +351,64 @@ internal object SnippetVeilNotifications {
         logged = "SnippetVeil could not insert the de-anonymized reply; the document may have been written partway.",
         said = "Paste failed — the reply may be partly inserted. Your clipboard was not changed.",
     )
+
+    /**
+     * **The source-file gate's third outcome, said out loud** — the one refusal in this product that
+     * fires on a file the tool *would* have anonymized on a correctly-configured IDE.
+     *
+     * The clipboard clause is here for the reason it is on [failed]: nothing was read and nothing
+     * written, so the user's next keystroke pastes whatever was there before, and a message that
+     * only said *unavailable* would leave them to discover that by pasting.
+     *
+     * **Warning rather than error, and no report link.** The product is working correctly and is
+     * describing its configuration — there is no defect to report, and a report link here would
+     * collect issues about a disabled plugin. Warning rather than information because the user asked
+     * for something and did not get it.
+     *
+     * **The fix link is where the two causes differ, and it is the only place they do.** The sentence
+     * is one string; what a user has to *do* is not, and pointing at the wrong page is worse than
+     * pointing at none.
+     */
+    fun kotlinUnavailable(project: Project?, cause: Unavailable) {
+        group().createNotification(
+            "Kotlin support is not available in this IDE \u2014 your clipboard was not changed.",
+            NotificationType.WARNING,
+        ).addAction(fixFor(project, cause)).notify(project)
+    }
+
+    /**
+     * **Two destinations, because the two causes are two different problems.**
+     *
+     * [Unavailable.PLUGIN_NOT_RUNNING] — the Kotlin plugin is absent or disabled, so no Kotlin-owned
+     * settings page exists to open. The **Plugins** page is a platform configurable and is the only
+     * correct target: it is where the user enables or installs the thing that is missing.
+     *
+     * [Unavailable.PATH_NOT_ACTIVATED] — the Kotlin plugin *is* running and SnippetVeil's Kotlin path
+     * still did not load, which in practice means K1 mode. Here a Kotlin-owned configurable exists,
+     * precisely because the plugin is enabled, and it is where the mode is switched.
+     *
+     * **[verify at implementation time]** the Kotlin configurable's id. It is named as a plain string
+     * rather than through a Kotlin class, which is not optional — this code path is reachable in a
+     * configuration where Kotlin classes are absent from the classloader, and the whole point of the
+     * gate is that nothing on it links one. An id that does not resolve opens Settings at its root:
+     * degraded, and not wrong.
+     */
+    private fun fixFor(project: Project?, cause: Unavailable): NotificationAction = when (cause) {
+        Unavailable.PLUGIN_NOT_RUNNING -> NotificationAction.createSimpleExpiring("Open Plugins") {
+            ShowSettingsUtil.getInstance().showSettingsDialog(project, PluginManagerConfigurable::class.java, null)
+        }
+        Unavailable.PATH_NOT_ACTIVATED -> NotificationAction.createSimpleExpiring("Open Kotlin settings") {
+            // Selected by **id through a predicate** rather than by a configurable class: the class
+            // is Kotlin-owned, and naming it here would put a Kotlin type on a code path whose whole
+            // premise is that Kotlin types may be absent. A predicate that matches nothing opens
+            // Settings at its root, which is the degraded case rather than a broken one.
+            ShowSettingsUtil.getInstance().showSettingsDialog(
+                project,
+                { it is SearchableConfigurable && it.id == KOTLIN_CONFIGURABLE_ID },
+                null,
+            )
+        }
+    }
 
     /**
      * **The mirror of [failed], and the safe half of it.**

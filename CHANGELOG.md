@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-01
+
 - Placeholders can be renamed in Anonymize with Preview, so a snippet can carry the word the
   question is about: double-click the Placeholder cell and `Type1` becomes `FilterType1`. The stem
   is yours and the number always stays — a name cannot end in a digit and cannot lose its number, so

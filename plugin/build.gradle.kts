@@ -50,6 +50,16 @@ dependencies {
         create(platformType, platformVersion)
         bundledPlugin("com.intellij.java")
 
+        // **Compiled against, depended on optionally.** The Kotlin plugin is bundled in both IC and
+        // IU, so this resolves for every configuration the build runs in — but `plugin.xml` declares
+        // the dependency `optional="true"`, because an IDE with the Kotlin plugin disabled must still
+        // load SnippetVeil and still anonymize Java. Isolation is a JVM fact rather than a platform
+        // feature: a class whose constant pool names a Kotlin-plugin class fails to link when that
+        // class is loaded, so every class touching `org.jetbrains.kotlin.*` has to be reachable only
+        // from the optional descriptor. A tier-1 arch rule asserts that, and the Kotlin-disabled boot
+        // test asserts the consequence.
+        bundledPlugin("org.jetbrains.kotlin")
+
         pluginVerifier()
 
         // The fixture-based tests below drive a real IDE core: `Platform` is the fixture itself,
@@ -85,10 +95,10 @@ tasks.test {
 kotlin {
     jvmToolchain(17)
 
-    // Nothing here ships a Kotlin stdlib — the platform provides one, and at the 241 floor that is
+    // Nothing here ships a Kotlin stdlib — the platform provides one, and at the 242 floor that is
     // 1.9.x. This pin narrows the gap rather than closing it: 2.0 is the oldest level this compiler
     // still accepts, so a stdlib symbol introduced in 2.0 would still compile. What actually catches
-    // that is verifyPlugin, which resolves every reference against IC-241 itself.
+    // that is verifyPlugin, which resolves every reference against the floor IDE itself.
     compilerOptions {
         apiVersion = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_2_0
     }
@@ -300,7 +310,15 @@ intellijPlatform {
         }
 
         ideaVersion {
-            sinceBuild = "241"
+            // Raised from 241 with Kotlin support, and never ahead of it: the Analysis API the
+            // Kotlin plan builder is written against first ships in the 2024.2 platform, and the
+            // `supportsKotlinPluginMode` extension point below does not exist before it. The 241
+            // line freezes at the already-published v1.2.0 rather than being maintained — the
+            // Marketplace serves a 2024.1 user the newest version compatible with their IDE, so
+            // that keeps working with no back-branch and no backport promise. A patch ever cut from
+            // the v1.2.0 tag must set `untilBuild = 241.*`, or its higher version number would be
+            // handed to every user and withdraw Kotlin support by patch release, silently.
+            sinceBuild = "242"
 
             // Never pinned: a new IDE major must not force a compatibility re-release. The Gradle
             // plugin still defaults this, so it is nulled explicitly rather than left out.
