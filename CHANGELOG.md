@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Requires 2024.2 or later. Kotlin support uses the Kotlin Analysis API, which is not available in
+  earlier builds. On 2024.1, the previous version remains available and continues to work.
+
 ## [1.2.0] - 2026-09-01
 
 - Placeholders can be renamed in Anonymize with Preview, so a snippet can carry the word the
@@ -60,6 +63,7 @@
 - The plugin makes no network calls and starts no subprocesses. `./gradlew check` asserts both
   against the built distribution rather than against the sources.
 
-[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/snippetveil/snippetveil/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/snippetveil/snippetveil/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/snippetveil/snippetveil/commits/v1.0.0

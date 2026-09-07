@@ -581,7 +581,7 @@ has actually been bitten by. A merge gate that skips exactly the layer catching 
 historically-real bugs inverts the point.
 
 **The test job runs at two platform versions: the `sinceBuild` floor and latest stable.**
-`untilBuild` is unset, so the descriptor claims *241 and everything after it*; `verifyPlugin` checks
+`untilBuild` is unset, so the descriptor claims *242 and everything after it*; `verifyPlugin` checks
 API compatibility, **not behaviour**, and PSI resolution behaviour across four years of platform
 releases is exactly what drifts quietly. If the matrix ever proves painful, the honest fix is to
 **raise the floor**, not to stop testing it.

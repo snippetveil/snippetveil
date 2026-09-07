@@ -72,8 +72,8 @@ jobs:
       # cancels the other.
       fail-fast: false
       matrix:
-        # The sinceBuild = 241 floor and latest stable. `untilBuild` is unset, so the descriptor
-        # claims 241 *and everything after it*, and verifyPlugin checks API compatibility rather
+        # The sinceBuild = 242 floor and latest stable. `untilBuild` is unset, so the descriptor
+        # claims 242 *and everything after it*, and verifyPlugin checks API compatibility rather
         # than behaviour — PSI resolution behaviour across four years of platform releases is what
         # drifts quietly. Which version each name means is gradle.properties' business.
         #

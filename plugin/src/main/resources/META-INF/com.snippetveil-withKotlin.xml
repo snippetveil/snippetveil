@@ -8,8 +8,8 @@
      loaded, and a class whose constant pool names `org.jetbrains.kotlin.*` fails to link if those
      types are not on the classloader. So the rule is not "keep Kotlin code tidy" — it is that no
      class reachable from the *main* descriptor may mention a Kotlin-plugin type, or SnippetVeil
-     stops loading in an IDE with Kotlin disabled. `ShippedCodeArchitectureTest` asserts the rule at
-     tier 1, and the Kotlin-disabled boot test asserts the consequence.
+     stops loading in an IDE with Kotlin disabled. `ShippedCodeArchitectureTest` asserts that rule
+     over shipped bytecode, and demonstrates it red against code written to break it.
 
      Deliberately not here: the **source-file gate**. It has to answer *would this file be anonymized
      on a correctly-configured IDE?* in the one configuration where no Kotlin class can be touched,

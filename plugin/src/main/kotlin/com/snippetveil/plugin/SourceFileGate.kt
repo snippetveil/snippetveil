@@ -153,15 +153,20 @@ private const val KOTLIN = "kt"
 private val ACCEPTED = setOf(JAVA, KOTLIN)
 
 /**
- * The extension point the Kotlin half registers itself through, and the reason the gate can tell
+ * The extension point each language's half registers itself through, and the reason the gate can tell
  * [Unavailable.PLUGIN_NOT_RUNNING] from [Unavailable.PATH_NOT_ACTIVATED] at all.
  *
  * `PluginManagerCore` answers whether the *Kotlin plugin* is running. It cannot answer whether
- * *SnippetVeil's* Kotlin path loaded, and those come apart in K1 mode. Presence of an extension here
- * is the second fact, and reading presence does not instantiate the implementation — so the gate
+ * *SnippetVeil's* Kotlin path loaded, and those come apart in K1 mode. Presence of a registration
+ * here is the second fact, and reading presence does not instantiate the implementation — so the gate
  * learns that a Kotlin builder exists without loading a class that names a Kotlin type.
+ *
+ * **Presence is read per language, not in aggregate.** Java's support is registered from the main
+ * descriptor and can never be absent, so *is anything registered?* is answered `yes` on an IDE with
+ * Kotlin switched off — it is the one question that cannot distinguish the case this exists for.
+ * That is what [LanguageSupportBean.extension] is for, and why the extension point takes a bean.
  */
-internal val LANGUAGE_SUPPORT = ExtensionPointName<LanguageSupport>("com.snippetveil.languageSupport")
+internal val LANGUAGE_SUPPORT = ExtensionPointName<LanguageSupportBean>("com.snippetveil.languageSupport")
 
 /** The Kotlin plugin's id, as a plain string — naming it costs nothing and links nothing. */
 private const val KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin"
@@ -178,9 +183,20 @@ internal fun gate(file: PsiFile?): GateVerdict {
     if (extension == JAVA) return GateVerdict.Offer
 
     // Kotlin: supported, so the only question left is whether its support is here.
-    return if (LANGUAGE_SUPPORT.hasAnyExtensions()) GateVerdict.Offer
+    return if (supportIsRegisteredFor(KOTLIN)) GateVerdict.Offer
     else GateVerdict.Refuse(whyKotlinIsMissing())
 }
+
+/**
+ * Whether a language support is registered **for this extension** — the availability half of the
+ * gate, and the only part of it that can come back differently on two IDEs.
+ *
+ * Asked of the registration's [attribute][LanguageSupportBean.extension] rather than of the
+ * implementation, because the implementation is the class that may not link. Compared as text and
+ * case-insensitively, for the same reason the file's own extension is.
+ */
+private fun supportIsRegisteredFor(extension: String): Boolean =
+    LANGUAGE_SUPPORT.extensionList.any { it.extension.equals(extension, ignoreCase = true) }
 
 /**
  * Lower-cased, because an extension is compared as text and `Foo.JAVA` is a Java file on a
@@ -194,9 +210,13 @@ private fun PsiFile.extensionOf(): String =
  *
  * The order matters: *not running* is the answer that makes *did not activate* impossible, so it is
  * asked first and the second is what remains.
+ *
+ * *Running* is read as **loaded**, which is the question with an unambiguous answer: a plugin that is
+ * not installed and one that is installed and switched off are the same problem to the user and take
+ * the same fix, and the loaded set is where both are absent.
  */
 private fun whyKotlinIsMissing(): Unavailable {
-    val kotlin = PluginManagerCore.getPlugin(PluginId.getId(KOTLIN_PLUGIN_ID))
-    return if (kotlin == null || !kotlin.isEnabled) Unavailable.PLUGIN_NOT_RUNNING
+    val kotlin = PluginId.getId(KOTLIN_PLUGIN_ID)
+    return if (PluginManagerCore.loadedPlugins.none { it.pluginId == kotlin }) Unavailable.PLUGIN_NOT_RUNNING
     else Unavailable.PATH_NOT_ACTIVATED
 }

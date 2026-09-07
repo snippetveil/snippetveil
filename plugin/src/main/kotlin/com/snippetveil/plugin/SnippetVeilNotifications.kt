@@ -4,7 +4,6 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroup
 import com.intellij.notification.NotificationGroupManager
-import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.options.SearchableConfigurable
@@ -35,8 +34,14 @@ internal object SnippetVeilNotifications {
     /** The group id, matching the `notificationGroup` extension in plugin.xml. */
     private const val GROUP = "SnippetVeil"
 
-    /** The Kotlin settings page, as a string id — see [fixFor] for why it cannot be a class. */
+    /**
+     * The Kotlin settings page — *Languages & Frameworks → Kotlin* — as a string id, which is how
+     * the Kotlin plugin's own descriptor spells it. See [openSettingsAt] for why it cannot be a class.
+     */
     private const val KOTLIN_CONFIGURABLE_ID = "preferences.language.Kotlin"
+
+    /** The platform's **Plugins** page, spelled as `PlatformExtensions.xml` registers it. */
+    private const val PLUGINS_CONFIGURABLE_ID = "preferences.pluginManager"
 
     private val LOG = Logger.getInstance(SnippetVeilNotifications::class.java)
 
@@ -387,28 +392,36 @@ internal object SnippetVeilNotifications {
      * still did not load, which in practice means K1 mode. Here a Kotlin-owned configurable exists,
      * precisely because the plugin is enabled, and it is where the mode is switched.
      *
-     * **[verify at implementation time]** the Kotlin configurable's id. It is named as a plain string
-     * rather than through a Kotlin class, which is not optional — this code path is reachable in a
-     * configuration where Kotlin classes are absent from the classloader, and the whole point of the
-     * gate is that nothing on it links one. An id that does not resolve opens Settings at its root:
-     * degraded, and not wrong.
+     * [KOTLIN_CONFIGURABLE_ID] is read out of the Kotlin plugin's own `kotlin-core.xml`, where it is
+     * the `applicationConfigurable` under `groupId="language"` — the *Languages & Frameworks →
+     * Kotlin* page, which is also the page carrying the K1/K2 switch, and it is spelled the same on
+     * every build this project runs against, floor included. Both pages are reached by id rather
+     * than by class; [openSettingsAt] is where that is argued.
      */
     private fun fixFor(project: Project?, cause: Unavailable): NotificationAction = when (cause) {
-        Unavailable.PLUGIN_NOT_RUNNING -> NotificationAction.createSimpleExpiring("Open Plugins") {
-            ShowSettingsUtil.getInstance().showSettingsDialog(project, PluginManagerConfigurable::class.java, null)
-        }
-        Unavailable.PATH_NOT_ACTIVATED -> NotificationAction.createSimpleExpiring("Open Kotlin settings") {
-            // Selected by **id through a predicate** rather than by a configurable class: the class
-            // is Kotlin-owned, and naming it here would put a Kotlin type on a code path whose whole
-            // premise is that Kotlin types may be absent. A predicate that matches nothing opens
-            // Settings at its root, which is the degraded case rather than a broken one.
+        Unavailable.PLUGIN_NOT_RUNNING -> openSettingsAt("Open Plugins", PLUGINS_CONFIGURABLE_ID, project)
+        Unavailable.PATH_NOT_ACTIVATED -> openSettingsAt("Open Kotlin settings", KOTLIN_CONFIGURABLE_ID, project)
+    }
+
+    /**
+     * Settings, opened at the page with [id] — selected by **id through a predicate** rather than by
+     * a configurable class, and that is forced twice over.
+     *
+     * The Kotlin page's class is Kotlin-owned, and naming it would put a Kotlin type on a code path
+     * whose whole premise is that Kotlin types may be absent. The Plugins page's class is the
+     * platform's `PluginManagerConfigurable`, which is marked internal — the plugin verifier fails
+     * the build on a reference to it, and it is the sort of class that gets moved between releases.
+     * An id is neither: it is text, it links nothing, and one that stops resolving opens Settings at
+     * its root, which is degraded rather than wrong.
+     */
+    private fun openSettingsAt(link: String, id: String, project: Project?): NotificationAction =
+        NotificationAction.createSimpleExpiring(link) {
             ShowSettingsUtil.getInstance().showSettingsDialog(
                 project,
-                { it is SearchableConfigurable && it.id == KOTLIN_CONFIGURABLE_ID },
+                { it is SearchableConfigurable && it.id == id },
                 null,
             )
         }
-    }
 
     /**
      * **The mirror of [failed], and the safe half of it.**

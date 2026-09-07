@@ -41,8 +41,16 @@ internal class JavaSupport : LanguageSupport {
  */
 internal object DispatchingPlanBuilder : PlanBuilder {
 
+    /**
+     * The registrations are walked as a sequence so that each implementation is instantiated only
+     * until one claims the file. Instantiating a *registered* support is safe by construction — a
+     * language's classes are on the classloader exactly when its registration is — so this is about
+     * doing no work rather than about avoiding linkage; the gate is where linkage is avoided.
+     */
     override fun build(request: SnippetRequest): SnippetPlan {
-        val support = LANGUAGE_SUPPORT.extensionList.firstOrNull { it.claims(request.file) }
+        val support = LANGUAGE_SUPPORT.extensionList.asSequence()
+            .map { it.instance }
+            .firstOrNull { it.claims(request.file) }
             ?: throw IllegalStateException(
                 "No SnippetVeil language support claims ${request.file.name}; " +
                     "the source-file gate accepted its extension and its PSI is something else."

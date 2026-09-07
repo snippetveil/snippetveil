@@ -32,8 +32,8 @@
          **Isolation is a JVM fact, not a platform feature.** A class whose constant pool names a
          Kotlin-plugin class fails to link at the moment *that class* is loaded, so the Kotlin path
          is only safe if nothing reachable from this descriptor mentions those types. A tier-1 arch
-         rule asserts that no main-descriptor package references `org.jetbrains.kotlin.*`, and the
-         Kotlin-disabled boot test asserts the consequence rather than the rule.
+         rule over shipped bytecode asserts that no main-descriptor package references
+         `org.jetbrains.kotlin.*`, and is demonstrated red against code written to break it.
 
          The file name follows the platform's required `myPluginId-$NAME$.xml` pattern and sits
          beside this file. -->
@@ -62,18 +62,25 @@
          from the optional descriptor and is present exactly when that descriptor loaded.
 
          The point is not extensibility — the accepted language set is closed and lives in the gate.
-         It is that *whether an implementation is registered* is the one signal that answers
+         It is that *whether a support is registered for a language* is the one signal that answers
          "did SnippetVeil's Kotlin path load?", which `PluginManagerCore` cannot: that API knows
          whether the Kotlin *plugin* is running, and the two come apart in K1 mode. Reading presence
          does not instantiate the implementation, so asking costs no linkage. -->
     <extensionPoints>
+        <!-- A bean rather than a bare `interface`, because the attribute is the signal: *is any
+             support registered?* is answered `yes` by Java's registration below on every IDE,
+             including one with Kotlin switched off, so it is the one question that cannot see the
+             case the third outcome exists for. `extension` makes the question per language, and
+             reading it loads no implementation class. -->
         <extensionPoint qualifiedName="com.snippetveil.languageSupport"
-                        interface="com.snippetveil.plugin.LanguageSupport"
-                        dynamic="true"/>
+                        beanClass="com.snippetveil.plugin.LanguageSupportBean"
+                        dynamic="true">
+            <with attribute="implementationClass" implements="com.snippetveil.plugin.LanguageSupport"/>
+        </extensionPoint>
     </extensionPoints>
 
     <extensions defaultExtensionNs="com.snippetveil">
-        <languageSupport implementation="com.snippetveil.plugin.JavaSupport"/>
+        <languageSupport extension="java" implementationClass="com.snippetveil.plugin.JavaSupport"/>
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">

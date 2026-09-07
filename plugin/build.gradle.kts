@@ -43,7 +43,7 @@ dependencies {
     implementation(project(":core"))
 
     intellijPlatform {
-        // Compiled against the compatibility floor by default, so an API newer than 2024.1 cannot
+        // Compiled against the compatibility floor by default, so an API newer than 2024.2 cannot
         // be used by accident. Raising the floor later is free; lowering it is unverified work.
         // The `latest` profile compiles against a recent IDE instead, which is a behaviour check
         // and not a compatibility one: the floor leg of the matrix is what keeps the API honest.
@@ -56,8 +56,8 @@ dependencies {
         // load SnippetVeil and still anonymize Java. Isolation is a JVM fact rather than a platform
         // feature: a class whose constant pool names a Kotlin-plugin class fails to link when that
         // class is loaded, so every class touching `org.jetbrains.kotlin.*` has to be reachable only
-        // from the optional descriptor. A tier-1 arch rule asserts that, and the Kotlin-disabled boot
-        // test asserts the consequence.
+        // from the optional descriptor. A tier-1 arch rule over shipped bytecode asserts that, and
+        // is demonstrated red against code written to break it.
         bundledPlugin("org.jetbrains.kotlin")
 
         pluginVerifier()

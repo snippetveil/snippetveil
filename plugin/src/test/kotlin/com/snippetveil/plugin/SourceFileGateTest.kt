@@ -13,11 +13,12 @@ import org.junit.Assert.assertThrows
  * merely switched off — the false reassurance the third outcome exists to prevent — and every
  * assertion written only about `.java` would still pass.
  *
- * **What this cannot assert here, and where it is asserted instead.** The fixture runs with the
- * Kotlin plugin present, so `.kt` comes back [GateVerdict.Offer] once a Kotlin `LanguageSupport` is
- * registered and [GateVerdict.Refuse] until one is. The *other* configuration — an IDE with Kotlin
- * genuinely disabled — is the Kotlin-disabled boot test's, because it is an environment rather than
- * an input, and nothing about it can be constructed from inside a running fixture.
+ * **What this cannot assert, and what stands in for it.** The fixture runs with the Kotlin plugin
+ * present and enabled, so the cause a refusal carries here is always
+ * [Unavailable.PATH_NOT_ACTIVATED]. The other configuration — an IDE with the Kotlin plugin genuinely
+ * switched off — is an environment rather than an input and cannot be built from inside a running
+ * fixture; what covers it instead is the arch rule in `ShippedCodeArchitectureTest`, which asserts
+ * over bytecode that nothing the main descriptor reaches could fail to link there.
  */
 class SourceFileGateTest : BasePlatformTestCase() {
 
@@ -122,9 +123,55 @@ class SourceFileGateTest : BasePlatformTestCase() {
         val java = fileNamed("Payment.java", "class Payment {}")
         assertTrue(
             "No LanguageSupport claims an ordinary Java file; the main descriptor's registration is missing.",
-            LANGUAGE_SUPPORT.extensionList.any { it.claims(java) },
+            LANGUAGE_SUPPORT.extensionList.any { it.instance.claims(java) },
+        )
+    }
+
+    /**
+     * **The availability signal is asked per language, and asking it in aggregate is the way to get
+     * this wrong without noticing.**
+     *
+     * Java's support is registered from the main descriptor on every IDE there is, so *is anything
+     * registered?* comes back `yes` on a build with no Kotlin support at all — the gate would offer
+     * every `.kt` file, dispatch would find nothing that claims it, and the user would get a thrown
+     * error with a report link instead of the sentence describing their configuration. That is the
+     * third outcome quietly deleted, and every assertion above still passes.
+     *
+     * The registration is read off [LanguageSupportBean.extension], which is a string in the
+     * descriptor: reading it instantiates no implementation and therefore links no Kotlin class.
+     *
+     * **This test moves when the Kotlin plan builder lands.** Nothing registers `kt` today — the
+     * optional descriptor is empty on purpose — so the refusal is what a `.kt` file gets, and that
+     * being asserted here is what makes the arrival of a Kotlin support visible rather than silent.
+     */
+    fun `test the availability signal is asked per language rather than in aggregate`() {
+        assertTrue(
+            "No support is registered for java; the main descriptor's registration is missing.",
+            LANGUAGE_SUPPORT.extensionList.any { it.extension == JAVA_EXTENSION },
+        )
+        assertFalse(
+            "A support is registered for kt. The Kotlin half has landed, so this test and the " +
+                "refusal assertions in KotlinUnavailableTest belong on a fixture that unregisters it.",
+            LANGUAGE_SUPPORT.extensionList.any { it.extension == KOTLIN_EXTENSION },
+        )
+
+        assertEquals(
+            "A .kt file was offered while nothing was registered to build a plan for it.",
+            GateVerdict.Refuse(Unavailable.PATH_NOT_ACTIVATED),
+            gate(fileNamed("Payment.kt", "class Payment")),
         )
     }
 
     private fun fileNamed(name: String, text: String): PsiFile = myFixture.configureByText(name, text)
+
+    private companion object {
+
+        /**
+         * The two accepted extensions, spelled as the descriptor spells them. Named here rather than
+         * read from the gate's own constants: a test that took its expectations from the code under
+         * test would agree with it about a typo.
+         */
+        const val JAVA_EXTENSION = "java"
+        const val KOTLIN_EXTENSION = "kt"
+    }
 }
