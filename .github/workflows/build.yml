@@ -68,18 +68,23 @@ jobs:
     name: check (${{ matrix.platform }})
     runs-on: ubuntu-latest
     strategy:
-      # Which of the two platforms broke is the interesting half of the result, so neither leg
-      # cancels the other.
+      # Which of the platforms broke is the interesting half of the result, so no leg cancels
+      # another.
       fail-fast: false
       matrix:
-        # The sinceBuild = 242 floor and latest stable. `untilBuild` is unset, so the descriptor
-        # claims 242 *and everything after it*, and verifyPlugin checks API compatibility rather
-        # than behaviour — PSI resolution behaviour across four years of platform releases is what
-        # drifts quietly. Which version each name means is gradle.properties' business.
+        # The sinceBuild = 242 floor, the first build where K2 is the Kotlin plugin's default, and
+        # latest stable. `untilBuild` is unset, so the descriptor claims 242 *and everything after
+        # it*, and verifyPlugin checks API compatibility rather than behaviour — PSI resolution
+        # behaviour across four years of platform releases is what drifts quietly. Which version
+        # each name means is gradle.properties' business.
+        #
+        # `k2` is one added leg rather than a cross-product: the Kotlin fixtures assert the harness
+        # itself, and the floor cell stays Java-only because the Kotlin plugin's default mode there
+        # is K1, which this plugin's descriptor declares unsupported.
         #
         # Tiers 1-3 all run inside `check`, and all of them are merge gates on every pull request,
         # not a nightly: a nightly failure on a solo project is a failure nobody is watching.
-        platform: [floor, latest]
+        platform: [floor, k2, latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

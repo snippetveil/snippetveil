@@ -7,6 +7,7 @@
 ./gradlew runIde     # a sandbox IDE with the plugin installed
 ./gradlew buildPlugin # the installable distribution, in plugin/build/distributions/
 
+./gradlew check -PplatformProfile=k2       # the same checks where the Kotlin fixtures can run
 ./gradlew check -PplatformProfile=latest   # the same checks against the newest stable IDE
 ```
 
@@ -14,7 +15,10 @@ JDK 17. Everything else the build needs, it downloads.
 
 `platformProfile` picks which IntelliJ Platform the build compiles and tests against. It defaults to
 `floor` — the version the plugin descriptor names in `sinceBuild` — so a plain `./gradlew build`
-builds and tests exactly what ships. gradle.properties carries both profiles and the reasoning.
+builds and tests exactly what ships. `k2` is the first build where K2 is the Kotlin plugin's default
+mode, and it is **the only cell the Kotlin fixtures run in**: the floor cell is Java-only, because
+the Kotlin plugin's default mode there is K1 and the descriptor declares `supportsK1="false"`.
+gradle.properties carries all three profiles and the reasoning.
 
 ## The trust checks
 
@@ -552,7 +556,7 @@ a check that exists only in YAML cannot be run by the person reading the claim.
 
 | Workflow | Fires on | Runs |
 |---|---|---|
-| `build.yml` | push to `main`, and every pull request | `buildPlugin`, `check` at two platform versions, `verifyPlugin`, then a draft GitHub Release |
+| `build.yml` | push to `main`, and every pull request | `buildPlugin`, `check` at three platform versions, `verifyPlugin`, then a draft GitHub Release |
 | `release.yml` | a GitHub Release being published or pre-released | `check`, `verifyPlugin`, `signPlugin`, `publishPlugin` — in that order — then a pull request patching `CHANGELOG.md` |
 
 The draft release is the manual-acceptance gate: green `main` cuts a draft, and a human publishing
@@ -580,15 +584,31 @@ missing plan item and the "output still parses" invariant, which are the two cla
 has actually been bitten by. A merge gate that skips exactly the layer catching the
 historically-real bugs inverts the point.
 
-**The test job runs at two platform versions: the `sinceBuild` floor and latest stable.**
-`untilBuild` is unset, so the descriptor claims *242 and everything after it*; `verifyPlugin` checks
-API compatibility, **not behaviour**, and PSI resolution behaviour across four years of platform
-releases is exactly what drifts quietly. If the matrix ever proves painful, the honest fix is to
-**raise the floor**, not to stop testing it.
+**The test job runs at three platform versions: the `sinceBuild` floor, the first build where K2 is
+the Kotlin plugin's default, and latest stable.** `untilBuild` is unset, so the descriptor claims
+*242 and everything after it*; `verifyPlugin` checks API compatibility, **not behaviour**, and PSI
+resolution behaviour across four years of platform releases is exactly what drifts quietly. If the
+matrix ever proves painful, the honest fix is to **raise the floor**, not to stop testing it.
 
-The two legs do not name the same product: IntelliJ IDEA Community stopped being published after
-2025.2, so the floor is `IC` and latest stable is the unified `IU`. Both are pinned in
-gradle.properties rather than looked up, so that a run is reproducible and a bump is a reviewable
+**The `k2` leg exists because the floor cannot hold a Kotlin fixture.** `plugin.xml` declares
+`supportsK1="false" supportsK2="true"`, and the Kotlin plugin's default mode on the 242 floor is K1 —
+so a Kotlin fixture running there would measure a configuration this plugin declares unsupported, and
+would do it silently. The floor cell therefore stays **Java-only**, before and after any raise: it
+exists to test the one thing the floor actually promises, which is PSI resolution behaviour on the
+oldest supported IDE. `plugin/build.gradle.kts` excludes `com.snippetveil.plugin.kotlin.*` from the
+floor cell's `test`, `assertTheKotlinFixturesAreExcludedFromTheFloor` fails the build if that
+exclusion ever stops matching anything, and `KotlinHarnessTest` asserts the session it got is K2
+rather than trusting the pin. Forcing K2 on the floor to obtain a Kotlin cell there was considered
+and rejected: it tests a configuration the plugin declares unsupported by default, and it becomes a
+cell to defend forever.
+
+**One added leg, not a cross-product.** Contributor pinning varies per test class inside one JVM; the
+platform profiles are the only real multiplication, so counting configurations against tiers arrives
+at a much larger number than the three test legs this is.
+
+The legs do not all name the same product: IntelliJ IDEA Community stopped being published after
+2025.2, so the floor and the K2 cell are `IC` and latest stable is the unified `IU`. All are pinned
+in gradle.properties rather than looked up, so that a run is reproducible and a bump is a reviewable
 one-line diff — `platformLatestVersion` going stale is a maintenance chore nothing automates.
 
 ### Hardening
