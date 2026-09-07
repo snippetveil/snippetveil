@@ -4,7 +4,7 @@ import com.intellij.openapi.roots.ModifiableRootModel
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.LightProjectDescriptor
-import com.snippetveil.core.SymbolOrigin
+import com.snippetveil.plugin.FixtureOrigin
 import com.snippetveil.plugin.JavaSnippetTestCase
 import com.snippetveil.plugin.RealClasspath
 import com.snippetveil.plugin.attachJar
@@ -38,9 +38,9 @@ import java.io.File
  *  - [assertTheFacadeBehaviourIsPinned] — the platform's facade behaviour is the one recorded here.
  *
  * Each of the four is a [String]-returning complaint underneath, and every one of them is
- * demonstrated red in [KotlinHarnessDemonstrationTest] — over a deliberately broken fixture where a
- * fixture can produce the failure, and over the complaint itself where only the platform can. An
- * assertion nobody has seen fail is a comment.
+ * demonstrated red: over a deliberately broken fixture in [KotlinHarnessMissingHalvesTest] where a
+ * fixture can produce the failure, and over the complaint itself in [KotlinHarnessComplaintTest]
+ * where only the platform can. An assertion nobody has seen fail is a comment.
  *
  * **Nothing in the product is exercised from here.** No `.kt` file is walked and no Kotlin plan
  * builder exists; `com.snippetveil-withKotlin.xml` still registers nothing, so every `.kt` file keeps
@@ -68,7 +68,7 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
      */
     protected fun assertTheKotlinStandardLibraryIsALibrary() {
         val probe = myFixture.addFileToProject(
-            "harness/StandardLibrary.kt",
+            "com/acme/probe/StandardLibrary.kt",
             """
             package com.acme.probe
 
@@ -81,7 +81,7 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
 
         for (name in STANDARD_LIBRARY_PROBES) {
             val resolved = probe.resolveQualifiedName(name)
-            complaintAboutFixtureOrigin(name, SymbolOrigin.LIBRARY, originInTheFixture(project, resolved))
+            complaintAboutFixtureOrigin(name, FixtureOrigin.LIBRARY, originInTheFixture(project, resolved))
                 ?.let { fail("$it The Kotlin standard library is not attached to this fixture as a library.") }
         }
     }
@@ -118,14 +118,7 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
      * light-class self-test.
      */
     protected fun assertJavaReachesKotlinThroughALightClass() {
-        myFixture.addFileToProject(
-            "com/acme/probe/Bridged.kt",
-            """
-            package com.acme.probe
-
-            class Bridged(val amount: Int)
-            """.trimIndent(),
-        )
+        writeTheKotlinDeclarationTheBridgeReachesFor()
         val probe = myFixture.addFileToProject(
             "com/acme/probe/UsesBridged.java",
             """
@@ -142,6 +135,25 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
     }
 
     /**
+     * The Kotlin declaration [assertJavaReachesKotlinThroughALightClass] reaches for from Java.
+     *
+     * A step of its own so that a fixture can be built **without** it, which is how that assertion is
+     * shown red: a fixture missing its Kotlin half is exactly the state in which every assertion
+     * resting on the bridge would hold vacuously, and it is the state no fixture can wander into
+     * unnoticed once this is asserted. See `KotlinHarnessMissingHalvesTest`.
+     */
+    protected open fun writeTheKotlinDeclarationTheBridgeReachesFor() {
+        myFixture.addFileToProject(
+            "com/acme/probe/Bridged.kt",
+            """
+            package com.acme.probe
+
+            class Bridged(val amount: Int)
+            """.trimIndent(),
+        )
+    }
+
+    /**
      * **The platform's facade behaviour, pinned rather than tested conditionally.**
      *
      * Whether a `KtLightClassForFacade` exists for a `.kt` file with **no top-level callables** is
@@ -150,7 +162,7 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
      * behaviours and therefore asserts nothing.
      *
      * So the behaviour that is true is written down: **a `.kt` file with no top-level callables has
-     * no facade light class, and one with a top-level callable has exactly one.** Measured on
+     * no facade light class, and one with a top-level callable has one.** Measured on
      * IntelliJ IDEA Community 2025.1.7.2 and IntelliJ IDEA 2026.2.1 in K2 mode, and on 2024.2.6 and
      * 2024.3.7.1 in K1 — the same answer in all four.
      *
@@ -177,7 +189,10 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
             """.trimIndent(),
         )
 
-        complaintAboutTheFacades(facadeOf(withoutCallables), facadeOf(withCallable))?.let { fail(it) }
+        complaintAboutTheFacades(
+            facadeWithoutCallables = facadeOf(withoutCallables),
+            facadeWithCallable = facadeOf(withCallable),
+        )?.let { fail(it) }
     }
 
     /**
@@ -297,7 +312,7 @@ private class KotlinClasspath : RealClasspath() {
  * The standard-library jar the build resolved, or a failure that says the wiring is missing rather
  * than letting the fixture come up without it.
  */
-internal fun kotlinStandardLibraryJar(): String {
+private fun kotlinStandardLibraryJar(): String {
     val named = System.getProperty(KOTLIN_STDLIB_PROPERTY)
         ?: error(
             "-D$KOTLIN_STDLIB_PROPERTY is not set, so no Kotlin standard library can be attached and " +

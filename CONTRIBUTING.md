@@ -598,7 +598,9 @@ exists to test the one thing the floor actually promises, which is PSI resolutio
 oldest supported IDE. `plugin/build.gradle.kts` excludes `com.snippetveil.plugin.kotlin.*` from the
 floor cell's `test`, `assertTheKotlinFixturesAreExcludedFromTheFloor` fails the build if that
 exclusion ever stops matching anything, and `KotlinHarnessTest` asserts the session it got is K2
-rather than trusting the pin. Forcing K2 on the floor to obtain a Kotlin cell there was considered
+rather than trusting the pin. Java-only is about what **runs**: the Kotlin fixtures are in the one
+test source set, so they are still compiled against the floor, which holds them to the same floor API
+surface the product is held to. Forcing K2 on the floor to obtain a Kotlin cell there was considered
 and rejected: it tests a configuration the plugin declares unsupported by default, and it becomes a
 cell to defend forever.
 

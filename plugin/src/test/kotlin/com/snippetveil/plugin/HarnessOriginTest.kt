@@ -2,7 +2,6 @@ package com.snippetveil.plugin
 
 import com.intellij.openapi.roots.ModifiableRootModel
 import com.intellij.testFramework.LightProjectDescriptor
-import com.snippetveil.core.SymbolOrigin
 import org.junit.Assert
 
 /**
@@ -35,7 +34,7 @@ class HarnessOriginTest : JavaSnippetTestCase() {
 
         assertTrue(
             "The complaint did not name the origin the fixture came back with: ${failure.message}",
-            failure.message.orEmpty().contains("org.junit.Test resolved to IN_CONTENT where the fixture has to make it LIBRARY"),
+            failure.message.orEmpty().contains("org.junit.Test resolved to PROJECT where the fixture has to make it LIBRARY"),
         )
     }
 
@@ -66,15 +65,15 @@ class HarnessOriginTest : JavaSnippetTestCase() {
         }
         assertNotNull(
             "The origin complaint said nothing about a JDK class arriving as a library.",
-            complaintAboutFixtureOrigin("java.lang.String", SymbolOrigin.JDK, SymbolOrigin.LIBRARY),
+            complaintAboutFixtureOrigin("java.lang.String", FixtureOrigin.JDK, FixtureOrigin.LIBRARY),
         )
     }
 }
 
 /**
  * The real classpath **with no jar on it** — the deliberately broken one, and a class of its own so
- * that the light fixture cannot hand it the project the working descriptor built. See
- * [RealClasspath.attachLibraries].
+ * that the light fixture cannot hand it the project the working descriptor built, which is the
+ * hazard [RealClasspath.attachLibraries] is written around.
  */
 private val WITHOUT_THE_REAL_JAR: LightProjectDescriptor = WithoutTheRealJar()
 

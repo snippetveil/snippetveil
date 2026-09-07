@@ -24,7 +24,7 @@ plugins {
 // task keeps the name it was registered under. What is left is a build that calls a check one
 // thing and registers it as another. Change the string alone and the mirror image happens: the
 // task is renamed, `check` still runs it, and the name published as a command a reader can run is
-// quietly no longer the name. CONTRIBUTING.md names eleven of the twelve checks across the two
+// quietly no longer the name. CONTRIBUTING.md names twelve of the thirteen checks across the two
 // build scripts, and four of those are named again in README.md, THREAT-MODEL.md or a README under
 // `demo/` or `docs/`. The compiler catches neither drift. The line does, and that is all adjacency
 // is being asked to buy.

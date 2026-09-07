@@ -1693,6 +1693,13 @@ val kotlinFixtureStdlib: Configuration = configurations.create("kotlinFixtureStd
  */
 val kotlinFixturePackage = "com.snippetveil.plugin.kotlin"
 
+// **Java-only is about what runs, and the fixtures still compile on the floor.** They are in the
+// one test source set, so `compileTestKotlin` builds them against every platform in the matrix —
+// which is coverage rather than a leak: it holds the Kotlin fixtures to the same floor API surface
+// the product is held to, and a Kotlin-plugin API newer than 242 fails the floor leg at compile
+// time instead of failing an IDE at load time. What must not happen on the floor is a Kotlin
+// fixture *running*, in a K1 session, against the mode the descriptor declares unsupported.
+
 dependencies {
     // Test-scope by construction: this configuration is in no source set's classpath and reaches the
     // fixtures as a file path. `assertNothingThirdPartyIsShipped` sees nothing new.
@@ -1712,6 +1719,12 @@ tasks.test {
     // stdlib says so about itself instead of resolving everything to `null` and passing.
     val stdlib = kotlinFixtureStdlibJar
     inputs.files(kotlinFixtureStdlib).withPropertyName("kotlinFixtureStdlib")
+
+    // Set in `doFirst` rather than at configuration time, so that resolving the configuration is
+    // deferred to execution: a `systemProperty` takes its value eagerly, and taking it here would
+    // resolve a dependency during configuration on every build that so much as looks at this task.
+    // The jar is declared as an input above, so what makes the task out of date is its content
+    // rather than this line.
     doFirst { systemProperty("snippetveil.kotlin.stdlibJar", stdlib.get()) }
 
     // **The floor cell is Java-only.** See `kotlinFixturePackage` above for why, and
@@ -1742,11 +1755,15 @@ val assertTheKotlinFixturesAreExcludedFromTheFloor = tasks.register("assertTheKo
 
     // A tree rather than `inputs.dir`, which refuses a directory that is not there — and a package
     // that is not there is precisely the failure this task exists to report in its own words.
+    //
+    // **Recursive, because the exclusion is.** Gradle's `com.snippetveil.plugin.kotlin.*` pattern
+    // matches sub-packages too, so a check that read only the top directory would report a stale
+    // exclusion over a fixture that had merely moved one level down.
     inputs.files(fileTree(sources) { include("**/*.kt") }).withPropertyName("sources")
     inputs.property("kotlinFixturePackage", named)
 
     doLast {
-        val files = sources.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".kt") }
+        val files = sources.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
         check(files.isNotEmpty()) {
             "`$named.*` is what the floor cell excludes from `test`, but $sources holds no source at " +
                 "all. An exclusion that matches nothing excludes nothing, so a Kotlin fixture would " +

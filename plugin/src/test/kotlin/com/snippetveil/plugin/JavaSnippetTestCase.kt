@@ -5,15 +5,10 @@ import com.intellij.notification.Notifications
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ContentEntry
-import com.intellij.openapi.roots.JdkOrderEntry
 import com.intellij.openapi.roots.ModifiableRootModel
-import com.intellij.openapi.roots.ProjectFileIndex
-import com.intellij.psi.PsiElement
-import com.intellij.psi.util.PsiUtilCore
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.PsiTestUtil
@@ -23,7 +18,6 @@ import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.SymbolOccurrence
-import com.snippetveil.core.SymbolOrigin
 import java.io.File
 
 /**
@@ -279,60 +273,6 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
 internal const val FENCE = "\"\"\""
 
 private const val HARNESS_PROBE_PATH = "com/acme/probe/Owned.java"
-
-/**
- * The three names [JavaSnippetTestCase.assertTheHarnessResolves] probes, and what the fixture has to
- * classify each of them as.
- *
- * A list rather than three assertions in a row, because it is also what the red demonstration reads:
- * a probe added here is one `HarnessOriginTest` covers without being edited.
- */
-internal val HARNESS_PROBES: List<Pair<String, SymbolOrigin>> = listOf(
-    "com.acme.probe.Owned" to SymbolOrigin.IN_CONTENT,
-    "java.lang.String" to SymbolOrigin.JDK,
-    "org.junit.Test" to SymbolOrigin.LIBRARY,
-)
-
-/**
- * Where the fixture puts a resolved symbol, asked of the platform directly.
- *
- * **The product's own classifier is deliberately not used here.** A precondition exists to say
- * *the fixture is usable*, and one that ran the code under test would answer that question with the
- * answer it is there to protect — a broken classifier would go red naming the fixture, which is the
- * one thing these messages must never do wrongly.
- *
- * Only the three cases a harness probe can produce; anything a plan builder has to be cleverer about
- * — a package, a light element, a local — is not what a classpath assertion is asking.
- */
-internal fun originInTheFixture(project: Project, symbol: PsiElement?): SymbolOrigin {
-    val virtualFile = symbol?.let { PsiUtilCore.getVirtualFile(it) } ?: return SymbolOrigin.UNRESOLVED
-    val index = ProjectFileIndex.getInstance(project)
-    return when {
-        index.isInContent(virtualFile) -> SymbolOrigin.IN_CONTENT
-        index.getOrderEntriesForFile(virtualFile).any { it is JdkOrderEntry } -> SymbolOrigin.JDK
-        else -> SymbolOrigin.LIBRARY
-    }
-}
-
-/**
- * What is wrong with the *fixture* when [name] came back [observed] instead of [expected], or `null`
- * when nothing is.
- *
- * A returned complaint rather than an assertion, so that the demonstration that this can fail is an
- * ordinary test over ordinary values rather than a fixture nobody can build. Every sentence blames
- * the classpath, because that is what is broken when one of these fires: the code under test has not
- * been reached yet.
- */
-internal fun complaintAboutFixtureOrigin(name: String, expected: SymbolOrigin, observed: SymbolOrigin): String? =
-    when {
-        observed == expected -> null
-        observed == SymbolOrigin.UNRESOLVED ->
-            "$name did not resolve; the fixture has no usable classpath, and unresolved fails closed — " +
-                "so every name in every snippet here would be renamed and the suite would go green over it."
-        else ->
-            "$name resolved to $observed where the fixture has to make it $expected. The classpath has " +
-                "drifted, and the $expected-versus-$observed discriminator is not being exercised at all."
-    }
 
 /**
  * The running JDK and one real jar, in place of the mock JDK this build cannot see.
