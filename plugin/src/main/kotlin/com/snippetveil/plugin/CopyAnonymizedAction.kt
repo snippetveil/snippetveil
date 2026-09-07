@@ -1,14 +1,11 @@
 package com.snippetveil.plugin
 
-import com.intellij.ide.highlighter.JavaFileType
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiJavaFile
 
 /**
- * **Copy Anonymized** — select Java code, invoke, and the anonymized text is on the clipboard.
+ * **Copy Anonymized** — select code, invoke, and the anonymized text is on the clipboard.
  *
  * The fast path, and **the maximally-anonymizing one by construction**: it reads no reduction, so
  * there is nothing that can have been left on. Every reduction the design authorises is
@@ -30,7 +27,7 @@ import com.intellij.psi.PsiJavaFile
 class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) : AnAction() {
 
     /** The constructor the platform uses; `plugin.xml` names this class and nothing else. */
-    constructor() : this(JavaPlanBuilder)
+    constructor() : this(DispatchingPlanBuilder)
 
     /**
      * Nothing in [update] touches the UI hierarchy, and the checks it does make — a PSI file's type
@@ -38,14 +35,7 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
      */
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
-    override fun update(event: AnActionEvent) = offerOnlyOnJava(event)
+    override fun update(event: AnActionEvent) = offerOnGatedSource(event)
 
     override fun actionPerformed(event: AnActionEvent) = startAnonymizing(event, plans, ::deliver)
 }
-
-/**
- * A Java source file, and nothing else — not a decompiled `.class` (which is also a [PsiJavaFile],
- * read-only, and owned by whoever shipped the jar).
- */
-internal fun PsiFile?.isAnonymizable(): Boolean =
-    this is PsiJavaFile && fileType == JavaFileType.INSTANCE

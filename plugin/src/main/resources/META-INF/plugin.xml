@@ -22,6 +22,67 @@
     <!-- The bundled Java plugin: IDEA Community/Ultimate and Android Studio, nowhere else. -->
     <depends>com.intellij.java</depends>
 
+    <!-- **Kotlin is optional, and that is what makes the source-file gate's third outcome real.**
+         The Kotlin plugin is bundled in both IC and IU, so in practice it is almost always there —
+         but it can be disabled, and a privacy tool that fails to load because a language plugin is
+         off would take Java anonymization down with it. `optional="true"` means SnippetVeil loads
+         and anonymizes Java regardless; what becomes unavailable is the content of the config file
+         below, which is every class that touches `org.jetbrains.kotlin.*`.
+
+         **Isolation is a JVM fact, not a platform feature.** A class whose constant pool names a
+         Kotlin-plugin class fails to link at the moment *that class* is loaded, so the Kotlin path
+         is only safe if nothing reachable from this descriptor mentions those types. A tier-1 arch
+         rule over shipped bytecode asserts that no main-descriptor package references
+         `org.jetbrains.kotlin.*`, and is demonstrated red against code written to break it.
+
+         The file name follows the platform's required `myPluginId-$NAME$.xml` pattern and sits
+         beside this file. -->
+    <depends optional="true" config-file="com.snippetveil-withKotlin.xml">org.jetbrains.kotlin</depends>
+
+    <!-- **The K2 declaration, and it is in the main descriptor on purpose.**
+         From 2024.2 to 2026.1 the Kotlin plugin reads this to decide whether a plugin's Kotlin path
+         may load: without `supportsK2="true"` the optional config file above is silently skipped in
+         K2 mode — the plugin still loads, the Kotlin half simply is not there, with a warning in the
+         log and nothing on screen. That is the failure this declaration exists to prevent, and it is
+         the reason the block cannot live in the optional file it governs.
+
+         `supportsK1="false"` is deliberate and is the narrower claim: the plan builder is written
+         against the Analysis API's documented `Ka*` surface, and which of its components the legacy
+         FE10 engine leaves unimplemented is not enumerated anywhere. Declaring support for a mode
+         nothing has been tested in would be a claim with no evidence under it.
+
+         From 2026.2 the declaration is a no-op — all plugins are then considered K2-compatible — so
+         this is a block with a known end of life rather than a permanent one. -->
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK1="false" supportsK2="true"/>
+    </extensions>
+
+    <!-- **A language's half of the product, registered from wherever its classes are safe to load.**
+         Java's implementation is registered below and can never be absent; Kotlin's is registered
+         from the optional descriptor and is present exactly when that descriptor loaded.
+
+         The point is not extensibility — the accepted language set is closed and lives in the gate.
+         It is that *whether a support is registered for a language* is the one signal that answers
+         "did SnippetVeil's Kotlin path load?", which `PluginManagerCore` cannot: that API knows
+         whether the Kotlin *plugin* is running, and the two come apart in K1 mode. Reading presence
+         does not instantiate the implementation, so asking costs no linkage. -->
+    <extensionPoints>
+        <!-- A bean rather than a bare `interface`, because the attribute is the signal: *is any
+             support registered?* is answered `yes` by Java's registration below on every IDE,
+             including one with Kotlin switched off, so it is the one question that cannot see the
+             case the third outcome exists for. `extension` makes the question per language, and
+             reading it loads no implementation class. -->
+        <extensionPoint qualifiedName="com.snippetveil.languageSupport"
+                        beanClass="com.snippetveil.plugin.LanguageSupportBean"
+                        dynamic="true">
+            <with attribute="implementationClass" implements="com.snippetveil.plugin.LanguageSupport"/>
+        </extensionPoint>
+    </extensionPoints>
+
+    <extensions defaultExtensionNs="com.snippetveil">
+        <languageSupport extension="java" implementationClass="com.snippetveil.plugin.JavaSupport"/>
+    </extensions>
+
     <extensions defaultExtensionNs="com.intellij">
         <!-- A group of SnippetVeil's own, so that a user who does not want these balloons can turn
              off exactly these and nothing else. -->

@@ -1,0 +1,20 @@
+<!-- **The Kotlin half of SnippetVeil, loaded only where the Kotlin plugin is.**
+
+     `plugin.xml` declares `org.jetbrains.kotlin` as an optional dependency naming this file, so
+     everything registered here is present exactly when that plugin is installed and enabled, and
+     absent otherwise. The plugin itself loads either way and anonymizes Java either way.
+
+     **This file is the isolation boundary, and the boundary is a JVM one.** A class links when it is
+     loaded, and a class whose constant pool names `org.jetbrains.kotlin.*` fails to link if those
+     types are not on the classloader. So the rule is not "keep Kotlin code tidy" — it is that no
+     class reachable from the *main* descriptor may mention a Kotlin-plugin type, or SnippetVeil
+     stops loading in an IDE with Kotlin disabled. `ShippedCodeArchitectureTest` asserts that rule
+     over shipped bytecode, and demonstrates it red against code written to break it.
+
+     Deliberately not here: the **source-file gate**. It has to answer *would this file be anonymized
+     on a correctly-configured IDE?* in the one configuration where no Kotlin class can be touched,
+     which is why it is a plain file-extension test in the main descriptor. A gate registered here
+     would be absent in exactly the case it exists for, and `.kt` would fall into silent absence —
+     the false reassurance the stated refusal exists to prevent. -->
+<idea-plugin>
+</idea-plugin>

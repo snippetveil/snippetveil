@@ -32,11 +32,11 @@ class AnonymizeWithPreviewAction internal constructor(
 ) : AnAction() {
 
     /** The constructor the platform uses; `plugin.xml` names this class and nothing else. */
-    constructor() : this(JavaPlanBuilder, PreviewDialogs)
+    constructor() : this(DispatchingPlanBuilder, PreviewDialogs)
 
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
-    override fun update(event: AnActionEvent) = offerOnlyOnJava(event)
+    override fun update(event: AnActionEvent) = offerOnGatedSource(event)
 
     override fun actionPerformed(event: AnActionEvent) = startAnonymizing(event, plans) { project, analysis ->
         previews.confirm(project, analysis)?.let { deliver(project, it) }

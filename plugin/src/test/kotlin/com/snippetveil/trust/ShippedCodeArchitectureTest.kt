@@ -1,5 +1,6 @@
 package com.snippetveil.trust
 
+import com.snippetveil.plugin.kotlin.LivesInTheKotlinSubPackage
 import com.tngtech.archunit.base.DescribedPredicate
 import com.tngtech.archunit.core.domain.JavaAccess
 import com.tngtech.archunit.core.domain.JavaClass
@@ -80,6 +81,71 @@ class ShippedCodeArchitectureTest {
             .should().dependOnClassesThat().resideInAnyPackage("com.intellij..")
             .because("core is the anonymization engine: plain JUnit at millisecond speed, and reusable by a CLI")
             .check(SHIPPED_CLASSES)
+    }
+
+    /**
+     * **The isolation rule that keeps SnippetVeil loading on an IDE with Kotlin switched off.**
+     *
+     * The Kotlin dependency is declared `optional="true"`, so the Kotlin plugin's classes may simply
+     * not be on the classloader — and **linkage is per class, at the moment that class is loaded**.
+     * A class whose constant pool names `org.jetbrains.kotlin.*` fails to link when it is touched, so
+     * the isolation holds only if no class reachable from the *main* descriptor mentions one. Break
+     * it and the failure is not a missing feature: it is the source-file gate, the actions, or the
+     * plugin itself failing to load, taking Java anonymization down with the language it never needed.
+     *
+     * **Scoped by package, and the package boundary is the mechanism.** Everything the main
+     * descriptor registers lives in `com.snippetveil.plugin`; the Kotlin half lives below it, in
+     * `com.snippetveil.plugin.kotlin`, and is registered only from the optional descriptor. So the
+     * rule is *the main package may not reach Kotlin*, with the sub-package deliberately outside it —
+     * which is why the exclusion is written into the predicate rather than left as an exception list.
+     *
+     * **Static, and deliberately the only half.** Booting an IDE with the Kotlin plugin switched
+     * off is an environment this build cannot construct — every fixture here runs with it enabled —
+     * so the rule over bytecode is the enforcement rather than a first line of it, which is why it
+     * is demonstrated red below rather than trusted.
+     */
+    @Test
+    fun `the main descriptor's packages do not reach for Kotlin plugin classes`() {
+        MAIN_DESCRIPTOR_NEVER_REACHES_KOTLIN.check(SHIPPED_CLASSES)
+    }
+
+    /**
+     * **The isolation rule, pointed at code written to violate it.**
+     *
+     * It earns its place for a stronger reason than the process rules' demonstration does. Every
+     * classpath this project compiles and tests against has the Kotlin plugin on it, so the failure
+     * the rule guards — a class that will not link where Kotlin is switched off — cannot be produced
+     * by running anything here. Nothing else would notice a rule that had stopped matching: it would
+     * report no violations because it always does, right up to the release that fails to load.
+     *
+     * Both directions, because the predicate carries the boundary. [ReachesForKotlinFromTheMainPackage]
+     * must be flagged, and [LivesInTheKotlinSubPackage] must not — a rule that flagged the Kotlin half
+     * too is one the next implementer has to suppress, and a suppressed rule is where a violation
+     * eventually hides. Both are named the same Kotlin type, so *which package it sits in* is the only
+     * thing that differs between the two verdicts.
+     *
+     * The *same* [ArchRule] object the test above checks, for the reason the process rules are hoisted:
+     * a rebuilt copy would prove that a copy can fail.
+     */
+    @Test
+    fun `the isolation rule flags a Kotlin reference outside the Kotlin sub-package`() {
+        // Both fixtures in one import and one evaluation, so that the two directions are read off
+        // the same report: the rule is the thing under test, and a second check of a second rule
+        // over a second import would be two rules agreeing with themselves.
+        val violations = MAIN_DESCRIPTOR_NEVER_REACHES_KOTLIN.violationsIn(
+            classesOf(ReachesForKotlinFromTheMainPackage::class.java, LivesInTheKotlinSubPackage::class.java)
+        )
+
+        assertTrue(ReachesForKotlinFromTheMainPackage::class.java.name in violations) {
+            "The isolation rule did not flag a Kotlin-plugin type named from the main package: $violations"
+        }
+        assertTrue("KtFile" in violations) {
+            "The isolation rule flagged something other than the Kotlin type: $violations"
+        }
+        assertTrue(LivesInTheKotlinSubPackage::class.java.name !in violations) {
+            "The isolation rule flagged the Kotlin sub-package, which is the one place a Kotlin type " +
+                "is correct rather than fatal — an implementer would have to suppress it: $violations"
+        }
     }
 
     /** The claim on the Marketplace listing, checked. */
@@ -186,6 +252,21 @@ private val NETWORKING_CLASSES: DescribedPredicate<JavaClass> =
         .`as`("are networking classes")
 
 /**
+ * **Everything the main plugin descriptor can reach**, which is every shipped class except the
+ * Kotlin half.
+ *
+ * The Kotlin half is registered only from the optional descriptor, so its classes are loaded only
+ * where the Kotlin plugin is — and they are the one place in this codebase where naming
+ * `org.jetbrains.kotlin.*` is correct rather than fatal. Expressed as *not in that package* rather
+ * than as an exception list, because an exception list is where a violation eventually hides.
+ */
+private val MAIN_DESCRIPTOR_CODE: DescribedPredicate<JavaClass> =
+    object : DescribedPredicate<JavaClass>("reachable from the main plugin descriptor") {
+        override fun test(javaClass: JavaClass): Boolean =
+            !javaClass.packageName.startsWith("com.snippetveil.plugin.kotlin")
+    }
+
+/**
  * Process execution, as the JVM spells it. `java.lang.Runtime` is deliberately absent: it is banned
  * by [CALL_RUNTIME_EXEC], one method at a time, so that the rest of the class stays usable.
  *
@@ -213,6 +294,18 @@ private val CALL_RUNTIME_EXEC =
                 .forEach { events.add(SimpleConditionEvent.satisfied(it, it.description)) }
         }
     }
+
+/**
+ * The isolation rule itself, hoisted so that the test asserting it holds and the test demonstrating
+ * it can fail check the same object rather than two copies of one.
+ */
+private val MAIN_DESCRIPTOR_NEVER_REACHES_KOTLIN: ArchRule =
+    noClasses().that(MAIN_DESCRIPTOR_CODE)
+        .should().dependOnClassesThat().resideInAnyPackage("org.jetbrains.kotlin..")
+        .because(
+            "the Kotlin dependency is optional, so a class naming a Kotlin type fails to link " +
+                "on an IDE with Kotlin disabled — and it takes Java anonymization down with it"
+        )
 
 private val NOTHING_STARTS_A_PROCESS: ArchRule =
     noClasses().should().dependOnClassesThat(PROCESS_EXECUTION_CLASSES)
