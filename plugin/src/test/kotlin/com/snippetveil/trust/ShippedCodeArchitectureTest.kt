@@ -1,5 +1,6 @@
 package com.snippetveil.trust
 
+import com.snippetveil.plugin.kotlin.LivesInTheKotlinSubPackage
 import com.tngtech.archunit.base.DescribedPredicate
 import com.tngtech.archunit.core.domain.JavaAccess
 import com.tngtech.archunit.core.domain.JavaClass
@@ -14,7 +15,6 @@ import com.tngtech.archunit.lang.ArchRule
 import com.tngtech.archunit.lang.ConditionEvents
 import com.tngtech.archunit.lang.SimpleConditionEvent
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
-import com.snippetveil.plugin.kotlin.LivesInTheKotlinSubPackage
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -241,6 +241,16 @@ class ShippedCodeArchitectureTest {
  * deliberately separate implementations of one policy over different inputs, and the
  * `java.nio.channels` pattern is written identically in both so that they can be diffed by eye.
  */
+private val NETWORKING_CLASSES: DescribedPredicate<JavaClass> =
+    resideInAnyPackage(
+        "java.net..",
+        "javax.net..",
+        "java.rmi..",
+        "sun.net..",
+        "jdk.internal.net..",
+    ).or(nameMatching("java\\.nio\\.channels\\.[\\w.$]*(Socket|Datagram|Network)Channel[\\w$]*"))
+        .`as`("are networking classes")
+
 /**
  * **Everything the main plugin descriptor can reach**, which is every shipped class except the
  * Kotlin half.
@@ -255,16 +265,6 @@ private val MAIN_DESCRIPTOR_CODE: DescribedPredicate<JavaClass> =
         override fun test(javaClass: JavaClass): Boolean =
             !javaClass.packageName.startsWith("com.snippetveil.plugin.kotlin")
     }
-
-private val NETWORKING_CLASSES: DescribedPredicate<JavaClass> =
-    resideInAnyPackage(
-        "java.net..",
-        "javax.net..",
-        "java.rmi..",
-        "sun.net..",
-        "jdk.internal.net..",
-    ).or(nameMatching("java\\.nio\\.channels\\.[\\w.$]*(Socket|Datagram|Network)Channel[\\w$]*"))
-        .`as`("are networking classes")
 
 /**
  * Process execution, as the JVM spells it. `java.lang.Runtime` is deliberately absent: it is banned

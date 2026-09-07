@@ -8,7 +8,10 @@ import com.intellij.psi.PsiFile
 /**
  * **The source-file gate: what kind of file is this, and can we anonymize it here?**
  *
- * One gate, language-neutral, so a third language is a row in a closed set rather than a rewrite.
+ * One gate, language-neutral: a third language is a row in [ACCEPTED] and a registration, rather
+ * than a gate of its own. It is not free — the availability half below is written about Kotlin,
+ * because Kotlin is the only language whose support can be absent — but the *classification* half is
+ * the closed set and nothing else.
  * Per-language gates were rejected: a registry of gates that actions consult *is* the language-policy
  * seam, deferred until the first **non-JVM** language — it would arrive early, on the surface with
  * least to gain, paid for by a second language that shares the ledger, the key grammar and every

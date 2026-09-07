@@ -38,10 +38,7 @@ class AnonymizeWithPreviewAction internal constructor(
 
     override fun update(event: AnActionEvent) = offerOnGatedSource(event)
 
-    override fun actionPerformed(event: AnActionEvent) {
-        if (refuseIfUnsupported(event)) return
-        startAnonymizing(event, plans) { project, analysis ->
-            previews.confirm(project, analysis)?.let { deliver(project, it) }
-        }
+    override fun actionPerformed(event: AnActionEvent) = startAnonymizing(event, plans) { project, analysis ->
+        previews.confirm(project, analysis)?.let { deliver(project, it) }
     }
 }

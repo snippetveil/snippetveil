@@ -53,30 +53,12 @@ import java.util.concurrent.Callable
  * used**. The user never compares two similar-looking negatives, because one of them is not there.
  *
  * So [GateVerdict.Refuse] is enabled and visible here, exactly like [GateVerdict.Offer]. What tells
- * them apart is what happens on invoke — see [refuseIfUnsupported].
+ * them apart is what happens on invoke, which is [startAnonymizing]'s reading of the same gate.
  */
 internal fun offerOnGatedSource(event: AnActionEvent) {
     val hasEditor = event.project != null && event.getData(CommonDataKeys.EDITOR) != null
     event.presentation.isEnabledAndVisible =
         hasEditor && gate(event.getData(CommonDataKeys.PSI_FILE)) != GateVerdict.Absent
-}
-
-/**
- * **The refusal, on invoke** — and it is the whole of what separates the gate's third outcome from
- * its first.
- *
- * Returns `true` when the invocation was refused and the caller must stop. Nothing has been read and
- * nothing written at this point, so the clipboard clause the message carries is true by construction
- * rather than by inspection.
- *
- * **Refusing inside the preview modal was rejected** as heavier and reachable on only one action's
- * path; this sits on both.
- */
-internal fun refuseIfUnsupported(event: AnActionEvent): Boolean {
-    val verdict = gate(event.getData(CommonDataKeys.PSI_FILE))
-    if (verdict !is GateVerdict.Refuse) return false
-    SnippetVeilNotifications.kotlinUnavailable(event.project, verdict.cause)
-    return true
 }
 
 /**
@@ -112,7 +94,23 @@ internal fun refuseIfUnsupported(event: AnActionEvent): Boolean {
 internal fun startAnonymizing(event: AnActionEvent, plans: PlanBuilder, proceed: (Project, Analysis) -> Unit) {
     val project = event.project ?: return
     val editor = event.getData(CommonDataKeys.EDITOR) ?: return
-    val file = event.getData(CommonDataKeys.PSI_FILE)?.takeIf { gate(it) == GateVerdict.Offer } ?: return
+    val file = event.getData(CommonDataKeys.PSI_FILE) ?: return
+
+    // The gate again, and this is the invocation's own reading of it rather than a second copy of
+    // `update`'s: a presentation is a snapshot, and what the caret is in can change between the two.
+    //
+    // **This is where the refusal lives, for both actions.** Nothing has been read and nothing
+    // written yet, so the clipboard clause the message carries is true by construction rather than
+    // by inspection — and refusing *inside* the preview modal was rejected as heavier and reachable
+    // on only one action's path, while this sits on the path both of them take.
+    when (val verdict = gate(file)) {
+        GateVerdict.Absent -> return
+        is GateVerdict.Refuse -> {
+            SnippetVeilNotifications.kotlinUnavailable(project, verdict.cause)
+            return
+        }
+        GateVerdict.Offer -> Unit
+    }
 
     // On the EDT, and only here: read the editor's state, then make the PSI agree with the document
     // that state was read from. Everything after this point works from plain offsets, so a caret

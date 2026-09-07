@@ -37,8 +37,5 @@ class CopyAnonymizedAction internal constructor(private val plans: PlanBuilder) 
 
     override fun update(event: AnActionEvent) = offerOnGatedSource(event)
 
-    override fun actionPerformed(event: AnActionEvent) {
-        if (refuseIfUnsupported(event)) return
-        startAnonymizing(event, plans, ::deliver)
-    }
+    override fun actionPerformed(event: AnActionEvent) = startAnonymizing(event, plans, ::deliver)
 }

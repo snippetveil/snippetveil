@@ -2,6 +2,7 @@ package com.snippetveil.plugin
 
 import com.intellij.openapi.extensions.CustomLoadingExtensionPointBean
 import com.intellij.psi.PsiFile
+import com.snippetveil.core.SnippetPlan
 import com.intellij.util.xmlb.annotations.Attribute
 
 /**
@@ -78,4 +79,33 @@ internal class LanguageSupportBean : CustomLoadingExtensionPointBean<LanguageSup
     var implementationClass: String? = null
 
     override fun getImplementationClassName(): String? = implementationClass
+}
+
+/**
+ * **Layer two, as a [PlanBuilder]** — the builder chosen by real PSI, once the action is already
+ * running and the language's classes are loaded by definition.
+ *
+ * A file that reached here and is claimed by nothing **throws**, and that is the designed answer
+ * rather than a gap. It means the gate believed an extension that lied, and the fail-closed
+ * guarantee takes it from there: the clipboard is left byte-identical, the ledger uncommitted, and
+ * the user is told the operation failed rather than handed a file that was copied unchanged.
+ */
+internal object DispatchingPlanBuilder : PlanBuilder {
+
+    /**
+     * The registrations are walked as a sequence so that each implementation is instantiated only
+     * until one claims the file. Instantiating a *registered* support is safe by construction — a
+     * language's classes are on the classloader exactly when its registration is — so this is about
+     * doing no work rather than about avoiding linkage; the gate is where linkage is avoided.
+     */
+    override fun build(request: SnippetRequest): SnippetPlan {
+        val support = LANGUAGE_SUPPORT.extensionList.asSequence()
+            .map { it.instance }
+            .firstOrNull { it.claims(request.file) }
+            ?: throw IllegalStateException(
+                "No SnippetVeil language support claims ${request.file.name}; " +
+                    "the source-file gate accepted its extension and its PSI is something else."
+            )
+        return support.planBuilder().build(request)
+    }
 }

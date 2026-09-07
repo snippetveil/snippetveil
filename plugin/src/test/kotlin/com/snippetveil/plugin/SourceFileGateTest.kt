@@ -61,6 +61,23 @@ class SourceFileGateTest : BasePlatformTestCase() {
     fun `test an unsupported file is silently absent`() {
         assertEquals(GateVerdict.Absent, gate(fileNamed("application.properties", "db.password=hunter2")))
         assertEquals(GateVerdict.Absent, gate(fileNamed("README.md", "# hello")))
+    }
+
+    /**
+     * **Decompiled editors get nothing, and this is a withdrawal rather than a gap.**
+     *
+     * A decompiled class is backed by a `.class` virtual file, which is not in the accepted set — so
+     * no menu item appears, decided with no `isCompiled` check and no Kotlin type reference. The
+     * previous PSI-typed gate *did* offer the action in a decompiled Java editor, because a
+     * decompiled Java file is a `PsiJavaFile`. Asserted here deliberately, so that the change is a
+     * decision on the record rather than something a later reader discovers as a regression.
+     *
+     * The extension is what the gate reads, so a `.class` file is the whole of what it sees; opening
+     * a real decompiled editor would exercise the platform's decompiler rather than this predicate.
+     * **Library sources attached are the opposite case and stay offered** — navigation lands in a
+     * real `.java` inside a jar, which the row above covers.
+     */
+    fun `test a decompiled class file is silently absent`() {
         assertEquals(GateVerdict.Absent, gate(fileNamed("Payment.class", "")))
     }
 
