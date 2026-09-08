@@ -1,13 +1,17 @@
 package com.snippetveil.plugin.kotlin
 
+import com.intellij.psi.util.PsiTreeUtil
 import com.snippetveil.core.LedgerSnapshot
-import com.snippetveil.core.plus
+import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.RecordedInvocation
 import com.snippetveil.core.Sidecar
 import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.Unrestored
 import com.snippetveil.core.deanonymize
+import com.snippetveil.core.plus
 import com.snippetveil.plugin.FENCE
+import org.jetbrains.kotlin.psi.KtStringTemplateEntryWithExpression
+import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import java.time.Instant
 
 /**
@@ -90,7 +94,7 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
      * the source already had is kept, which is also why the round trip below closes exactly.
      */
     fun `test a template decomposes into a placeholder per chunk and ordinary code per interpolation`() {
-        assertRenders(
+        assertTemplateRenders(
             """"Refund ${DOLLAR}refundId rejected by ${DOLLAR}merchant"""",
             """"str1${DOLLAR}local2 str3${DOLLAR}local4"""",
         )
@@ -98,7 +102,7 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
 
     /** **The second worked example** — a template that is one interpolation carries no chunk at all. */
     fun `test a template that is one interpolation is one placeholder`() {
-        assertRenders(""""${DOLLAR}refundId"""", """"${DOLLAR}local1"""")
+        assertTemplateRenders(""""${DOLLAR}refundId"""", """"${DOLLAR}local1"""")
     }
 
     /**
@@ -106,7 +110,7 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
      * ordinary rules**, so a call inside one renames exactly as the same call outside one does.
      */
     fun `test an interpolated call is ordinary code`() {
-        assertRenders(
+        assertTemplateRenders(
             """"a ${DOLLAR}{ledger.label()}"""",
             """"str1${DOLLAR}{local2.method3()}"""",
         )
@@ -117,7 +121,7 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
      * it is not re-decided here: one run, one chunk, and the literal rule that already existed.
      */
     fun `test a template without interpolation is an ordinary literal`() {
-        assertRenders(""""no refs here"""", """"str1"""")
+        assertTemplateRenders(""""no refs here"""", """"str1"""")
     }
 
     /**
@@ -133,6 +137,12 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
      * the boundary an interpolated name ended at. Not one of them is a letter or a digit, so nothing
      * word-bearing passes through. The one shape with a stated exception is an escape sequence kept
      * as that boundary; it is pinned in its own test, with its own cost written down.
+     *
+     * The partition is then asserted as the word says, against the **tree** the plan was built from:
+     * the chunks the plan reports and the interpolations the template declares tile everything
+     * between the quotes exactly once. That is the claim *the entries partition the template's
+     * range*, made on the plan rather than inferred from the output — and made against PSI rather
+     * than against a second copy of the run-grouping, which could only ever agree with itself.
      */
     fun `test the entries partition the template and no occurrence spans it`() {
         assertTheHarnessResolves()
@@ -161,6 +171,23 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
             "a word-bearing character of the template is covered by no occurrence, so it passes through",
             "",
             leaked.map { plan.text[it] }.joinToString(""),
+        )
+
+        // And the partition itself, against the tree the plan was built from: the chunks the plan
+        // reports and the interpolations the template declares tile the whole of it between the
+        // quotes, with nothing counted twice and nothing left over. Read off PSI rather than
+        // recomputed here — the claim is that the plan agrees with the tree, and a second copy of
+        // the run-grouping would only ever agree with itself.
+        val template = PsiTreeUtil.findChildrenOfType(myFixture.file, KtStringTemplateExpression::class.java).first()
+        val interpolations = template.entries
+            .filterIsInstance<KtStringTemplateEntryWithExpression>()
+            .map { it.textRange.startOffset - template.textRange.startOffset until it.textRange.endOffset - template.textRange.startOffset }
+        val chunks = plan.occurrences.filterIsInstance<LiteralOccurrence>().map { it.start until it.end }
+
+        assertEquals(
+            "the chunks and the interpolations do not partition the template's entries",
+            (QUOTE until plan.text.length - QUOTE).toList(),
+            (chunks + interpolations).flatten().sorted(),
         )
     }
 
@@ -258,7 +285,42 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
      * is emitting source that does not lex.
      */
     fun `test an escape that opens a chunk is kept whole as the boundary`() {
-        assertRenders(""""${DOLLAR}refundId\trejected"""", """"${DOLLAR}local1\tstr2"""")
+        assertTemplateRenders(""""${DOLLAR}refundId\trejected"""", """"${DOLLAR}local1\tstr2"""")
+    }
+
+    /**
+     * **The one character a redaction can leave behind, pinned rather than only disclosed.**
+     *
+     * `\t` and `\n` carry nothing, and a unicode escape is the shape of the same rule where the
+     * character it spells is a letter: `\u0041` opening a chunk is kept whole as the boundary, so one
+     * escaped letter survives. It is bounded at one — everything after the boundary is replaced — and it is the
+     * price of a boundary that lexes, since `\` alone in front of a placeholder does not.
+     *
+     * A test rather than a sentence in a doc comment, because this is the single case where the
+     * *nothing passes through* claim beside it has an exception, and an exception nobody has seen
+     * fail is a comment.
+     */
+    fun `test a unicode escape kept as the boundary leaves one character behind`() {
+        assertTemplateRenders(
+            """"${DOLLAR}refundId\u0041rejected"""",
+            """"${DOLLAR}local1\u0041str2"""",
+        )
+    }
+
+
+    /**
+     * **A boundary that is one character and two UTF-16 units is kept whole**, for the reason an
+     * escape is: half of it is not a boundary, it is a lone surrogate written onto the clipboard.
+     *
+     * A supplementary character cannot continue a name, so it is exactly the character `$name` ends
+     * at — the ordinary boundary case, arriving in the one encoding where *keep one character* and
+     * *keep one unit* are different instructions.
+     */
+    fun `test a boundary that is one character in two units is kept whole`() {
+        assertTemplateRenders(
+            """"${DOLLAR}refundId😀rejected"""",
+            """"${DOLLAR}local1😀str2"""",
+        )
     }
 
     /**
@@ -271,7 +333,7 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
      * made of is the one the language guarantees carries nothing.
      */
     fun `test a chunk that is only the boundary is not numbered`() {
-        assertRenders(""""${DOLLAR}refundId ${DOLLAR}merchant"""", """"${DOLLAR}local1 ${DOLLAR}local2"""")
+        assertTemplateRenders(""""${DOLLAR}refundId ${DOLLAR}merchant"""", """"${DOLLAR}local1 ${DOLLAR}local2"""")
     }
 
     /**
@@ -406,7 +468,7 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
      * numbering starts at the template's first part — which is what lets a worked example be
      * asserted character for character rather than through the names around it.
      */
-    private fun assertRenders(template: String, expected: String) {
+    private fun assertTemplateRenders(template: String, expected: String) {
         assertTheHarnessResolves()
         assertEquals("the template did not render as the worked example", expected, templateOutputFor(template))
     }
@@ -461,3 +523,10 @@ internal class KotlinTemplateTest : KotlinSnippetTestCase() {
 private const val DOLLAR = "\$"
 
 private const val TEMPLATES_PATH = "com/acme/ledger/Templates.kt"
+
+/**
+ * The length of the quote that opens and closes the template the partition test uses — one, since it
+ * is an ordinary `"` string. Spelled rather than written as a bare `1`, because what it means is *the
+ * delimiter the entries do not include*.
+ */
+private const val QUOTE = 1

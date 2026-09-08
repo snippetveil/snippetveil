@@ -27,8 +27,7 @@ import com.snippetveil.plugin.SnippetRequest
 import com.snippetveil.plugin.SymbolFacts
 import com.snippetveil.plugin.SymbolKeys
 import com.snippetveil.plugin.fragmentsOf
-import com.snippetveil.plugin.snapEnd
-import com.snippetveil.plugin.snapStart
+import com.snippetveil.plugin.snappedRangesOf
 import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
@@ -123,9 +122,7 @@ internal object KotlinPlanBuilder : PlanBuilder {
 
     override fun build(request: SnippetRequest): SnippetPlan {
         val file = request.file
-        val snapped = request.selections.map {
-            TextRange(snapStart(file, it.startOffset, ::tokenOf), snapEnd(file, it.endOffset, ::tokenOf))
-        }
+        val snapped = snappedRangesOf(file, request.selections, ::tokenOf)
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
@@ -244,12 +241,15 @@ internal object KotlinPlanBuilder : PlanBuilder {
                 val kind = kindOf(template)
 
                 chunksOf(template).map { chunk ->
+                    val end = fragment.translate(chunk.range.endOffset)
                     LiteralOccurrence(
                         start = fragment.translate(chunk.range.startOffset),
-                        end = fragment.translate(chunk.range.endOffset),
+                        end = end,
                         kind = kind,
                         contentStart = fragment.translate(chunk.contentStart),
-                        contentEnd = fragment.translate(chunk.range.endOffset),
+                        // The chunk's own end: a chunk's content runs to the end of the run, because
+                        // what closes it is the next entry rather than a delimiter of its own.
+                        contentEnd = end,
                         language = LANGUAGE,
                     )
                 }
@@ -266,17 +266,17 @@ internal object KotlinPlanBuilder : PlanBuilder {
     private fun chunksOf(template: KtStringTemplateExpression): List<Chunk> {
         val chunks = mutableListOf<Chunk>()
         var run = mutableListOf<KtStringTemplateEntry>()
-        var afterAName = false
+        var followsBareName = false
 
         fun close() {
-            if (run.isNotEmpty()) chunks += chunkOf(run, afterAName)
+            if (run.isNotEmpty()) chunks += chunkOf(run, followsBareName)
             run = mutableListOf()
         }
 
         for (entry in template.entries) {
             if (entry is KtStringTemplateEntryWithExpression) {
                 close()
-                afterAName = entry is KtSimpleNameStringTemplateEntry
+                followsBareName = entry is KtSimpleNameStringTemplateEntry
             } else {
                 run += entry
             }
@@ -296,29 +296,38 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * the source already had, and the placeholder replaces the rest:
      * `" rejected by "` after `$refundId` becomes `" str3"`.
      *
-     * **The kept character carries nothing, and that is guaranteed by the lexer rather than
-     * inspected here**: `$name` ends at the first character that could not continue the name, so the
-     * character after it is never a letter, a digit or an underscore. It is reported as the chunk's
-     * *opening delimiter* — [com.snippetveil.core.LiteralOccurrence.contentStart] — which is the
-     * field that already means *what the replacement lands after*, and it is why the chunk's range
-     * still covers the whole run: the entries partition the template, delimiters included.
+     * **What is kept is the character the lexer ended the name at, rather than a character this
+     * inspected and approved of**: `$name` runs to the first character that could not continue it,
+     * so what is kept is by construction not one of those — a space, a punctuation mark, a line
+     * break. It is reported as the chunk's *opening delimiter* —
+     * [com.snippetveil.core.LiteralOccurrence.contentStart] — which is the field that already means
+     * *what the replacement lands after*, and it is why the chunk's range still covers the whole
+     * run: the entries partition the template, delimiters included.
      *
-     * **An escape is kept whole**, because half of one is not a boundary — `\` alone in front of a
-     * placeholder is `\s`, an escape Kotlin does not have. The disclosed cost is one escaped
-     * character surviving a redaction, and it is bounded at one: a run beginning `A` keeps that
-     * `A` and replaces everything after it. Splitting the escape instead would emit source that does
-     * not lex, which is the worse of the two by the standard this product holds output to.
+     * **Whole units, never half of one**, in both directions, because half of either is a boundary
+     * that does not lex:
+     *
+     *  - **An escape**, whole — `\` alone in front of a placeholder is `\s`, which Kotlin does not
+     *    have.
+     *  - **A code point**, whole — a supplementary character is two UTF-16 units, and keeping one of
+     *    them writes a lone surrogate into the clipboard.
+     *
+     * The disclosed cost is that a `A` opening a chunk is kept as written, so **one** escaped
+     * character survives a redaction: bounded at one, because everything after the boundary is
+     * replaced, and taken knowingly against emitting source that does not lex. `KotlinTemplateTest`
+     * pins it rather than leaving it to be discovered.
      *
      * A chunk whose whole run is that boundary — the ` ` of `"$a $b"` — has empty content, and the
      * engine preserves an empty literal rather than numbering it. Nothing is lost: the character it
-     * is made of is the one that carries nothing.
+     * is made of is the one the language put there.
      */
-    private fun chunkOf(run: List<KtStringTemplateEntry>, afterAName: Boolean): Chunk {
-        val range = TextRange(run.first().textRange.startOffset, run.last().textRange.endOffset)
+    private fun chunkOf(run: List<KtStringTemplateEntry>, followsBareName: Boolean): Chunk {
+        val opening = run.first()
+        val range = TextRange(opening.textRange.startOffset, run.last().textRange.endOffset)
         val boundary = when {
-            !afterAName -> 0
-            run.first() is KtEscapeStringTemplateEntry -> run.first().textLength
-            else -> 1
+            !followsBareName -> 0
+            opening is KtEscapeStringTemplateEntry -> opening.textLength
+            else -> opening.text.offsetByCodePoints(0, 1)
         }
         return Chunk(range, range.startOffset + boundary)
     }
@@ -328,12 +337,12 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * reach the same rule.
      *
      * A raw string is the [LiteralKind.TEXT_BLOCK] of this language: triple-quoted, multi-line, and
-     * written without escapes. Read off the opening quote's own length rather than off the text,
-     * which is the same question about *form* that Java's builder asks and is asked of PSI here
-     * because PSI has the answer.
+     * written without escapes. Read off the opening quote the tree hands over rather than off the
+     * expression's text, which is the same question about *form* that Java's builder asks and is
+     * asked of PSI here because PSI has the answer.
      */
     private fun kindOf(template: KtStringTemplateExpression): LiteralKind =
-        if (template.firstChild?.textLength == RAW_QUOTE.length) LiteralKind.TEXT_BLOCK else LiteralKind.STRING
+        if (template.firstChild?.text == RAW_QUOTE) LiteralKind.TEXT_BLOCK else LiteralKind.STRING
 
     /**
      * What is known about the symbol [identifier] names.

@@ -58,9 +58,7 @@ internal object JavaPlanBuilder : PlanBuilder {
 
     override fun build(request: SnippetRequest): SnippetPlan {
         val file = request.file
-        val snapped = request.selections.map {
-            TextRange(snapStart(file, it.startOffset, ::tokenOf), snapEnd(file, it.endOffset, ::tokenOf))
-        }
+        val snapped = snappedRangesOf(file, request.selections, ::tokenOf)
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }

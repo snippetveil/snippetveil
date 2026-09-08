@@ -79,19 +79,34 @@ internal fun fragmentsOf(file: PsiFile, snapped: List<TextRange>): List<Fragment
 internal typealias TokenOf = (PsiElement) -> PsiElement
 
 /**
+ * **Every selected range, snapped outward to whole tokens** — the whole of what a walk does with a
+ * selection before it walks anything.
+ *
+ * One function rather than the same `map` in both builders, on the same rule as everything else in
+ * this file: a snippet cut one way in Java and another way in Kotlin is a plan whose offsets mean two
+ * things, and two copies of the cut are how that starts. What the two walks differ in arrives as
+ * [tokenOf].
+ *
+ * The result is compared against the selection it came from — that comparison is *whether snapping
+ * fired*, which the preview discloses — so it is returned rather than folded into [fragmentsOf].
+ */
+internal fun snappedRangesOf(file: PsiFile, selections: List<TextRange>, tokenOf: TokenOf): List<TextRange> =
+    selections.map { TextRange(snapStart(file, it.startOffset, tokenOf), snapEnd(file, it.endOffset, tokenOf)) }
+
+/**
  * The start of the token [offset] falls inside, or [offset] itself when it already sits on a
  * boundary. Whitespace is the one leaf that may be split: half a run of spaces is still spaces.
  *
  * @param tokenOf what one token is in this language; see [TokenOf].
  */
-internal fun snapStart(file: PsiFile, offset: Int, tokenOf: TokenOf): Int {
+private fun snapStart(file: PsiFile, offset: Int, tokenOf: TokenOf): Int {
     val leaf = file.findElementAt(offset) ?: return offset
     if (leaf is PsiWhiteSpace) return offset
     return minOf(offset, tokenOf(leaf).textRange.startOffset)
 }
 
 /** The end of the token [offset] falls inside; see [snapStart]. */
-internal fun snapEnd(file: PsiFile, offset: Int, tokenOf: TokenOf): Int {
+private fun snapEnd(file: PsiFile, offset: Int, tokenOf: TokenOf): Int {
     if (offset <= 0 || offset >= file.textLength) return offset.coerceIn(0, file.textLength)
     val leaf = file.findElementAt(offset - 1) ?: return offset
     if (leaf is PsiWhiteSpace) return offset
