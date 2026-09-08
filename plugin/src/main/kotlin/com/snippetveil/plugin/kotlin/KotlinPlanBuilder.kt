@@ -174,7 +174,7 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * **A reference written under an import alias names the alias**, and that redirection happens
      * here rather than anywhere downstream, so that everything after it — the key, the role, the
      * ownership, the silence question — is asked about the symbol the token actually names. See
-     * [aliasNaming].
+     * [importAliasOf].
      *
      * **Ownership is resolved, never assumed, and that is a Kotlin-specific obligation.** The Java
      * walk may treat a `PsiParameter` as project-owned by construction, because Java has no syntax
@@ -205,7 +205,7 @@ internal object KotlinPlanBuilder : PlanBuilder {
 
             parent is KtElement -> {
                 val reference = parent.mainReference
-                val symbol = reference?.resolve()?.let { resolved -> aliasNaming(reference, resolved) ?: resolved }
+                val symbol = reference?.resolve()?.let { resolved -> importAliasOf(reference, resolved) ?: resolved }
                 if (namesSomethingTheLanguageFixed(identifier.text, symbol)) {
                     null
                 } else {
@@ -257,7 +257,7 @@ internal object KotlinPlanBuilder : PlanBuilder {
      *    **alias**, which is not a declaration, so the branch below never sees a spelling to compare.
      *    A clause here would have made *not silent* the whole of the answer, and *not silent* still
      *    left `Pay` rendering the aliased class's placeholder beside an import declaring something
-     *    else. See [aliasNaming].
+     *    else. See [importAliasOf].
      *  - **A backtick-escaped name.** The `IDENTIFIER` leaf of `` `merchant ref`() `` carries its
      *    backticks and `KtNamedDeclaration.getName()` does not, so the raw texts differ over a name
      *    that is the same name. The comparison is made on the unquoted spelling, which is the one
@@ -324,11 +324,11 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * `import com.acme.ledger.Payment as Payment` would redirect its own path onto its own alias, and
      * so would the `Bar` of an `import b.Bar` sitting under an unrelated `import a.Foo as Bar`.
      */
-    private fun aliasNaming(reference: PsiReference, resolved: PsiElement): KtImportAlias? {
+    private fun importAliasOf(reference: PsiReference, resolved: PsiElement): KtImportAlias? {
         if (PsiTreeUtil.getParentOfType(reference.element, KtImportDirective::class.java) != null) return null
         val alias = (reference as? KtSimpleNameReference)?.getImportAlias() ?: return null
-        val named = aliasedDeclarationOf(alias)?.let(::fqNameOf) ?: return null
-        return alias.takeIf { named == fqNameOf(resolved) }
+        val named = aliasedDeclarationOf(alias)?.let(::importedNameOf) ?: return null
+        return alias.takeIf { named == importedNameOf(resolved) }
     }
 
     /**
@@ -337,7 +337,7 @@ internal object KotlinPlanBuilder : PlanBuilder {
      *
      * The alias's own token resolves to `null`: it *is* a declaration, and there is nothing above it
      * to point at. So what the alias names is asked of the path beside it, and the answer does two
-     * jobs — it is the alias's [roleOf], and it is what [aliasNaming] compares a use against, which
+     * jobs — it is the alias's [roleOf], and it is what [importAliasOf] compares a use against, which
      * is why there is one function for it rather than a role rule and a matching rule that could
      * drift.
      *
@@ -353,13 +353,15 @@ internal object KotlinPlanBuilder : PlanBuilder {
     }
 
     /**
-     * A declaration's fully-qualified name in the spelling an `import` writes it in, which is what
-     * [aliasNaming] compares two declarations by.
+     * A declaration's fully-qualified name **in the spelling an `import` writes it in**, which is
+     * what [importAliasOf] compares two declarations by — and the reason it is named for the import
+     * rather than for the qualification.
      *
-     * Deliberately not [qualifiedNameOf], which answers classifiers only because the field it feeds
-     * is read by the top-level-segment rule alone. An import names callables and Java members too, so
-     * this answers for them — and answers `null` for a local, which is exactly the shadowing case
-     * that has to fail the comparison rather than pass it vacuously.
+     * Deliberately not [qualifiedNameOf], which is a near-synonym doing a different job: that one
+     * answers classifiers only, because the field it feeds is read by the top-level-segment rule and
+     * nothing else. An import names callables and Java members too, so this answers for them — and
+     * answers `null` for a local, which is exactly the shadowing case that has to fail the comparison
+     * rather than pass it vacuously.
      *
      * **A constructor is its class**, in both languages, which is the same normalisation
      * [KotlinSymbolKeys.ledgerKeyOf] already makes and for the same reason: an import names the
@@ -372,8 +374,8 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * things an `import` can name, and the platform resolves an alias on each of them to the same
      * declaration on both sides of this comparison. Asserted in `KotlinImportAliasTest`.
      */
-    private fun fqNameOf(symbol: PsiElement): String? = when {
-        symbol is KtConstructor<*> -> fqNameOf(symbol.getContainingClassOrObject())
+    private fun importedNameOf(symbol: PsiElement): String? = when {
+        symbol is KtConstructor<*> -> importedNameOf(symbol.getContainingClassOrObject())
         symbol is PsiMethod && symbol.isConstructor -> symbol.containingClass?.qualifiedName
 
         symbol is KtNamedDeclaration -> symbol.fqName?.asString()
@@ -491,9 +493,10 @@ internal object KotlinPlanBuilder : PlanBuilder {
     private fun roleOf(symbol: PsiElement): SymbolRole = when {
         // **An import alias is whatever it aliases**, so `import Payment as Pay` is a type and
         // `import feeFor as fee` a method, and the import still reads as an import of the thing it
-        // imports. Only an alias whose import resolves is described at all — [evidenceFor] reports
-        // one that does not as unresolved — so the fallback is unreachable, and it is the one any
-        // other unclassified element takes rather than a choice of its own.
+        // imports. An alias with no target does not arrive here — [evidenceFor] reports one whose
+        // import does not resolve as unresolved instead — and the branch is written total anyway,
+        // taking the same fallback as any other unclassified element: a walk over a file somebody is
+        // in the middle of editing is the last place to spell an invariant as a throw.
         symbol is KtImportAlias -> aliasedDeclarationOf(symbol)?.let(::roleOf) ?: SymbolRole.METHOD
 
         symbol is KtTypeParameter -> SymbolRole.TYPE_PARAMETER

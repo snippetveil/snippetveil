@@ -93,7 +93,18 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
      * claim.
      */
     protected fun kotlinResultFor(path: String, text: String): AnonymizationResult =
-        anonymize(kotlinPlanFor(path, text), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+        kotlinResultFor(kotlinPlanFor(path, text))
+
+    /**
+     * The same, for a fixture that already holds the plan — because it is asserting something about
+     * the **plan** as well as about the result.
+     *
+     * The overload is the whole of what *one invocation* means here: a fixture that read the
+     * occurrences from one call and the counts from another would be reading two walks of two
+     * fixtures, and *these counts belong to those occurrences* is exactly the claim such a test makes.
+     */
+    protected fun kotlinResultFor(plan: SnippetPlan): AnonymizationResult =
+        anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
     /**
      * **A `kotlin.*` member resolves, and resolves to _library_ origin** — not `null`, and not

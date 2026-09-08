@@ -12,7 +12,8 @@ import com.snippetveil.plugin.symbols
  * > placeholder.
  *
  * The rule this file asserts is the one #93 was opened to ask for, and it is worth writing down why
- * it is a rule rather than a row in the *shapes that need none* table. Two answers that were each
+ * it is a rule rather than a row in `KotlinShapesTest`, the *shapes that need no rule of their own*
+ * table. Two answers that were each
  * individually right made an output that was jointly wrong: `KtImportAlias`'s own token resolves to
  * `null`, so it failed closed into the `Unknown` namespace, while every **use** of the alias resolved
  * to the aliased declaration and rendered *that* symbol's placeholder. The file came out declaring
@@ -80,7 +81,7 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
         val symbols = kotlinPlanFor(ALIASING_PATH, ALIASING).symbols()
 
         val alias = symbols.filter { it.text == "Pay" }
-        assertEquals("the fixture writes `Pay` twice — the alias and the use in the signature", 2, alias.size)
+        assertEquals("the fixture writes `Pay` twice — the alias and the use in the signature — and the walk disagrees", 2, alias.size)
         assertEquals(
             "the alias declaration and the use of it are two entries",
             1,
@@ -106,10 +107,10 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
         writeTheAliasedDeclarations()
         val mapping = kotlinResultFor(ALIASING_PATH, ALIASING).mapping
 
-        assertEquals("the alias decodes to the word the developer wrote", "Pay", mapping["Type4"])
-        assertEquals("the aliased class decodes to its own name", "Payment", mapping["Type3"])
-        assertEquals("the function alias decodes to the word the developer wrote", "fee", mapping["method6"])
-        assertEquals("the aliased function decodes to its own name", "feeFor", mapping["method5"])
+        assertEquals("the alias decodes to something other than the word the developer wrote", "Pay", mapping["Type4"])
+        assertEquals("the aliased class decodes to something other than its own name", "Payment", mapping["Type3"])
+        assertEquals("the function alias decodes to something other than the developer's word", "fee", mapping["method6"])
+        assertEquals("the aliased function decodes to something other than its own name", "feeFor", mapping["method5"])
     }
 
     /**
@@ -122,17 +123,16 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
     fun `test an aliased name is not reported as unresolved`() {
         assertTheHarnessResolves()
         writeTheAliasedDeclarations()
-        val result = kotlinResultFor(ALIASING_PATH, ALIASING)
+        val plan = kotlinPlanFor(ALIASING_PATH, ALIASING)
+        val result = kotlinResultFor(plan)
 
-        assertEquals("the file has no unresolved names and the balloon reports none", 0, result.counts.unknown)
-        assertEquals("no row offers a preserve on a name the IDE resolved", emptyList<String>(), result.unknowns.map { it.name })
         assertEquals(
-            "a resolved name is reported as unresolved",
+            "the walk reported a name the IDE resolved as unresolved",
             emptyList<String>(),
-            kotlinPlanFor(ALIASING_PATH, ALIASING).symbols()
-                .filter { it.symbol.origin == SymbolOrigin.UNRESOLVED }
-                .map { it.text },
+            plan.symbols().filter { it.symbol.origin == SymbolOrigin.UNRESOLVED }.map { it.text },
         )
+        assertEquals("the balloon reports names the IDE could not resolve, on a file with none", 0, result.counts.unknown)
+        assertEquals("a row offers a preserve on a name the IDE resolved", emptyList<String>(), result.unknowns.map { it.name })
     }
 
     /**
@@ -223,6 +223,11 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
      * use of it fail closed into **one** namespace, rather than the file declaring one name and
      * using another. The aliased name is a second `Unknown` because it is a second name that did not
      * resolve, which is the same sentence read on the other symbol.
+     *
+     * The **count** is asserted here and not only the output, and it is the other half of the count
+     * assertion in [test an aliased name is not reported as unresolved]: that one pins zero, and a
+     * change that simply stopped counting unresolved names would leave it green. Two names did not
+     * resolve, and *2 names the IDE could not resolve* is what the balloon owes.
      */
     fun `test an alias whose import does not resolve agrees with its uses`() {
         assertTheHarnessResolves()
@@ -234,6 +239,8 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
             fun use(g: Gone): Gone = g
         """.trimIndent()
 
+        val result = kotlinResultFor("com/acme/ledger/Missing.kt", source)
+
         assertEquals(
             "the alias declaration and its uses fell into two Unknown namespaces",
             """
@@ -243,7 +250,12 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
 
             fun method5(param6: Unknown4): Unknown4 = param6
             """.trimIndent(),
-            kotlinOutputFor("com/acme/ledger/Missing.kt", source),
+            result.text,
+        )
+        assertEquals(
+            "the balloon miscounted the names the IDE genuinely could not resolve",
+            2,
+            result.counts.unknown,
         )
     }
 
@@ -262,12 +274,12 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
 
         val type = symbols.first { it.text == "Pay" }.symbol
         assertFalse("a file-local alias reached a durable mapping", type.keyIsQualified)
-        assertEquals("an alias of a class is a type", SymbolRole.TYPE, type.role)
-        assertEquals("the alias is declared in the file being copied", SymbolOrigin.IN_CONTENT, type.origin)
+        assertEquals("an alias of a class was not reported as a type", SymbolRole.TYPE, type.role)
+        assertEquals("the alias is declared in the file being copied and was classified elsewhere", SymbolOrigin.IN_CONTENT, type.origin)
 
         val method = symbols.first { it.text == "fee" }.symbol
         assertFalse("a file-local alias reached a durable mapping", method.keyIsQualified)
-        assertEquals("an alias of a function is a method", SymbolRole.METHOD, method.role)
+        assertEquals("an alias of a function was not reported as a method", SymbolRole.METHOD, method.role)
     }
 
     /**
@@ -287,16 +299,7 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
      */
     fun `test an aliased type renames where it is constructed as well as where it is named`() {
         assertTheHarnessResolves()
-        myFixture.addFileToProject(
-            "com/acme/ledger/Payment.kt",
-            """
-            package com.acme.ledger
-
-            class Payment
-
-            typealias Money = Payment
-            """.trimIndent(),
-        )
+        writeTheAliasedDeclarations()
         assertEquals(
             "an alias redirected where it was named and not where it was called",
             """
@@ -329,8 +332,8 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
      * **Every other shape an `import` can name takes the same rule and needs none of its own** — a
      * Java class and its constructor, a Java `static` member, an enum entry.
      *
-     * A row of the *shapes that need no rule* table, written here because it is this rule the row is
-     * about. Each of these resolves to something that is not a Kotlin declaration, or not a
+     * A row of `KotlinShapesTest`'s *shapes that need no rule of their own* table, written here
+     * instead because the rule the row is about is this one. Each of these resolves to something that is not a Kotlin declaration, or not a
      * classifier, or both, and the fully-qualified spelling the comparison is made on has to reach
      * all of them — a comparison that only knew Kotlin classifiers would be green on the fixture
      * above and silently stop redirecting here.
@@ -391,7 +394,14 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
         )
     }
 
-    /** The declarations [ALIASING] imports under other names, in a file of their own. */
+    /**
+     * The declarations this file's fixtures import under other names, in a file of their own.
+     *
+     * One file for every test that needs one, rather than an inline fixture per test: two files at
+     * one path declaring one class with drifting bodies is a way for two goldens to stop being about
+     * the same thing. Nothing here is referred to by every test — a `typealias` no snippet names
+     * costs the snippet nothing, because only what the snippet writes is walked.
+     */
     private fun writeTheAliasedDeclarations() {
         myFixture.addFileToProject(
             "com/acme/ledger/Payment.kt",
@@ -399,6 +409,8 @@ internal class KotlinImportAliasTest : KotlinSnippetTestCase() {
             package com.acme.ledger
 
             class Payment
+
+            typealias Money = Payment
 
             fun feeFor(amount: Int): Int = amount
             """.trimIndent(),
