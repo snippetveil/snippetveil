@@ -12,8 +12,9 @@ import org.jetbrains.kotlin.psi.KtFile
  * see `the main descriptor's packages do not reach for Kotlin plugin classes` and the demonstration
  * beside it.
  *
- * A fixture, in test scope, standing in for a Kotlin half that does not exist yet. It goes away, or
- * stops being the only class here, on the day the Kotlin plan builder lands.
+ * A fixture, in test scope, and it stays one now that `KotlinPlanBuilder` shares the package with it:
+ * the demonstration below needs a class it can name *without* the isolation rule flagging it, and
+ * shipped code is not the thing to point a deliberately-violating rule check at.
  */
 internal class LivesInTheKotlinSubPackage {
 

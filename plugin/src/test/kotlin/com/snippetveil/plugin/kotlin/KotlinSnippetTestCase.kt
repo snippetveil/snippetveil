@@ -6,10 +6,13 @@ import com.intellij.psi.PsiFile
 import com.intellij.testFramework.LightProjectDescriptor
 import com.snippetveil.plugin.FixtureOrigin
 import com.snippetveil.plugin.JavaSnippetTestCase
+import com.snippetveil.plugin.SnippetRequest
 import com.snippetveil.plugin.RealClasspath
 import com.snippetveil.plugin.attachJar
 import com.snippetveil.plugin.complaintAboutFixtureOrigin
 import com.snippetveil.plugin.originInTheFixture
+import com.snippetveil.plugin.selectedRangesOf
+import com.snippetveil.core.SnippetPlan
 import org.jetbrains.kotlin.asJava.KotlinAsJavaSupport
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
 import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode
@@ -42,14 +45,28 @@ import java.io.File
  * fixture can produce the failure, and over the complaint itself in [KotlinHarnessComplaintTest]
  * where only the platform can. An assertion nobody has seen fail is a comment.
  *
- * **Nothing in the product is exercised from here.** No `.kt` file is walked and no Kotlin plan
- * builder exists; `com.snippetveil-withKotlin.xml` still registers nothing, so every `.kt` file keeps
- * taking the stated refusal that `KotlinUnavailableTest` asserts. These are the assertions that have
- * to be in place *before* the first Kotlin fixture whose result anyone believes.
+ * **Nothing here is reachable from a user's IDE.** `com.snippetveil-withKotlin.xml` still registers
+ * no `languageSupport`, so every `.kt` file keeps taking the stated refusal that
+ * `KotlinUnavailableTest` asserts, and [kotlinPlanFor] constructs the walk directly. These are the
+ * assertions that have to be in place *before* the first Kotlin fixture whose result anyone
+ * believes.
  */
 internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
 
     override fun getProjectDescriptor(): LightProjectDescriptor = KOTLIN_CLASSPATH
+
+    /**
+     * The plan the Kotlin walk builds for [text], whose `<selection>` markers say what is selected —
+     * **the production walk, constructed directly.**
+     *
+     * Directly, because there is nothing to reach it through: `com.snippetveil-withKotlin.xml`
+     * registers no `languageSupport`, so no dispatch finds this builder and every `.kt` file still
+     * takes the gate's stated refusal. That is the shape of this change rather than a gap in it.
+     */
+    protected fun kotlinPlanFor(path: String, text: String): SnippetPlan {
+        val file = myFixture.configureByText(path.substringAfterLast('/'), text)
+        return KotlinPlanBuilder.build(SnippetRequest(project, file, selectedRangesOf(myFixture.editor)))
+    }
 
     /**
      * **A `kotlin.*` member resolves, and resolves to _library_ origin** — not `null`, and not

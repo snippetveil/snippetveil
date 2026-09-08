@@ -470,9 +470,9 @@ class AnonymizeTest {
         val plan = SnippetPlan(
             text,
             listOf(
-                CommentOccurrence(0, 26, CommentVerdict.PROSE),
+                CommentOccurrence(0, 26, CommentVerdict.PROSE, SourceLanguage.JAVA),
                 symbolAt(31, "days", SymbolRole.LOCAL, SymbolOrigin.IN_CONTENT),
-                LiteralOccurrence(38, 40, LiteralKind.NUMBER, 38, 40),
+                LiteralOccurrence(38, 40, LiteralKind.NUMBER, 38, 40, language = SourceLanguage.JAVA),
             ),
         )
 

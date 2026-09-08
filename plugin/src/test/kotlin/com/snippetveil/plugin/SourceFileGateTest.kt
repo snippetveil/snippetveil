@@ -157,9 +157,10 @@ class SourceFileGateTest : BasePlatformTestCase() {
      * The registration is read off [LanguageSupportBean.extension], which is a string in the
      * descriptor: reading it instantiates no implementation and therefore links no Kotlin class.
      *
-     * **This test moves when the Kotlin plan builder lands.** Nothing registers `kt` today — the
-     * optional descriptor is empty on purpose — so the refusal is what a `.kt` file gets, and that
-     * being asserted here is what makes the arrival of a Kotlin support visible rather than silent.
+     * **This test moves when a Kotlin support is registered.** Nothing registers `kt` today — the
+     * optional descriptor is empty on purpose, and it stays empty even now that `KotlinPlanBuilder`
+     * exists — so the refusal is what a `.kt` file gets, and that being asserted here is what makes
+     * the arrival of a Kotlin support visible rather than silent.
      */
     fun `test the availability signal is asked per language rather than in aggregate`() {
         assertTrue(

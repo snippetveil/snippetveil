@@ -49,18 +49,47 @@ class SnippetPlan(
 sealed class Occurrence {
     abstract val start: Int
     abstract val end: Int
+
+    /**
+     * **The language this occurrence's token is written in.**
+     *
+     * A tag on the occurrence rather than a nesting of the plan: the plan stays a flat list of
+     * non-overlapping ranges, and one snippet may hold tokens of more than one language without
+     * anything about that list changing shape. See [SourceLanguage].
+     */
+    abstract val language: SourceLanguage
+}
+
+/**
+ * **The language one token is written in** — a fact about the token, reported like every other.
+ *
+ * Rendering used to be language-independent and is not any more. One symbol holds one placeholder,
+ * and how that placeholder is *spelled* at a token depends on the language the token is written in:
+ * a Kotlin property and the Java accessor the same declaration presents are one symbol wearing two
+ * spellings, and `:core` cannot spell one without knowing which it is looking at. The walk is the
+ * only thing that knows, so the walk is what records it.
+ *
+ * **This is not a language-policy extension point.** It is a closed set of the two languages this
+ * product walks, and it stays closed until there is a language that is not on the JVM — at which
+ * point what changes is the rendering, not the shape of this tag.
+ */
+enum class SourceLanguage {
+    JAVA,
+    KOTLIN,
 }
 
 /**
  * An identifier, together with everything known about the symbol it names.
  *
  * @param text the identifier exactly as it is written at this position
+ * @param language the language this identifier is written in; see [Occurrence.language]
  */
 class SymbolOccurrence(
     override val start: Int,
     override val end: Int,
     val text: String,
     val symbol: SymbolEvidence,
+    override val language: SourceLanguage,
 ) : Occurrence()
 
 /**
@@ -85,6 +114,7 @@ class SymbolOccurrence(
  *   of the literal it names. Reported per reference rather than per literal because
  *   `JavaClassReferenceSet` yields one reference per dotted segment, and the coverage rule is a
  *   statement about the gaps between them.
+ * @param language the language this literal is written in; see [Occurrence.language]
  */
 class LiteralOccurrence(
     override val start: Int,
@@ -93,6 +123,7 @@ class LiteralOccurrence(
     val contentStart: Int,
     val contentEnd: Int,
     val references: List<LiteralReference> = emptyList(),
+    override val language: SourceLanguage,
 ) : Occurrence()
 
 /**
@@ -151,11 +182,13 @@ class LiteralReference(val start: Int, val end: Int, val symbol: SymbolEvidence)
  * left behind is not a comment removed, it is a file that no longer parses.
  *
  * @param verdict what the body parses as. **A parse verdict, not a guess** — see [CommentVerdict].
+ * @param language the language this comment is written in; see [Occurrence.language]
  */
 class CommentOccurrence(
     override val start: Int,
     override val end: Int,
     val verdict: CommentVerdict,
+    override val language: SourceLanguage,
 ) : Occurrence()
 
 /**
