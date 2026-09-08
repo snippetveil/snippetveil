@@ -74,11 +74,90 @@ internal class KotlinSilenceTest : KotlinSnippetTestCase() {
         plan.assertSilent("@file:JvmName", "file")
 
         // Operator conventions: a `KtOperationReferenceExpression` carries no identifier, so the
-        // names Kotlin fixes by convention are never tokens to begin with.
+        // names Kotlin fixes by convention are never tokens to begin with. `invoke` is the same
+        // statement in call syntax — `handler(1)` names it and spells nothing.
         plan.assertSilent("1 + 2", "+")
         plan.assertSilent("xs[0]", "[")
         plan.assertSilent("counter++", "++")
         plan.assertSilent("for (entry in xs)", "in")
+        plan.assertSilent("handler(1)", "(")
+    }
+
+    /**
+     * **A label reference carrying no name identifier has no token to report** — the last entry on
+     * §4's list, and the one that needs nothing at all.
+     *
+     * `return@` with no label after it is red code, which is normal rather than exceptional: the
+     * snippet a developer is debugging is the likely one. A fixture of its own because the file every
+     * other assertion reads has to parse, and this one deliberately does not.
+     */
+    fun `test a label reference with no name identifier has no token`() {
+        assertTheHarnessResolves()
+        val source = """
+            package com.acme.ledger
+
+            fun use(xs: List<Int>) {
+                xs.forEach { return@ }
+            }
+        """.trimIndent()
+
+        kotlinPlanFor("com/acme/ledger/Bare.kt", source).assertSilent("return@ }", "@")
+
+        assertEquals(
+            "$SILENCE: a label with nothing to name is spliced over",
+            """
+            package com.pkg1.pkg2
+
+            fun method3(param4: List<Int>) {
+                param4.forEach { return@ }
+            }
+            """.trimIndent(),
+            kotlinOutputFor("com/acme/ledger/Bare2.kt", source),
+        )
+    }
+
+    /**
+     * **The two near-misses on the third silent shape, and each of them a leak if it were not
+     * excluded.**
+     *
+     * A backtick-escaped name and an import alias both resolve to a declaration the token does not
+     * spell — which is exactly what `copy` and `component1` do. The difference is *who chose the
+     * spelling*: the language chose `copy`, and the **developer** chose `` `merchant ref` `` and
+     * `Pay`. Silencing either would rename the declaration a few lines above and leave the developer's
+     * own word at every call site, which is the leak class this rule exists to prevent rather than a
+     * degradation of it.
+     *
+     * Asserted as output rather than as a plan, because a leak is a fact about the clipboard.
+     */
+    fun `test a backticked name and an import alias are the developer's words and are not silent`() {
+        assertTheHarnessResolves()
+        myFixture.addFileToProject(
+            "com/acme/ledger/Payment.kt",
+            """
+            package com.acme.ledger
+
+            class Payment(val merchantRef: String)
+            """.trimIndent(),
+        )
+
+        val output = kotlinOutputFor(
+            "com/acme/ledger/Chosen.kt",
+            """
+            package com.acme.ledger
+
+            import com.acme.ledger.Payment as Pay
+
+            fun `merchant ref`(): Int = 1
+
+            fun use(p: Pay): Int {
+                println(p)
+                return `merchant ref`()
+            }
+            """.trimIndent(),
+        )
+
+        assertFalse("$SILENCE: a backtick-escaped name survived into the output\n$output", output.contains("merchant ref"))
+        assertFalse("$SILENCE: an import alias survived into the output\n$output", Regex("""\bPay\b""").containsMatchIn(output))
     }
 
     /**
@@ -124,17 +203,16 @@ internal class KotlinSilenceTest : KotlinSnippetTestCase() {
 
         assertEquals("a silent name is not a name the IDE failed to resolve", emptyList<String>(), result.unknowns.map { it.name })
         assertEquals("a silent name is not a disclosure", emptyList<String>(), result.fidelityNotices())
-        for (silent in listOf("it", "Companion", "field", "copy", "component1")) {
+
+        for (silent in SILENT_WORDS) {
             assertFalse(
                 "`$silent` is a row in the mapping table, and nobody declared it",
                 result.names.any { it.original == silent },
             )
-        }
 
-        // And it is still in the text: there is nothing to restore, so nothing to refuse a paste
-        // over — a name the language fixed was never going to be replaced, so preserving it
-        // conceals nothing.
-        for (silent in listOf("it", "Companion", "field", "copy", "component1")) {
+            // And it is still in the text: there is nothing to restore, so nothing to refuse a paste
+            // over — a name the language fixed was never going to be replaced, so preserving it
+            // conceals nothing.
             assertTrue(
                 "$SILENCE: `$silent` did not survive into the output\n${result.text}",
                 Regex("""\b${Regex.escape(silent)}\b""").containsMatchIn(result.text),
@@ -250,7 +328,11 @@ private val SILENT = """
         override fun settle() { super.settle() }
     }
 
-    fun use(xs: List<String>, p: Payment) {
+    class Handler {
+        operator fun invoke(units: Int) {}
+    }
+
+    fun use(xs: List<String>, p: Payment, handler: Handler) {
         xs.map { it.length }
         Holder.Companion
         p.copy(merchantRef = "x")
@@ -260,7 +342,19 @@ private val SILENT = """
         var counter = 0
         counter++
         for (entry in xs) {}
+        handler(1)
     }
 """.trimIndent()
+
+/**
+ * The silent words [SILENT] writes that a **whole word** search can find — the three the walk
+ * silences by a rule of its own, plus the two generated data-class members.
+ *
+ * The rest of the ticket's list is not here because it is not a word: `this` and `super` are hard
+ * keywords, `get` / `set` / `@get:` / `@file:` are soft ones, and the operator conventions carry no
+ * identifier at all. Those are asserted by offset, where the claim is *no token*, rather than by
+ * spelling, where every one of them would also match something else in the file.
+ */
+private val SILENT_WORDS = listOf("it", "Companion", "field", "copy", "component1")
 
 private const val SILENCE = "The silence rule"

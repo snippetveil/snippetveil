@@ -52,6 +52,7 @@ import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtObjectDeclaration
 import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.psi.KtPsiUtil
 import org.jetbrains.kotlin.psi.KtTypeAlias
 import org.jetbrains.kotlin.psi.KtTypeParameter
 import org.jetbrains.kotlin.psi.KtValueArgument
@@ -227,10 +228,18 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * survived verbatim*. A third fidelity notice is rejected — it would reopen a list closed on
      * purpose and fire on nearly every Kotlin snippet, which is the definition of wallpaper.
      *
-     * **An import alias is the near-miss on the third shape, and it is excluded.** `import Payment as
-     * Pay` makes `Pay` resolve to a class it does not spell, exactly as `copy` does — and `Pay` is a
-     * word the *developer* chose, so silencing it would copy domain vocabulary onto the clipboard.
-     * The alias is asked of the reference rather than matched by spelling.
+     * **Two near-misses on the third shape, and both are excluded — each of them a leak if it were
+     * not.** They are the same failure: a word the *developer* chose, spelled differently from the
+     * declaration it reaches, which silence would copy onto the clipboard while the declaration a few
+     * lines above renamed.
+     *
+     *  - **An import alias.** `import Payment as Pay` makes `Pay` resolve to a class it does not
+     *    spell, exactly as `copy` does. The alias is asked of the reference rather than matched by
+     *    spelling.
+     *  - **A backtick-escaped name.** The `IDENTIFIER` leaf of `` `merchant ref`() `` carries its
+     *    backticks and `KtNamedDeclaration.getName()` does not, so the raw texts differ over a name
+     *    that is the same name. The comparison is made on the unquoted spelling, which is the one
+     *    both sides mean.
      *
      * The other near-miss is stated where it lives: a **file facade** name has no declaration in
      * source either and is **not** silent, because it is the file name and the file name is domain
@@ -257,7 +266,9 @@ internal object KotlinPlanBuilder : PlanBuilder {
 
         resolved is KtDeclaration -> {
             val declared = (resolved as? PsiNamedElement)?.name
-            declared != null && declared != written && importAliasOf(reference) == null
+            declared != null &&
+                declared != KtPsiUtil.unquoteIdentifier(written) &&
+                importAliasOf(reference) == null
         }
 
         else -> false

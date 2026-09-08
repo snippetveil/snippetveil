@@ -225,17 +225,28 @@ fun anonymize(
     val names = LinkedHashMap<String, MappedName>()
 
     /**
+     * The half of the answer below that reads **the key alone** — which is the whole answer for a row
+     * whose symbol is not the row's own.
+     *
+     * A field row filed by [recordField] is exactly that: the occurrence names the *accessor*, and
+     * the row is the field's, so there is no symbol whose namespace could be load-bearing. Split out
+     * rather than restated there, because the cascade is the one place [Renaming] is decided and an
+     * arm added to it has to reach every row.
+     */
+    fun renamingUnder(key: String): Renaming = when {
+        key in ledger.placeholders -> Renaming.ESTABLISHED
+        key in derivedKeys -> Renaming.DERIVED
+        else -> Renaming.OFFERED
+    }
+
+    /**
      * **Whether the preview may rename this row, and when it may not, why** — see [Renaming]. Asked
      * of the ledger this invocation was handed rather than of the delta it is building, because the
      * question is *was this name already sent*: a key the snapshot already had is a name past
      * replies are written in, and every other placeholder here was minted a moment ago.
      */
-    fun renamingOf(symbol: SymbolEvidence, key: String, placeholder: String?): Renaming = when {
-        placeholder == null || keepsItsNamespace(symbol) -> Renaming.NONE
-        key in ledger.placeholders -> Renaming.ESTABLISHED
-        key in derivedKeys -> Renaming.DERIVED
-        else -> Renaming.OFFERED
-    }
+    fun renamingOf(symbol: SymbolEvidence, key: String, placeholder: String?): Renaming =
+        if (placeholder == null || keepsItsNamespace(symbol)) Renaming.NONE else renamingUnder(key)
 
     fun record(symbol: SymbolEvidence, placeholder: String?) {
         // **The key the placeholder was handed out against**, which is the key a preserve and a
@@ -282,6 +293,13 @@ fun anonymize(
      * changes the shipped Java rendering, diverges by install age, and names a field the source does
      * not have. Rejected too: rewriting the token to `javaObj.getMethod7()`, which is shape
      * rewriting rather than descriptive substitution.
+     *
+     * @param accessor `symbol.accessor`, which the caller has already unpacked because it files the
+     *   row with it. Passed rather than read off [symbol] again so that the nullable is opened once,
+     *   at the one site that has to branch on it.
+     * @param writtenName the token as the snippet spells it, read out of the plan's text rather than
+     *   off the occurrence — a literal reference carries no text of its own, and one source for a
+     *   fact both call sites need is what keeps the rule from depending on where a name is written.
      */
     fun deprefixedAt(
         language: SourceLanguage,
@@ -317,7 +335,7 @@ fun anonymize(
                 placeholder = placeholder,
                 kind = MappedKind.FIELD,
                 key = accessor.fieldKey,
-                renaming = if (accessor.fieldKey in ledger.placeholders) Renaming.ESTABLISHED else Renaming.OFFERED,
+                renaming = renamingUnder(accessor.fieldKey),
             )
         }
     }

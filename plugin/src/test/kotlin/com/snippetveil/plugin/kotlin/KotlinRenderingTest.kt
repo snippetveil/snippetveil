@@ -269,13 +269,24 @@ internal class KotlinRenderingTest : KotlinSnippetTestCase() {
     fun `test a file facade is an ordinary project class and renames`() {
         assertTheHarnessResolves()
         assertTheFacadeBehaviourIsPinned()
-        myFixture.addFileToProject(
-            "com/acme/ledger/PaymentService.kt",
-            """
+        val facadeSource = """
             package com.acme.ledger
 
             fun foo(): Int = 1
+        """.trimIndent()
+        myFixture.addFileToProject("com/acme/ledger/PaymentService.kt", facadeSource)
+
+        // The Kotlin side first, where the facade has **no token anywhere in the source** — so what
+        // this half asserts is the top-level callable it presents, rendering as the ordinary method
+        // it is. The facade's own name is reachable only from Java, which is the other half.
+        assertEquals(
+            "$FACADE: a top-level callable is an ordinary method on the Kotlin side",
+            """
+            package com.pkg1.pkg2
+
+            fun method3(): Int = 1
             """.trimIndent(),
+            kotlinOutputFor("com/acme/ledger/PaymentServiceRead.kt", facadeSource),
         )
 
         val plan = planFor(
@@ -311,6 +322,12 @@ internal class KotlinRenderingTest : KotlinSnippetTestCase() {
         assertTrue(
             "$FACADE: the facade name is a row, so it is not excluded from what the counts speak about",
             result.names.any { it.original == "PaymentServiceKt" },
+        )
+        assertEquals(
+            "$FACADE: the top-level callable is one entry, owned by the facade, whichever side names it",
+            "method6/foo",
+            result.delta.placeholders["method:class:com.acme.ledger.PaymentServiceKt#foo"]
+                ?.let { it.placeholder + "/" + it.original },
         )
     }
 
