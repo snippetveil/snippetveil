@@ -248,6 +248,106 @@ fun anonymize(
         }
     }
 
+    /**
+     * **The field placeholder a token de-prefixes to, or `null` where the placeholder is spliced
+     * verbatim** — the one rendering rule in this engine that is a function of the language a token
+     * is written in, and the whole of what [SourceLanguage] is carried for.
+     *
+     * > One symbol holds one placeholder. How that placeholder is *spelled* at a token is computed
+     * > per-language, at splice time — `field1` in Kotlin, `getField1()` in Java.
+     *
+     * The case is a Kotlin token naming a **Java** accessor: `javaObj.body` is a property access
+     * spelled with the getter's symbol, because Kotlin presents a JavaBeans pair as a property. The
+     * key is the Java method's — or the two languages would disagree about a symbol they both see —
+     * so what is left is a pure spelling function over the placeholder the Java side already
+     * assigned.
+     *
+     * Three conditions, and each excludes a case that must splice verbatim:
+     *
+     *  - **The token is not written as the accessor's own name.** `javaObj.getBody()` is written in
+     *    Kotlin as often as `javaObj.body` is, and it renders `getField1()` there exactly as it does
+     *    in Java. This is also what leaves `isFoo` alone, whose synthetic property is spelled the
+     *    same as its getter.
+     *  - **The field has a placeholder.** It is allocated as a side effect of the accessor's own —
+     *    see [placeholderFor] — so this is the ledger case: an accessor named by an earlier snippet
+     *    whose field was not written down.
+     *  - **The accessor's placeholder is the one derived from it.** Derivation can fail on a
+     *    collision and fall back to an ordinary allocation, and an accessor with no backing field
+     *    never had one. *An accessor-shaped placeholder de-prefixes, anything else is spliced
+     *    verbatim* — so a fieldless getter renders `javaObj.method7`, which is an **obvious**
+     *    artifact rather than a plausible one, and the same trade already accepted for
+     *    `String.format("str1", a, b)`.
+     *
+     * **Rejected, and not by omission: minting a property placeholder for a fieldless getter.** It
+     * changes the shipped Java rendering, diverges by install age, and names a field the source does
+     * not have. Rejected too: rewriting the token to `javaObj.getMethod7()`, which is shape
+     * rewriting rather than descriptive substitution.
+     */
+    fun deprefixedAt(
+        language: SourceLanguage,
+        writtenName: String,
+        symbol: SymbolEvidence,
+        accessor: AccessorEvidence,
+        placeholder: String,
+    ): String? {
+        if (language != SourceLanguage.KOTLIN) return null
+        if (writtenName == symbol.declaredName) return null
+
+        val field = placeholderByKey[accessor.fieldKey] ?: return null
+        return field.takeIf { placeholder == derivedAccessorPlaceholder(accessor.prefix, it) }
+    }
+
+    /**
+     * The row for a **field** whose placeholder reached the output through a token that de-prefixed
+     * — see [deprefixedAt].
+     *
+     * A row of its own rather than the accessor's, because a row is a placeholder **and what it
+     * stands for**: the word in the output is `field1`, and `field1` stands for the field `body`.
+     * Filing it under the accessor would put a placeholder in the table that is nowhere in the text
+     * and leave the one that is in the text unexplained.
+     *
+     * Renamable exactly as the field's own occurrence would be, and for the same reason
+     * [Renaming.DERIVED] gives on the accessor's row: a stem is typed against the **field's** key,
+     * which is the key [placeholderFor] mints the pair under.
+     */
+    fun recordField(accessor: AccessorEvidence, placeholder: String) {
+        names.getOrPut(placeholder) {
+            MappedName(
+                original = accessor.fieldName,
+                placeholder = placeholder,
+                kind = MappedKind.FIELD,
+                key = accessor.fieldKey,
+                renaming = if (accessor.fieldKey in ledger.placeholders) Renaming.ESTABLISHED else Renaming.OFFERED,
+            )
+        }
+    }
+
+    /**
+     * Splices [symbol]'s placeholder over `[start, end)`, spelled as [language] spells it — and files
+     * the row for whichever name reached the output.
+     *
+     * One function rather than the same four lines at the identifier site and the literal-reference
+     * site. A reference the coverage rule spliced names its symbol as surely as an identifier does,
+     * so a spelling rule that reached only one of the two would be a rule that depends on where a
+     * name is written rather than on what language it is written in.
+     */
+    fun splice(language: SourceLanguage, start: Int, end: Int, symbol: SymbolEvidence) {
+        val placeholder = placeholderFor(symbol)
+        val accessor = symbol.accessor
+
+        if (accessor != null) {
+            val field = deprefixedAt(language, plan.text.substring(start, end), symbol, accessor, placeholder)
+            if (field != null) {
+                edits += Edit(start, end, field)
+                recordField(accessor, field)
+                return
+            }
+        }
+
+        edits += Edit(start, end, placeholder)
+        record(symbol, placeholder)
+    }
+
     // One pass in document order, which is what makes the output read top to bottom: every
     // placeholder is allocated the first time the thing it stands for is written, whether that is
     // an identifier or a reference inside a literal. [placeholderFor] allocates once per key, so the
@@ -260,9 +360,7 @@ fun anonymize(
                 val symbol = occurrence.symbol
                 namedSymbols += symbol
                 if (isReplaced(symbol)) {
-                    val placeholder = placeholderFor(symbol)
-                    edits += Edit(occurrence.start, occurrence.end, placeholder)
-                    record(symbol, placeholder)
+                    splice(occurrence.language, occurrence.start, occurrence.end, symbol)
                 } else if (isPreserved(symbol)) {
                     // Preserved by the one reduction the design authorises, and a row *because* it
                     // was preserved — see [MappedName]. A row that vanished when ticked could not
@@ -291,9 +389,7 @@ fun anonymize(
                 is LiteralRewrite.Spliced -> for (reference in rewrite.references) {
                     namedSymbols += reference.symbol
                     if (isReplaced(reference.symbol)) {
-                        val placeholder = placeholderFor(reference.symbol)
-                        edits += Edit(reference.start, reference.end, placeholder)
-                        record(reference.symbol, placeholder)
+                        splice(occurrence.language, reference.start, reference.end, reference.symbol)
                     } else if (isPreserved(reference.symbol)) {
                         // A row for the reason the identifier above is one: a symbol met only inside
                         // a literal is still a row, and the tick is on it.

@@ -53,6 +53,50 @@ internal fun planPlacing(text: String, vararg placements: Placement, rootPackage
     return SnippetPlan(text, occurrences.sortedBy { it.start }, rootPackage)
 }
 
+/**
+ * A plan over [text] whose occurrences are located by **the text written at them** and tagged with
+ * **the language each one is written in** — the two things [planOf] and [planPlacing] fix, because
+ * every rule they are used for is a rule about a Java-shaped plan.
+ *
+ * Both are needed by the same rule and by no other. *How a placeholder is spelled at a token is
+ * computed per-language, at splice time* is a statement about a token whose text is **not** its
+ * symbol's name — `javaObj.body` names the method `getBody` — written in a language that is not
+ * every other occurrence's. A plan literal that could say neither could not state the case.
+ */
+internal fun planWriting(text: String, vararg tokens: Token, rootPackage: String? = null): SnippetPlan {
+    val used = mutableMapOf<String, MutableList<Int>>()
+    val occurrences = tokens.map { token ->
+        val offsets = used.getOrPut(token.written) {
+            generateSequence(text.indexOf(token.written)) { text.indexOf(token.written, it + token.written.length) }
+                .takeWhile { it >= 0 }
+                .toMutableList()
+        }
+        val at = offsets.getOrNull(token.ordinal)
+            ?: error("`${token.written}` occurs ${offsets.size} times in the snippet; there is no #${token.ordinal}")
+        SymbolOccurrence(at, at + token.written.length, token.written, token.symbol, token.language)
+    }
+    return SnippetPlan(text, occurrences.sortedBy { it.start }, rootPackage)
+}
+
+/**
+ * One token of a plan literal: the text written at it, which occurrence of that text it is, the
+ * symbol it names and the language it is written in. See [planWriting].
+ */
+internal class Token(
+    val written: String,
+    val ordinal: Int,
+    val symbol: SymbolEvidence,
+    val language: SourceLanguage,
+)
+
+/** A token written in Kotlin spelling [written], which need not be [symbol]'s own name. */
+internal fun inKotlin(written: String, symbol: SymbolEvidence, ordinal: Int = 0) =
+    Token(written, ordinal, symbol, SourceLanguage.KOTLIN)
+
+/** A token written in Java spelling [written]. See [inKotlin]. */
+internal fun inJava(written: String, symbol: SymbolEvidence, ordinal: Int = 0) =
+    Token(written, ordinal, symbol, SourceLanguage.JAVA)
+
 /** One symbol, and which occurrence of its own name in the snippet this is — counted from zero. */
 internal class Placement(val ordinal: Int, val symbol: SymbolEvidence)
 

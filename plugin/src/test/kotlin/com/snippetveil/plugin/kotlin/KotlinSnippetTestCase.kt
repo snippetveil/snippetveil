@@ -12,7 +12,10 @@ import com.snippetveil.plugin.attachJar
 import com.snippetveil.plugin.complaintAboutFixtureOrigin
 import com.snippetveil.plugin.originInTheFixture
 import com.snippetveil.plugin.selectedRangesOf
+import com.snippetveil.core.AnonymizationSettings
+import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.SnippetPlan
+import com.snippetveil.core.anonymize
 import org.jetbrains.kotlin.asJava.KotlinAsJavaSupport
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
 import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode
@@ -67,6 +70,17 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
         val file = myFixture.configureByText(path.substringAfterLast('/'), text)
         return KotlinPlanBuilder.build(SnippetRequest(project, file, selectedRangesOf(myFixture.editor)))
     }
+
+    /**
+     * What the engine makes of [kotlinPlanFor]'s plan — the whole invocation, from tree to clipboard
+     * text, with no reduction of any kind and an empty ledger.
+     *
+     * Here rather than in one test class because *what a Kotlin token comes out as* is asked from
+     * both sides of the same question: what is spliced, and what is silent. Two spellings of this
+     * would be two ways for a fixture to differ from the one the other class measured.
+     */
+    protected fun kotlinOutputFor(path: String, text: String): String =
+        anonymize(kotlinPlanFor(path, text), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY).text
 
     /**
      * **A `kotlin.*` member resolves, and resolves to _library_ origin** — not `null`, and not
