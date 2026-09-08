@@ -4,6 +4,9 @@ import org.jetbrains.changelog.Changelog
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.tasks.SignPluginTask
 import org.objectweb.asm.ClassReader
+import org.objectweb.asm.ClassVisitor
+import org.objectweb.asm.MethodVisitor
+import org.objectweb.asm.Opcodes
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
@@ -1779,4 +1782,121 @@ val assertTheKotlinFixturesAreExcludedFromTheFloor = tasks.register("assertTheKo
 
 tasks.named("check") {
     dependsOn(assertTheKotlinFixturesAreExcludedFromTheFloor)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The save dialog's extension filter
+//
+// SavedMappingFiles.save builds a FileSaverDescriptor with the varargs constructor, because on the
+// floor that constructor is the only thing that carries an extension filter at all. On 2025.1 the
+// filter moves onto FileChooserDescriptor.withExtensionFilter and the constructor picks up
+// @Deprecated in the same release — so the day the floor reaches 251, the call site is due for a
+// rewrite and its rationale comment stops being true.
+//
+// Nothing used to connect those two facts. The floor rising was supposed to be the trigger, and it
+// already rose once — 241 to 242, with Kotlin support — without the trigger firing, because the
+// version somebody had guessed at was not the version the API actually arrives in. That is the
+// failure this block exists to make impossible a second time: the trigger is now the API, observed
+// on the classpath the product compiles against, rather than a version number in anybody's memory.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Fails when the floor gains the builder form of the save dialog's extension filter.
+ *
+ * **A red build is the point, and it is not a defect when it happens.** Raising
+ * `platformFloorVersion` to 2025.1 or later turns this task red on purpose, and the way to make it
+ * green is the rewrite it names: `withExtensionFilter("csv")` in place of the varargs constructor,
+ * and the rationale comment in `MappingExport.kt` deleted, because a comment explaining a constraint
+ * that has lifted is worse than no comment.
+ *
+ * **It observes the API rather than comparing versions.** `KotlinHarnessTest` asserts the Kotlin
+ * mode it got rather than trusting the pin that was supposed to produce it, and this is the same
+ * move for the same reason: the previous version of this rule was a version number written down by
+ * someone who had not checked, the floor moved past it, and nothing noticed.
+ *
+ * **The floor cell only, deliberately.** The claim is about what the *shipped* code may call, and
+ * the floor cell's compile classpath is the only place that is on disk — in `k2` and `latest` the
+ * builder is present and correct, and a task that read those would be red on every leg from the day
+ * it was written. `check` runs the floor leg on every pull request and `floor` is the default
+ * profile, so the gate is a merge gate rather than something only a full matrix sees.
+ *
+ * **Explicitly rejected: resolving the floor IDE in every cell** so that this could run everywhere.
+ * It is one extra IntelliJ distribution downloaded and cached per non-floor leg to re-derive a fact
+ * the floor leg already has, which buys nothing the paragraph above does not already cover.
+ */
+val assertTheFloorStillHasNoExtensionFilterBuilder =
+    tasks.register("assertTheFloorStillHasNoExtensionFilterBuilder") {
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        description = "Fails when the floor platform gains FileChooserDescriptor.withExtensionFilter."
+
+        val profile = platformProfile
+        val floorVersion = platformProperty("platformFloorVersion")
+
+        // The compile classpath rather than the IDE directory: it is what `compileKotlin` resolves
+        // references against, so it is the exact surface the call site is held to.
+        val classpath = configurations.named("compileClasspath").flatMap { it.elements }
+
+        // Sidestepped entirely off the floor, where the answer is known and uninteresting — see the
+        // KDoc. `onlyIf` rather than a conditional `dependsOn`, so that `-PplatformProfile=latest`
+        // reports the task as skipped instead of the task appearing not to exist.
+        onlyIf("the claim is about the floor's API surface, which only the floor cell has on disk") {
+            profile == "floor"
+        }
+
+        inputs.property("platformProfile", profile)
+        inputs.property("platformFloorVersion", floorVersion)
+        inputs.files(classpath).withPropertyName("compileClasspath")
+
+        doLast {
+            val owner = "com/intellij/openapi/fileChooser/FileChooserDescriptor"
+            val builder = "withExtensionFilter"
+
+            val bytecode = classpath.get().asSequence().map { it.asFile }
+                .filter { it.isFile && it.extension == "jar" }
+                .mapNotNull { jar ->
+                    ZipFile(jar).use { archive ->
+                        archive.getEntry("$owner.class")?.let { archive.getInputStream(it).readBytes() }
+                    }
+                }
+                .firstOrNull()
+
+            // Not finding the class is a failure and not a pass. A gate that quietly answers "no
+            // builder here" because it was looking at the wrong classpath is the same shape of hole
+            // as the version number this task replaced.
+            checkNotNull(bytecode) {
+                "$owner is not on the $profile compile classpath, so nothing here can say whether the " +
+                    "floor has $builder. This task guards the varargs FileSaverDescriptor constructor " +
+                    "in SavedMappingFiles.save; it cannot be allowed to pass without having looked."
+            }
+
+            val declared = mutableSetOf<String>()
+            ClassReader(bytecode).accept(
+                object : ClassVisitor(Opcodes.ASM9) {
+                    override fun visitMethod(
+                        access: Int,
+                        name: String,
+                        descriptor: String,
+                        signature: String?,
+                        exceptions: Array<out String>?,
+                    ): MethodVisitor? {
+                        declared += name
+                        return null
+                    }
+                },
+                ClassReader.SKIP_CODE or ClassReader.SKIP_DEBUG or ClassReader.SKIP_FRAMES,
+            )
+
+            check(builder !in declared) {
+                "The floor is $floorVersion, and its FileChooserDescriptor declares $builder — so the " +
+                    "varargs FileSaverDescriptor constructor in SavedMappingFiles.save is no longer " +
+                    "the only way to keep the `csv` filter, and it is deprecated from the same " +
+                    "release. Rewrite the call site onto `.withExtensionFilter(\"csv\")`, keeping the " +
+                    "filter, delete the rationale comment above it in MappingExport.kt, and delete " +
+                    "this task — all three, or the next reader is told a constraint that has lifted."
+            }
+        }
+    }
+
+tasks.named("check") {
+    dependsOn(assertTheFloorStillHasNoExtensionFilterBuilder)
 }

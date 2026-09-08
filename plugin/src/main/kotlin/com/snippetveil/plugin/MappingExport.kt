@@ -54,11 +54,22 @@ internal interface MappingFiles {
 internal object SavedMappingFiles : MappingFiles {
 
     override fun save(project: Project, csv: String): Boolean {
-        // The varargs constructor is deprecated on current platforms, where the extension filter has
-        // moved onto a builder — and it is the **only** one the `sinceBuild` floor has, so it stays
-        // until the floor rises. `verifyPlugin` reports it as a deprecated usage on the newer IDEs
-        // and compatible on all five; the alternative is dropping the filter on every IDE to quiet a
-        // warning on some of them.
+        // **The varargs constructor, because on the 242 floor it is the only thing that carries an
+        // extension filter at all.** `FileChooserDescriptor.withExtensionFilter` and the
+        // `@Deprecated` on this constructor both arrive in 2025.1, so on the newer IDEs this is a
+        // deprecated call with a replacement and on the floor it is neither. `verifyPlugin` reports
+        // the deprecated usage on the 251 and 252 IDEs and Compatible on every recommended one.
+        //
+        // **Not fixed by dropping the filter.** That trades a warning visible to nobody for a worse
+        // Export Mapping dialog on every IDE, including the ones that never warned.
+        //
+        // **Nothing here is what remembers to revisit this.** An earlier version of this comment
+        // said the constructor stays "until the floor rises", the floor then rose without the
+        // builder arriving with it, and a conditional decision kept only in prose went unread.
+        // `assertTheFloorStillHasNoExtensionFilterBuilder` in `plugin/build.gradle.kts` is what
+        // holds the condition now: it reads `FileChooserDescriptor` off the floor's own compile
+        // classpath, goes red the day the builder is on it, and names this comment among the things
+        // to delete.
         val descriptor = FileSaverDescriptor(
             "Export Mapping",
             "Save this snippet's placeholder mapping, which reverses the anonymized text",

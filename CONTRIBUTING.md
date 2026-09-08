@@ -590,6 +590,21 @@ the Kotlin plugin's default, and latest stable.** `untilBuild` is unset, so the 
 resolution behaviour across four years of platform releases is exactly what drifts quietly. If the
 matrix ever proves painful, the honest fix is to **raise the floor**, not to stop testing it.
 
+**Raising the floor is expected to turn `check` red, and that is the mechanism rather than a
+regression.** A call site written against the floor's API sometimes carries a conditional decision —
+*this form stays until the floor has the better one* — and a condition like that is worthless if the
+only thing holding it is a comment. The floor moving from 241 to 242 with Kotlin support proved it:
+the save dialog in `MappingExport.kt` was supposed to be rewritten "when the floor rises", the floor
+rose, and nothing noticed, because the API in question does not arrive until 251.
+
+So the condition is a task. `assertTheFloorStillHasNoExtensionFilterBuilder` reads
+`FileChooserDescriptor` off the floor cell's own compile classpath and fails the moment
+`withExtensionFilter` is on it, naming the rewrite, the comment to delete and itself. It observes the
+API rather than comparing version numbers, for the reason `KotlinHarnessTest` asserts the mode it got
+rather than trusting the pin that was supposed to produce it: the version number is the part that was
+already wrong once. It runs in the floor cell only — that is the one leg whose classpath is the
+claim — and skips with a stated reason elsewhere.
+
 **The `k2` leg exists because the floor cannot hold a Kotlin fixture.** `plugin.xml` declares
 `supportsK1="false" supportsK2="true"`, and the Kotlin plugin's default mode on the 242 floor is K1 —
 so a Kotlin fixture running there would measure a configuration this plugin declares unsupported, and
