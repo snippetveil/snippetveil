@@ -100,11 +100,14 @@ class SymbolOccurrence(
  * answering 5 of 6 questions at parity — so preserving literals verbatim is not the conservative
  * default, it is a live leak the size of the comment leak.
  *
- * @param kind what the literal is in Java's grammar, which is what decides whether it is touched at
- *   all: a number is shape rather than domain, and `3`, `443` and `30_000` tell a reviewer about
- *   retry counts, ports and timeouts, which is frequently the bug
+ * @param kind what the literal is in its own language's grammar, which is what decides whether it is
+ *   touched at all: a number is shape rather than domain, and `3`, `443` and `30_000` tell a
+ *   reviewer about retry counts, ports and timeouts, which is frequently the bug
  * @param contentStart where the literal's own text starts — after the opening delimiter, and after
- *   the line terminator that opens a text block
+ *   the line terminator that opens a text block. **A Kotlin string template is decomposed rather
+ *   than reported whole**, so one of these is frequently a chunk of a template: the run of literal
+ *   text between two interpolations, whose opening delimiter is the one character the interpolation
+ *   before it ended at
  * @param contentEnd where it ends, before the closing delimiter. **Only the content is ever
  *   rewritten**, which is how the replacement preserves the literal's syntactic form for free: a
  *   text block stays a text block, and an escaped literal stays escaped, because no delimiter and
@@ -113,7 +116,9 @@ class SymbolOccurrence(
  * @param references the PSI references the literal carries, in document order, each over the part
  *   of the literal it names. Reported per reference rather than per literal because
  *   `JavaClassReferenceSet` yields one reference per dotted segment, and the coverage rule is a
- *   statement about the gaps between them.
+ *   statement about the gaps between them. Empty for a chunk of a Kotlin template, which is
+ *   therefore always replaced whole — the names a template carries are its interpolations, and each
+ *   of those is ordinary code outside every chunk.
  * @param language the language this literal is written in; see [Occurrence.language]
  */
 class LiteralOccurrence(
@@ -127,8 +132,8 @@ class LiteralOccurrence(
 ) : Occurrence()
 
 /**
- * What a literal is, in Java's grammar. **Grammar, never purpose** — what a literal is *for* is not
- * a thing a builder can know, and no rule here asks.
+ * What a literal is, in the grammar of the language it is written in. **Grammar, never purpose** —
+ * what a literal is *for* is not a thing a builder can know, and no rule here asks.
  *
  * The four kinds that are not string-shaped are enumerated rather than collapsed into "not a string"
  * because each is a fact, and a fact is what crosses this seam. What [anonymize] then does with each
@@ -140,7 +145,8 @@ enum class LiteralKind {
     STRING,
 
     /**
-     * `"""…"""`. Told apart from [STRING] because the two are delimited differently, and the
+     * `"""…"""` — a Java text block, and **a Kotlin raw string**, which is the same form in the
+     * other language. Told apart from [STRING] because the two are delimited differently, and the
      * replacement lands inside the delimiters: `"""…"""` collapsed to `"str1"` is malformed-looking
      * in a way that reads as a bug in this tool rather than as anonymization.
      */

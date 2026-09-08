@@ -58,7 +58,9 @@ internal object JavaPlanBuilder : PlanBuilder {
 
     override fun build(request: SnippetRequest): SnippetPlan {
         val file = request.file
-        val snapped = request.selections.map { TextRange(snapStart(file, it.startOffset), snapEnd(file, it.endOffset)) }
+        val snapped = request.selections.map {
+            TextRange(snapStart(file, it.startOffset, ::tokenOf), snapEnd(file, it.endOffset, ::tokenOf))
+        }
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
@@ -75,6 +77,17 @@ internal object JavaPlanBuilder : PlanBuilder {
             selectionExpanded = snapped != request.selections,
         )
     }
+
+    /**
+     * **What one token is, in Java: the leaf itself.** See [TokenOf].
+     *
+     * Java's token classes are the identifier, the string literal and the text block, and the
+     * platform gives each of them a single leaf — a text block included, delimiters, newlines and
+     * all. So there is nothing to widen, and a snap onto a leaf boundary is already a snap onto a
+     * token boundary. Stated rather than defaulted, because *which classes those are* is a statement
+     * about a language, and the language's own walk is where such a statement belongs.
+     */
+    private fun tokenOf(leaf: PsiElement): PsiElement = leaf
 
     /**
      * Every identifier inside the analysed ranges, with what is known about the symbol it names.

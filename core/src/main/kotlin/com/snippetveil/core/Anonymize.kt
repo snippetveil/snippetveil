@@ -936,8 +936,17 @@ private fun namesSurviving(plan: SnippetPlan, removed: List<Occurrence>): Set<St
         .mapTo(HashSet()) { it.value }
 }
 
-/** A Java identifier, as the language defines one rather than as ASCII would. */
-private val IDENTIFIER = Regex("""[\p{L}_$][\p{L}\p{N}_$]*""")
+/**
+ * An identifier-shaped word, as the languages define one rather than as ASCII would — and **cut at
+ * the same characters a reversal cuts at**, `$` among them.
+ *
+ * The two definitions are one rule read from both ends: this one decides which words a placeholder
+ * may not collide with, and [deanonymize]'s decides which words a reply is looked up by. A `$` that
+ * was a word character here and a boundary there would reserve `foo$Type1` while a reply containing
+ * it had `Type1` restored out of the middle — the collision this set exists to prevent, arrived at
+ * by the two ends disagreeing about where a word stops.
+ */
+private val IDENTIFIER = Regex("""[\p{L}_][\p{L}\p{N}_]*""")
 
 /**
  * Hands out placeholders from **one counter shared by every role**, so `local14` is ordinary and a

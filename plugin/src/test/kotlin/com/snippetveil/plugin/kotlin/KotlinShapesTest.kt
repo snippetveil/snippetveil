@@ -53,7 +53,7 @@ internal class KotlinShapesTest : KotlinSnippetTestCase() {
 
             fun method5(param6: List<Int>): String {
                 method3(param4 = 1)
-                return param6.joinToString(separator = ",")
+                return param6.joinToString(separator = "str7")
             }
             """.trimIndent(),
         )
@@ -80,8 +80,8 @@ internal class KotlinShapesTest : KotlinSnippetTestCase() {
 
             annotation class Anno3(val attr4: String)
 
-            @Anno3(attr4 = "why")
-            fun method5(): Int = 1
+            @Anno3(attr4 = "str5")
+            fun method6(): Int = 1
             """.trimIndent(),
         )
     }
@@ -121,8 +121,8 @@ internal class KotlinShapesTest : KotlinSnippetTestCase() {
 
             annotation class Anno3(val attr4: String)
 
-            @Anno3("why")
-            fun method5(): Int = 1
+            @Anno3("str5")
+            fun method6(): Int = 1
             """.trimIndent(),
         )
     }
@@ -314,16 +314,21 @@ internal class KotlinShapesTest : KotlinSnippetTestCase() {
     }
 
     /**
-     * **A string template without interpolation is an ordinary literal**, and it reaches no rule of
-     * this walk's: **this walk reports identifiers.** Kotlin's literals and comments are not walked
-     * here — a template *with* interpolation is a container with a snapping rule and a decomposition
-     * of its own, and that is separate work, stated as a limit in the builder's own header.
+     * **A string template without interpolation is an ordinary literal**, and it gets no rule of its
+     * own: it is one literal-entry run, so it is one chunk, and the literal rule that already
+     * existed replaces it whole.
      *
-     * So the assertion is what the row claims — the template needs no rule of its own here — rather
-     * than a claim that Kotlin literals are handled. Nothing about this reaches a user: the optional
-     * descriptor declares no `languageSupport`, so no `.kt` file is anonymized from an IDE at all.
+     * The row is here rather than in `KotlinTemplateTest` for the reason every row here is: what is
+     * being claimed is that a shape a reader might expect to need special handling **does not**.
+     * What a template *with* interpolation does — snap as a container, then decompose — is that
+     * class's subject, and this is the case it does not have to reach.
+     *
+     * The plan is asserted alongside the output because the two say different things: that the walk
+     * reported the template as **one** literal, and that the engine spelled it the way it spells a
+     * Java string. Nothing about this reaches a user: the optional descriptor declares no
+     * `languageSupport`, so no `.kt` file is anonymized from an IDE at all.
      */
-    fun `test a string template without interpolation reaches no rule of this walk's`() {
+    fun `test a string template without interpolation is an ordinary literal`() {
         assertTheHarnessResolves()
         val source = """
             package com.acme.ledger
@@ -334,9 +339,9 @@ internal class KotlinShapesTest : KotlinSnippetTestCase() {
         val plan = kotlinPlanFor("com/acme/ledger/Templates.kt", source)
 
         assertEquals(
-            "this walk reports identifiers, and reported something else",
-            plan.occurrences.size,
-            plan.symbols().size,
+            "a template with nothing to decompose was reported as more than one literal",
+            1,
+            plan.occurrences.size - plan.symbols().size,
         )
         assertRenders(
             "com/acme/ledger/Templates2.kt",
@@ -344,7 +349,7 @@ internal class KotlinShapesTest : KotlinSnippetTestCase() {
             """
             package com.pkg1.pkg2
 
-            fun method3(): String = "no interpolation here"
+            fun method3(): String = "str4"
             """.trimIndent(),
         )
     }

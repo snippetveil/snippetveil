@@ -1,6 +1,7 @@
 package com.snippetveil.plugin
 
 import com.intellij.openapi.util.TextRange
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiWhiteSpace
 
@@ -9,9 +10,9 @@ import com.intellij.psi.PsiWhiteSpace
  * that is about ranges rather than about a language.
  *
  * Both walks share this rather than each carrying a copy, because neither could differ here without
- * the difference being a bug: snapping reads leaves and whitespace, which every language's PSI has,
- * and a snippet cut one way in Java and another way in Kotlin is a plan whose offsets mean two
- * things. Nothing here resolves anything or names a language type.
+ * the difference being a bug: a snippet cut one way in Java and another way in Kotlin is a plan
+ * whose offsets mean two things. **What one token is, is the one thing that does differ** — and it
+ * arrives as [TokenOf], so nothing here resolves anything or names a language type.
  */
 
 /**
@@ -31,6 +32,13 @@ import com.intellij.psi.PsiWhiteSpace
  * Rejected on the way here: rewriting only the overlapping fragment, which splices half a
  * placeholder into half a name; and dropping the fragment, which silently deletes characters the
  * user selected and reads as a bug.
+ *
+ * **A container snaps as a whole, never to one of its parts**, and that is the same argument rather
+ * than a second one. A selection cutting into a Kotlin string template snaps to the template, not to
+ * the entry it cut: an entry-level snap would extend the rewritten range into the template while
+ * leaving the rest of that template inside the copied range and **outside every rule** — precisely
+ * the fail-open outward snapping exists to close. What is pulled in then meets a rule, because a
+ * template is decomposed structurally and every chunk of it is replaced. See [TokenOf].
  */
 internal fun fragmentsOf(file: PsiFile, snapped: List<TextRange>): List<Fragment> {
     val ranges = snapped
@@ -56,21 +64,38 @@ internal fun fragmentsOf(file: PsiFile, snapped: List<TextRange>): List<Fragment
 }
 
 /**
+ * **Which element a leaf belongs to for the purpose of snapping** — the language's answer to *what
+ * is one token here*, supplied by the walk because only the walk knows the language.
+ *
+ * The token classes are **named by the language** rather than enumerated once for Java. In Java they
+ * are the identifier, the string literal and the text block, and each of those is a single leaf, so
+ * Java's answer is the leaf itself. In Kotlin they are the identifier, the string literal, the raw
+ * string and the string template — and the last three are one PSI *tree* whose leaves are its
+ * entries, so Kotlin's answer widens a leaf to the template containing it.
+ *
+ * Stated as a function rather than as a type test here, because a type test here would name
+ * `org.jetbrains.kotlin.*` from a file the main descriptor loads. See [LanguageSupport].
+ */
+internal typealias TokenOf = (PsiElement) -> PsiElement
+
+/**
  * The start of the token [offset] falls inside, or [offset] itself when it already sits on a
  * boundary. Whitespace is the one leaf that may be split: half a run of spaces is still spaces.
+ *
+ * @param tokenOf what one token is in this language; see [TokenOf].
  */
-internal fun snapStart(file: PsiFile, offset: Int): Int {
+internal fun snapStart(file: PsiFile, offset: Int, tokenOf: TokenOf): Int {
     val leaf = file.findElementAt(offset) ?: return offset
     if (leaf is PsiWhiteSpace) return offset
-    return minOf(offset, leaf.textRange.startOffset)
+    return minOf(offset, tokenOf(leaf).textRange.startOffset)
 }
 
 /** The end of the token [offset] falls inside; see [snapStart]. */
-internal fun snapEnd(file: PsiFile, offset: Int): Int {
+internal fun snapEnd(file: PsiFile, offset: Int, tokenOf: TokenOf): Int {
     if (offset <= 0 || offset >= file.textLength) return offset.coerceIn(0, file.textLength)
     val leaf = file.findElementAt(offset - 1) ?: return offset
     if (leaf is PsiWhiteSpace) return offset
-    return maxOf(offset, leaf.textRange.endOffset)
+    return maxOf(offset, tokenOf(leaf).textRange.endOffset)
 }
 
 /** A separator that cannot merge two fragments into one token, which is all it has to be. */

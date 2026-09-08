@@ -160,15 +160,27 @@ private fun reasonFor(placeholder: String, nextNumber: Int): UnrestoredReason {
 }
 
 /**
- * **A word, as Java spells one** — the same definition [anonymize] reserves names against, which is
- * what makes *on word boundaries* mean the same thing in both directions.
+ * **A word, as a placeholder is spelled** — the same definition [anonymize] reserves names against,
+ * which is what makes *on word boundaries* mean the same thing in both directions.
  *
- * Deliberately wider than a Java identifier at the front: `9Type1` is one word here and matches
- * nothing, where a pattern that required an identifier start would have found `Type1` inside it and
- * restored a name in the middle of a token. Boundaries are what stop `Type1Test` and `xType1` from
- * being absorbed, so they are drawn to include everything an identifier could contain.
+ * Deliberately wider than an identifier at the front: `9Type1` is one word here and matches nothing,
+ * where a pattern that required an identifier start would have found `Type1` inside it and restored
+ * a name in the middle of a token. Boundaries are what stop `Type1Test` and `xType1` from being
+ * absorbed, so they are drawn to include everything a **placeholder** could contain.
+ *
+ * **`$` is a boundary, and Kotlin is why.** A string template writes an interpolation flush against
+ * its name — `"str1$local2 str3"` — so `$` is where one placeholder ends and the next begins, in
+ * output this engine itself produces. A `$` inside the word class would make `str1$local2` a single
+ * token that decodes to nothing at all: silent under-recovery, over two names the tables both hold.
+ * `{` and `}` are boundaries for the same reason and were already, since `"${local2.method3()}"` is
+ * the other spelling of the same interpolation, and so is `"`.
+ *
+ * The cost is stated rather than discovered: a Java identifier may legally contain `$`, so a reply
+ * writing `Type1$Inner` now restores its first half. That is the direction to err in — `Type1` there
+ * *is* the placeholder standing for that outer class, and the alternative left every interpolated
+ * placeholder unreadable to protect a spelling that is generated code's rather than a developer's.
  */
-private val WORD = Regex("""[\p{L}\p{N}_$]+""")
+private val WORD = Regex("""[\p{L}\p{N}_]+""")
 
 /**
  * **What a placeholder looks like by default** — every namespace this engine mints from unasked, and
