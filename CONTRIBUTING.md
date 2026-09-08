@@ -597,13 +597,20 @@ only thing holding it is a comment. The floor moving from 241 to 242 with Kotlin
 the save dialog in `MappingExport.kt` was supposed to be rewritten "when the floor rises", the floor
 rose, and nothing noticed, because the API in question does not arrive until 251.
 
-So the condition is a task. `assertTheFloorStillHasNoExtensionFilterBuilder` reads
-`FileChooserDescriptor` off the floor cell's own compile classpath and fails the moment
-`withExtensionFilter` is on it, naming the rewrite, the comment to delete and itself. It observes the
-API rather than comparing version numbers, for the reason `KotlinHarnessTest` asserts the mode it got
-rather than trusting the pin that was supposed to produce it: the version number is the part that was
-already wrong once. It runs in the floor cell only — that is the one leg whose classpath is the
-claim — and skips with a stated reason elsewhere.
+So the condition is a task. `assertTheFloorStillHasNoExtensionFilterBuilder` reads the floor cell's
+own compile classpath and fails when either the replacement API has arrived or the constructor it
+guards has been deprecated — two conditions rather than one, because they land together today and
+that is precisely the sort of coincidence this ticket's history says not to build a rule on. It
+observes the API rather than comparing version numbers, for the reason `KotlinHarnessTest` asserts
+the mode it got rather than trusting the pin that was supposed to produce it: the version number is
+the part that was already wrong once. It runs in the floor cell only — that is the one leg whose
+classpath is the claim — and skips with a stated reason elsewhere.
+
+**The failure names no list of files, and that is deliberate.** Prose explaining a lifted constraint
+is worse than no prose, so the message says to run `git grep
+assertTheFloorStillHasNoExtensionFilterBuilder` — the task name is the thread, and whatever cites it
+is exactly what stops being true. A list written into the message would be one more thing to keep in
+step.
 
 **The `k2` leg exists because the floor cannot hold a Kotlin fixture.** `plugin.xml` declares
 `supportsK1="false" supportsK2="true"`, and the Kotlin plugin's default mode on the 242 floor is K1 —

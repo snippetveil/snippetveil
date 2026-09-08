@@ -67,9 +67,9 @@ internal object SavedMappingFiles : MappingFiles {
         // said the constructor stays "until the floor rises", the floor then rose without the
         // builder arriving with it, and a conditional decision kept only in prose went unread.
         // `assertTheFloorStillHasNoExtensionFilterBuilder` in `plugin/build.gradle.kts` is what
-        // holds the condition now: it reads `FileChooserDescriptor` off the floor's own compile
-        // classpath, goes red the day the builder is on it, and names this comment among the things
-        // to delete.
+        // holds the condition now: it reads the floor's own compile classpath and goes red the day
+        // either the builder arrives there or this constructor is deprecated there. The task name
+        // is written here so that the `git grep` its failure message prescribes finds this comment.
         val descriptor = FileSaverDescriptor(
             "Export Mapping",
             "Save this snippet's placeholder mapping, which reverses the anonymized text",

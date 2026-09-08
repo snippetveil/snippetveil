@@ -3,6 +3,7 @@ import org.gradle.api.specs.Specs
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.tasks.SignPluginTask
+import org.objectweb.asm.AnnotationVisitor
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.ClassVisitor
 import org.objectweb.asm.MethodVisitor
@@ -1791,7 +1792,7 @@ tasks.named("check") {
 // floor that constructor is the only thing that carries an extension filter at all. On 2025.1 the
 // filter moves onto FileChooserDescriptor.withExtensionFilter and the constructor picks up
 // @Deprecated in the same release — so the day the floor reaches 251, the call site is due for a
-// rewrite and its rationale comment stops being true.
+// rewrite and the prose explaining it stops being true.
 //
 // Nothing used to connect those two facts. The floor rising was supposed to be the trigger, and it
 // already rose once — 241 to 242, with Kotlin support — without the trigger firing, because the
@@ -1801,13 +1802,21 @@ tasks.named("check") {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Fails when the floor gains the builder form of the save dialog's extension filter.
+ * Fails when the floor stops being a platform where the varargs save-dialog constructor is the only
+ * honest choice.
  *
  * **A red build is the point, and it is not a defect when it happens.** Raising
- * `platformFloorVersion` to 2025.1 or later turns this task red on purpose, and the way to make it
- * green is the rewrite it names: `withExtensionFilter("csv")` in place of the varargs constructor,
- * and the rationale comment in `MappingExport.kt` deleted, because a comment explaining a constraint
- * that has lifted is worse than no comment.
+ * `platformFloorVersion` to 2025.1 or later turns this task red on purpose, and the failure names
+ * the work: `withExtensionFilter("csv")` in place of the varargs constructor, and the prose that
+ * explains the old constraint deleted with it.
+ *
+ * **Two conditions, either of which is enough**, because the interesting failure is the one where
+ * they come apart. The replacement arriving means the call site can be rewritten; the constructor
+ * being deprecated means the comment claiming the floor deprecates nothing is false — and
+ * `verifyPlugin` would start reporting the usage against the floor itself rather than only against
+ * newer IDEs. They land together in 2025.1 today, which is exactly the kind of coincidence this
+ * ticket's history says not to build a rule on: asserting both means a platform that decoupled them
+ * still trips something instead of tripping nothing.
  *
  * **It observes the API rather than comparing versions.** `KotlinHarnessTest` asserts the Kotlin
  * mode it got rather than trusting the pin that was supposed to produce it, and this is the same
@@ -1815,26 +1824,29 @@ tasks.named("check") {
  * someone who had not checked, the floor moved past it, and nothing noticed.
  *
  * **The floor cell only, deliberately.** The claim is about what the *shipped* code may call, and
- * the floor cell's compile classpath is the only place that is on disk — in `k2` and `latest` the
- * builder is present and correct, and a task that read those would be red on every leg from the day
+ * the floor cell's compile classpath is the only place that is on disk — in `k2` and `latest` both
+ * conditions are true and correct, and a task that read those would be red on every leg from the day
  * it was written. `check` runs the floor leg on every pull request and `floor` is the default
  * profile, so the gate is a merge gate rather than something only a full matrix sees.
  *
  * **Explicitly rejected: resolving the floor IDE in every cell** so that this could run everywhere.
  * It is one extra IntelliJ distribution downloaded and cached per non-floor leg to re-derive a fact
- * the floor leg already has, which buys nothing the paragraph above does not already cover.
+ * the floor leg already has.
  */
 val assertTheFloorStillHasNoExtensionFilterBuilder =
     tasks.register("assertTheFloorStillHasNoExtensionFilterBuilder") {
         group = LifecycleBasePlugin.VERIFICATION_GROUP
-        description = "Fails when the floor platform gains FileChooserDescriptor.withExtensionFilter."
+        description =
+            "Fails when the floor gains withExtensionFilter or deprecates the varargs FileSaverDescriptor."
 
+        // Read out of the script here, so that the action below closes over plain values: an action
+        // that reached back to a script-level property would carry a reference to the build script
+        // itself, which the configuration cache cannot serialize. `configurations[…].elements` for
+        // the same reason `kotlinFixtureStdlibJar` is written that way — the provider carries the
+        // files, not the container they came from, and resolution still happens at execution time.
         val profile = platformProfile
         val floorVersion = platformProperty("platformFloorVersion")
-
-        // The compile classpath rather than the IDE directory: it is what `compileKotlin` resolves
-        // references against, so it is the exact surface the call site is held to.
-        val classpath = configurations.named("compileClasspath").flatMap { it.elements }
+        val classpath = configurations["compileClasspath"].elements
 
         // Sidestepped entirely off the floor, where the answer is known and uninteresting — see the
         // KDoc. `onlyIf` rather than a conditional `dependsOn`, so that `-PplatformProfile=latest`
@@ -1843,56 +1855,105 @@ val assertTheFloorStillHasNoExtensionFilterBuilder =
             profile == "floor"
         }
 
-        inputs.property("platformProfile", profile)
-        inputs.property("platformFloorVersion", floorVersion)
+        // The classpath is declared so that Gradle knows this reads another task's output — `:core`
+        // is on it — and for no other reason. **The task has no outputs and is never up to date**,
+        // which is the honest shape for a check whose whole result is one bit: the alternative is a
+        // report file written to make Gradle skip an action that opens two zip entries.
         inputs.files(classpath).withPropertyName("compileClasspath")
 
         doLast {
-            val owner = "com/intellij/openapi/fileChooser/FileChooserDescriptor"
-            val builder = "withExtensionFilter"
+            val chooser = "com/intellij/openapi/fileChooser/FileChooserDescriptor"
+            val saver = "com/intellij/openapi/fileChooser/FileSaverDescriptor"
+            val builderMethod = "withExtensionFilter"
 
-            val bytecode = classpath.get().asSequence().map { it.asFile }
-                .filter { it.isFile && it.extension == "jar" }
-                .mapNotNull { jar ->
+            // The constructor the call site invokes, spelled the way the class file spells it — so
+            // that an overload added beside it is not mistaken for this one.
+            val varargsConstructor = "<init>(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)V"
+
+            // Every place to revisit, without a list here that can drift out of date on its own.
+            // The task name is the thread: the prose that cites it is exactly the prose that stops
+            // being true, and `git grep` finds all of it however many files it grows to.
+            val everywhere = "git grep assertTheFloorStillHasNoExtensionFilterBuilder"
+
+            val jars = classpath.get().map { it.asFile }.filter { it.isFile && it.extension == "jar" }
+
+            fun bytecodeOf(internalName: String): ByteArray =
+                jars.firstNotNullOfOrNull { jar ->
                     ZipFile(jar).use { archive ->
-                        archive.getEntry("$owner.class")?.let { archive.getInputStream(it).readBytes() }
+                        archive.getEntry("$internalName.class")?.let { archive.getInputStream(it).readBytes() }
                     }
                 }
-                .firstOrNull()
+                    // Not finding the class is a failure and not a pass. A gate that quietly answers
+                    // *the constraint still holds* because it was looking at the wrong classpath is
+                    // the same shape of hole as the version number this task replaced.
+                    ?: error(
+                        "$internalName is not on the $profile compile classpath, so nothing here can " +
+                            "say whether the floor still forces the varargs FileSaverDescriptor " +
+                            "constructor in SavedMappingFiles.save. This task may not pass without " +
+                            "having looked.",
+                    )
 
-            // Not finding the class is a failure and not a pass. A gate that quietly answers "no
-            // builder here" because it was looking at the wrong classpath is the same shape of hole
-            // as the version number this task replaced.
-            checkNotNull(bytecode) {
-                "$owner is not on the $profile compile classpath, so nothing here can say whether the " +
-                    "floor has $builder. This task guards the varargs FileSaverDescriptor constructor " +
-                    "in SavedMappingFiles.save; it cannot be allowed to pass without having looked."
+            /**
+             * Every method [internalName] declares, keyed the way the JVM names a member — the name
+             * with its descriptor appended — and mapped to whether it carries `@Deprecated`.
+             *
+             * Both spellings of deprecated count: `ACC_DEPRECATED` is the class-file attribute and
+             * the annotation is what the source actually writes. javac emits both, and a rule that
+             * read one of them would be a rule about a compiler rather than about the API.
+             */
+            fun membersOf(internalName: String): Map<String, Boolean> {
+                val members = mutableMapOf<String, Boolean>()
+                ClassReader(bytecodeOf(internalName)).accept(
+                    object : ClassVisitor(Opcodes.ASM9) {
+                        override fun visitMethod(
+                            access: Int,
+                            name: String,
+                            descriptor: String,
+                            signature: String?,
+                            exceptions: Array<out String>?,
+                        ): MethodVisitor {
+                            val member = "$name$descriptor"
+                            members[member] = access and Opcodes.ACC_DEPRECATED != 0
+                            return object : MethodVisitor(Opcodes.ASM9) {
+                                override fun visitAnnotation(
+                                    descriptor: String,
+                                    visible: Boolean,
+                                ): AnnotationVisitor? {
+                                    if (descriptor == "Ljava/lang/Deprecated;") members[member] = true
+                                    return null
+                                }
+                            }
+                        }
+                    },
+                    ClassReader.SKIP_CODE or ClassReader.SKIP_DEBUG or ClassReader.SKIP_FRAMES,
+                )
+                return members
             }
 
-            val declared = mutableSetOf<String>()
-            ClassReader(bytecode).accept(
-                object : ClassVisitor(Opcodes.ASM9) {
-                    override fun visitMethod(
-                        access: Int,
-                        name: String,
-                        descriptor: String,
-                        signature: String?,
-                        exceptions: Array<out String>?,
-                    ): MethodVisitor? {
-                        declared += name
-                        return null
-                    }
-                },
-                ClassReader.SKIP_CODE or ClassReader.SKIP_DEBUG or ClassReader.SKIP_FRAMES,
-            )
+            val replacementArrived = membersOf(chooser).keys.any { it.startsWith("$builderMethod(") }
+            check(!replacementArrived) {
+                "The floor is $floorVersion, and its FileChooserDescriptor declares $builderMethod — " +
+                    "so the varargs FileSaverDescriptor constructor in SavedMappingFiles.save is no " +
+                    "longer the only way to keep the `csv` filter. Rewrite the call site onto " +
+                    "`.withExtensionFilter(\"csv\")`, keeping the filter, then delete this task and " +
+                    "every piece of prose that cites it — `$everywhere` finds all of it. Prose " +
+                    "explaining a constraint that has lifted is worse than no prose at all."
+            }
 
-            check(builder !in declared) {
-                "The floor is $floorVersion, and its FileChooserDescriptor declares $builder — so the " +
-                    "varargs FileSaverDescriptor constructor in SavedMappingFiles.save is no longer " +
-                    "the only way to keep the `csv` filter, and it is deprecated from the same " +
-                    "release. Rewrite the call site onto `.withExtensionFilter(\"csv\")`, keeping the " +
-                    "filter, delete the rationale comment above it in MappingExport.kt, and delete " +
-                    "this task — all three, or the next reader is told a constraint that has lifted."
+            val constructorDeprecated = membersOf(saver)[varargsConstructor]
+            checkNotNull(constructorDeprecated) {
+                "The floor is $floorVersion, and its FileSaverDescriptor does not declare the varargs " +
+                    "constructor SavedMappingFiles.save calls. That should have failed the compile " +
+                    "before reaching here; something is reading a different class than the one the " +
+                    "product is built against."
+            }
+            check(!constructorDeprecated) {
+                "The floor is $floorVersion, and it deprecates the varargs FileSaverDescriptor " +
+                    "constructor that SavedMappingFiles.save calls — so `verifyPlugin` now reports " +
+                    "that usage against the floor itself, and the comment at the call site saying " +
+                    "the floor deprecates nothing is false. If $builderMethod is available, do that " +
+                    "rewrite; if it is not, the prose has to be corrected rather than deleted. " +
+                    "Either way `$everywhere` finds every place that says otherwise."
             }
         }
     }
