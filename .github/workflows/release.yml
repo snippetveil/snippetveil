@@ -64,10 +64,13 @@ jobs:
       # the command line, and `publishPlugin` depends on none of the ones before it. A step
       # boundary is a barrier no scheduler gets to reorder.
       #
-      # Both platform legs, not just the floor. The whole point of re-checking here is that the tag
-      # need not be anything `main` ever ran, and half a gate would only half deliver that.
+      # Every platform leg, not just the floor. The whole point of re-checking here is that the tag
+      # need not be anything `main` ever ran, and a partial gate would only partly deliver that.
       - name: check (floor)
         run: ./gradlew check
+
+      - name: check (k2)
+        run: ./gradlew check -PplatformProfile=k2
 
       - name: check (latest)
         run: ./gradlew check -PplatformProfile=latest

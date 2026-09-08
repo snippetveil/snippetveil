@@ -25,16 +25,17 @@ plugins {
 }
 
 // The platform to build against, named by `platformProfile` rather than given as a coordinate — so
-// that CI's two-version test matrix can say `floor` and `latest` and know nothing else. Which
-// product and version each name means, and why there are two, is gradle.properties' business.
+// that CI's test matrix can say `floor`, `k2` and `latest` and know nothing else. Which product and
+// version each name means, and why there are three, is gradle.properties' business.
 fun platformProperty(name: String) = providers.gradleProperty(name).orNull
     ?: error("$name is not set. gradle.properties defines it; see the platformProfile block there.")
 
 val platformProfile = platformProperty("platformProfile")
 val (platformType, platformVersion) = when (platformProfile) {
     "floor" -> platformProperty("platformFloorType") to platformProperty("platformFloorVersion")
+    "k2" -> platformProperty("platformK2Type") to platformProperty("platformK2Version")
     "latest" -> platformProperty("platformLatestType") to platformProperty("platformLatestVersion")
-    else -> error("platformProfile is '$platformProfile'; it has to be 'floor' or 'latest'.")
+    else -> error("platformProfile is '$platformProfile'; it has to be 'floor', 'k2' or 'latest'.")
 }
 
 dependencies {
@@ -1646,4 +1647,136 @@ val assertTheSweepIsExcludedFromTheMergeGate = tasks.register("assertTheSweepIsE
 
 tasks.named("check") {
     dependsOn(assertTheSweepIsExcludedFromTheMergeGate)
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// The Kotlin fixture cell
+//
+// Two things a Kotlin fixture cannot get for itself: a real Kotlin standard library to resolve
+// against, and a platform whose Kotlin plugin is in the mode this plugin declares support for.
+// Both are handed to it here, because both are the build's facts rather than the test's.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * **The Kotlin standard library the Kotlin fixtures attach, as a real jar.**
+ *
+ * A fixture with no stdlib attached resolves every Kotlin symbol to `null`, and unresolved fails
+ * closed into the `Unknown` namespace — so *everything* would be renamed and the leak oracle would
+ * come back maximally green over a harness that had stopped working. That is why the stdlib is a
+ * declared, resolved artifact rather than something the test hunts for on its own classpath: the
+ * IDE's own Kotlin runtime is not a library any fixture module has, and a test that went looking
+ * for one would find whichever copy the platform happened to load.
+ *
+ * Non-transitive and deliberately old — older than every compiler in the matrix. Metadata is
+ * forwards-incompatible, so a stdlib newer than the analysing compiler resolves to nothing, which is
+ * exactly the fail-green this attachment exists to prevent. What is under test here is *origin*, and
+ * every version answers that identically.
+ */
+val kotlinFixtureStdlib: Configuration = configurations.create("kotlinFixtureStdlib") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+
+/**
+ * **The floor cell is Java-only, and the package name is what says so.**
+ *
+ * The Kotlin plugin's default mode on the 242 floor is K1, which `plugin.xml` declares unsupported —
+ * so a Kotlin fixture running there would measure a configuration this plugin says it does not have.
+ * The exclusion is in the build rather than in a test that skips itself, because a skip is silent
+ * exactly where silence is the failure: `KotlinHarnessTest` fails a K1 session outright, and this
+ * keeps it from ever being asked to run in one.
+ *
+ * `assertTheKotlinFixturesAreExcludedFromTheFloor` below stops the pattern from going stale, for the
+ * reason `assertTheSweepIsExcludedFromTheMergeGate` exists: a filter that matches nothing excludes
+ * nothing, and Gradle reports neither.
+ */
+val kotlinFixturePackage = "com.snippetveil.plugin.kotlin"
+
+// **Java-only is about what runs, and the fixtures still compile on the floor.** They are in the
+// one test source set, so `compileTestKotlin` builds them against every platform in the matrix —
+// which is coverage rather than a leak: it holds the Kotlin fixtures to the same floor API surface
+// the product is held to, and a Kotlin-plugin API newer than 242 fails the floor leg at compile
+// time instead of failing an IDE at load time. What must not happen on the floor is a Kotlin
+// fixture *running*, in a K1 session, against the mode the descriptor declares unsupported.
+
+dependencies {
+    // Test-scope by construction: this configuration is in no source set's classpath and reaches the
+    // fixtures as a file path. `assertNothingThirdPartyIsShipped` sees nothing new.
+    kotlinFixtureStdlib("org.jetbrains.kotlin:kotlin-stdlib:1.9.25")
+}
+
+/** The jar itself, as a lazy value the configuration cache can carry into the test task. */
+val kotlinFixtureStdlibJar: Provider<String> =
+    kotlinFixtureStdlib.elements.map { elements ->
+        val jars = elements.map { it.asFile }
+        check(jars.size == 1) { "kotlinFixtureStdlib resolved to $jars; the fixtures attach exactly one jar." }
+        jars.single().absolutePath
+    }
+
+tasks.test {
+    // Handed in rather than looked up, and **named in the failure**: a fixture that cannot find the
+    // stdlib says so about itself instead of resolving everything to `null` and passing.
+    val stdlib = kotlinFixtureStdlibJar
+    inputs.files(kotlinFixtureStdlib).withPropertyName("kotlinFixtureStdlib")
+
+    // Set in `doFirst` rather than at configuration time, so that resolving the configuration is
+    // deferred to execution: a `systemProperty` takes its value eagerly, and taking it here would
+    // resolve a dependency during configuration on every build that so much as looks at this task.
+    // The jar is declared as an input above, so what makes the task out of date is its content
+    // rather than this line.
+    doFirst { systemProperty("snippetveil.kotlin.stdlibJar", stdlib.get()) }
+
+    // **The floor cell is Java-only.** See `kotlinFixturePackage` above for why, and
+    // `assertTheKotlinFixturesAreExcludedFromTheFloor` below for what keeps this from silently
+    // excluding nothing.
+    if (platformProfile == "floor") filter { excludeTestsMatching("$kotlinFixturePackage.*") }
+}
+
+/**
+ * Fails if the package the floor cell excludes holds no test class.
+ *
+ * The same hazard `assertTheSweepIsExcludedFromTheMergeGate` guards, pointing the other way: an
+ * exclusion that matches nothing is not an error to Gradle, so a Kotlin fixture moved out of that
+ * package would start running on the floor — in a K1 session, against the configuration this plugin
+ * declares unsupported — with the build still green.
+ *
+ * It runs in every cell rather than only on the floor: the claim is about where the source lives,
+ * and a check that only ran in the cell it protects would be one that a `latest`-only run never
+ * exercises.
+ */
+val assertTheKotlinFixturesAreExcludedFromTheFloor = tasks.register("assertTheKotlinFixturesAreExcludedFromTheFloor") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the package the floor cell excludes from `test` holds no Kotlin fixture."
+
+    val named = kotlinFixturePackage
+    val sources = layout.projectDirectory.dir("src/test/kotlin/${named.replace('.', '/')}").asFile
+    val declaration = Regex("""(?m)^\s*(internal\s+)?(abstract\s+)?class\s+\w*Test\b""")
+
+    // A tree rather than `inputs.dir`, which refuses a directory that is not there — and a package
+    // that is not there is precisely the failure this task exists to report in its own words.
+    //
+    // **Recursive, because the exclusion is.** Gradle's `com.snippetveil.plugin.kotlin.*` pattern
+    // matches sub-packages too, so a check that read only the top directory would report a stale
+    // exclusion over a fixture that had merely moved one level down.
+    inputs.files(fileTree(sources) { include("**/*.kt") }).withPropertyName("sources")
+    inputs.property("kotlinFixturePackage", named)
+
+    doLast {
+        val files = sources.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        check(files.isNotEmpty()) {
+            "`$named.*` is what the floor cell excludes from `test`, but $sources holds no source at " +
+                "all. An exclusion that matches nothing excludes nothing, so a Kotlin fixture would " +
+                "be running on the floor in a K1 session with the build still green."
+        }
+        val tests = files.filter { declaration.containsMatchIn(it.readText()) }
+        check(tests.isNotEmpty()) {
+            "$sources holds ${files.size} source(s) and none of them declares a test class, so the " +
+                "floor cell's `$named.*` exclusion matches nothing."
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(assertTheKotlinFixturesAreExcludedFromTheFloor)
 }

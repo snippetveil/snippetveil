@@ -48,6 +48,17 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
      * A file naming one project class, one JDK class and one library class, and the assertion that
      * the fixture can still tell the three apart. Without it every assertion in this package would
      * hold vacuously the day the SDK stops being attached.
+     *
+     * **It asserts what each name resolves *to*, not only that it resolved**, because resolution
+     * alone is the weaker claim and the rule this probe implements is the stronger one: the JDK
+     * class and the jar member have to come back `JDK` and `LIBRARY`, so that the discriminator
+     * between them is genuinely exercised. A classpath that had drifted such that everything arrived
+     * as project content resolves every name here perfectly, and would leave the classification this
+     * probe exists to protect untested — which is the same shape as the doc comment above: a fake
+     * library only ever proves that the fake was classified.
+     *
+     * Shown red by `HarnessOriginTest`, over a fixture whose library is a stub written into project
+     * content.
      */
     protected fun assertTheHarnessResolves() {
         myFixture.addFileToProject(HARNESS_PROBE_PATH, "package com.acme.probe; public class Owned {}")
@@ -62,10 +73,10 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
             """.trimIndent(),
         )
 
-        for (name in listOf("com.acme.probe.Owned", "java.lang.String", "org.junit.Test")) {
+        for ((name, expected) in HARNESS_PROBES) {
             val offset = probe.text.indexOf(name) + name.lastIndexOf('.') + 1
             val resolved = probe.findReferenceAt(offset)?.resolve()
-            assertNotNull("$name did not resolve; the fixture has no usable classpath", resolved)
+            complaintAboutFixtureOrigin(name, expected, originInTheFixture(project, resolved))?.let { fail(it) }
         }
     }
 
@@ -269,8 +280,12 @@ private const val HARNESS_PROBE_PATH = "com/acme/probe/Owned.java"
  * JUnit 4 is the library only because it is already on the test classpath and
  * [PathManager.getJarPathForClass] can point at the jar it came from without anything having to know
  * where Gradle put it.
+ *
+ * A named class rather than an anonymous object because two fixtures extend it: the Kotlin one adds
+ * the Kotlin standard library to exactly this classpath, and a fixture that started from its own
+ * copy of these two attachments would be a second answer to *what is a library here*.
  */
-private val REAL_CLASSPATH: LightProjectDescriptor = object : DefaultLightProjectDescriptor() {
+internal open class RealClasspath : DefaultLightProjectDescriptor() {
 
     override fun getSdk(): Sdk = JavaSdk.getInstance().createJdk(
         "java-" + System.getProperty("java.specification.version"),
@@ -280,10 +295,28 @@ private val REAL_CLASSPATH: LightProjectDescriptor = object : DefaultLightProjec
 
     override fun configureModule(module: Module, model: ModifiableRootModel, entry: ContentEntry) {
         super.configureModule(module, model, entry)
-        val jar = File(JUNIT4_JAR)
-        PsiTestUtil.addLibrary(model, "junit4", jar.parent, jar.name)
+        attachLibraries(model)
     }
+
+    /**
+     * The jars this classpath has, as a step of its own so that a subclass can add one — the Kotlin
+     * fixture's standard library — or leave them all off, which is how the origin assertion above is
+     * shown red.
+     *
+     * **Each subclass is its own class, deliberately.** The light fixture caches one project per
+     * descriptor and tells two descriptors apart by their class, so a fixture that varies the
+     * classpath has to vary the type too or it silently inherits the project it meant to differ from.
+     */
+    protected open fun attachLibraries(model: ModifiableRootModel) = attachJar(model, "junit4", JUNIT4_JAR)
 }
+
+/** One jar, attached as a library — the two-line dance [PsiTestUtil.addLibrary] wants, spelled once. */
+internal fun attachJar(model: ModifiableRootModel, name: String, path: String) {
+    val jar = File(path)
+    PsiTestUtil.addLibrary(model, name, jar.parent, jar.name)
+}
+
+private val REAL_CLASSPATH: LightProjectDescriptor = RealClasspath()
 
 private val JUNIT4_JAR: String = PathManager.getJarPathForClass(org.junit.Test::class.java)
     ?: error("JUnit 4 is not on the test classpath as a jar, so no real library can be attached.")
