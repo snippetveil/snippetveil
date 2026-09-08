@@ -1,57 +1,42 @@
 package com.snippetveil.plugin
 
-import com.intellij.lang.java.beans.PropertyKind
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.JdkOrderEntry
-import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiBreakStatement
-import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiContinueStatement
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementFactory
 import com.intellij.psi.PsiErrorElement
-import com.intellij.psi.PsiField
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiIdentifier
 import com.intellij.psi.PsiImportStaticReferenceElement
 import com.intellij.psi.PsiJavaCodeReferenceElement
 import com.intellij.psi.PsiJavaFile
-import com.intellij.psi.PsiLabeledStatement
 import com.intellij.psi.PsiLiteralExpression
-import com.intellij.psi.PsiLocalVariable
-import com.intellij.psi.PsiMember
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNameIdentifierOwner
 import com.intellij.psi.PsiNameValuePair
 import com.intellij.psi.PsiPackage
 import com.intellij.psi.PsiParameter
-import com.intellij.psi.PsiQualifiedNamedElement
 import com.intellij.psi.PsiReference
 import com.intellij.psi.PsiRecordComponent
-import com.intellij.psi.PsiTypeParameter
-import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.javadoc.PsiDocComment
 import com.intellij.psi.javadoc.PsiDocTagValue
 import com.intellij.psi.util.JavaPsiRecordUtil
-import com.intellij.psi.util.PropertyUtilBase
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.util.IncorrectOperationException
-import com.snippetveil.core.AccessorEvidence
 import com.snippetveil.core.CommentOccurrence
 import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.LiteralReference
 import com.snippetveil.core.Occurrence
-import com.snippetveil.core.OverrideRoot
 import com.snippetveil.core.SnippetPlan
+import com.snippetveil.core.SourceLanguage
 import com.snippetveil.core.SymbolEvidence
 import com.snippetveil.core.SymbolOccurrence
-import com.snippetveil.core.SymbolOrigin
-import com.snippetveil.core.SymbolRole
 
 /**
  * Describes a Java snippet truthfully, and decides nothing about it.
@@ -60,6 +45,14 @@ import com.snippetveil.core.SymbolRole
  * mutates no PSI and touches no ledger, which is what makes a cancel-and-restart free: the platform
  * can throw this walk away half-finished as often as a write action happens, and the only cost is
  * the walk itself.
+ *
+ * **Two of its three halves are not here, and that is deliberate.** Which text is analysed and where
+ * it lands in the plan is in `SnippetFragments.kt`; what the platform says about one declared symbol
+ * — its key, its role, where its declaring file lives — is in [SymbolFacts]. Both are shared with
+ * `KotlinPlanBuilder`, because a Kotlin declaration reaches the ledger as the light element a Java
+ * reference to it resolves to: the two walks have to agree on a key character for character, and a
+ * second copy of these formats is that agreement waiting to be edited out of existence. What is left
+ * here is the part that is genuinely about Java's grammar.
  */
 internal object JavaPlanBuilder : PlanBuilder {
 
@@ -84,66 +77,6 @@ internal object JavaPlanBuilder : PlanBuilder {
     }
 
     /**
-     * The ranges actually analysed: the snapped selection, merged where two of them now touch, or
-     * the whole file when there is no selection at all.
-     *
-     * Snapping itself happens in [build] rather than here, because whether it *moved* anything is a
-     * fact the preview discloses and this is the last place both ends of the comparison exist.
-     *
-     * **Snapping closes the last fail-open leak, and it is safe rather than merely convenient.** A
-     * selection cutting mid-identifier would otherwise emit raw domain text — `chantReference = x;`
-     * out of `merchantReference` — because the fragment the rules never saw is copied verbatim.
-     * Extending outward can only add text that some rule already governs: an identifier becomes a
-     * placeholder or a preserved library name, a literal becomes a literal. **There is no path where
-     * snapping emits un-anonymized project text.**
-     *
-     * Rejected on the way here: rewriting only the overlapping fragment, which splices half a
-     * placeholder into half a name; and dropping the fragment, which silently deletes characters the
-     * user selected and reads as a bug.
-     */
-    private fun fragmentsOf(file: PsiFile, snapped: List<TextRange>): List<Fragment> {
-        val ranges = snapped
-            .ifEmpty { listOf(TextRange(0, file.textLength)) }
-            .sortedBy { it.startOffset }
-
-        // Two carets whose snapped ranges now touch are one fragment: the separator between them
-        // would otherwise insert a newline into the middle of a token boundary that snapping just
-        // widened.
-        val merged = mutableListOf<TextRange>()
-        for (range in ranges) {
-            val previous = merged.lastOrNull()
-            if (previous != null && range.startOffset <= previous.endOffset) {
-                merged[merged.lastIndex] = previous.union(range)
-            } else {
-                merged += range
-            }
-        }
-
-        var planStart = 0
-        return merged.map { range ->
-            Fragment(range, planStart).also { planStart += range.length + FRAGMENT_SEPARATOR.length }
-        }
-    }
-
-    /**
-     * The start of the token [offset] falls inside, or [offset] itself when it already sits on a
-     * boundary. Whitespace is the one leaf that may be split: half a run of spaces is still spaces.
-     */
-    private fun snapStart(file: PsiFile, offset: Int): Int {
-        val leaf = file.findElementAt(offset) ?: return offset
-        if (leaf is PsiWhiteSpace) return offset
-        return minOf(offset, leaf.textRange.startOffset)
-    }
-
-    /** The end of the token [offset] falls inside; see [snapStart]. */
-    private fun snapEnd(file: PsiFile, offset: Int): Int {
-        if (offset <= 0 || offset >= file.textLength) return offset.coerceIn(0, file.textLength)
-        val leaf = file.findElementAt(offset - 1) ?: return offset
-        if (leaf is PsiWhiteSpace) return offset
-        return maxOf(offset, leaf.textRange.endOffset)
-    }
-
-    /**
      * Every identifier inside the analysed ranges, with what is known about the symbol it names.
      *
      * A leaf walk rather than a visitor, because the unit of interest is the token: the snapped
@@ -160,6 +93,7 @@ internal object JavaPlanBuilder : PlanBuilder {
                         end = fragment.translate(leaf.textRange.endOffset),
                         text = leaf.text,
                         symbol = evidenceFor(project, leaf),
+                        language = LANGUAGE,
                     )
                 }
                 leaf = PsiTreeUtil.nextLeaf(leaf)
@@ -194,7 +128,7 @@ internal object JavaPlanBuilder : PlanBuilder {
                 val end = fragment.translate(element.textRange.endOffset)
 
                 if (element is PsiComment) {
-                    listOf(CommentOccurrence(start, end, verdictOf(project, element))) +
+                    listOf(CommentOccurrence(start, end, verdictOf(project, element), LANGUAGE)) +
                         docReferencesIn(project, file, element, fragment)
                 } else {
                     val literal = element as PsiLiteralExpression
@@ -208,6 +142,7 @@ internal object JavaPlanBuilder : PlanBuilder {
                             contentStart = start + content.startOffset,
                             contentEnd = start + content.endOffset,
                             references = referencesIn(project, literal, fragment),
+                            language = LANGUAGE,
                         ),
                     )
                 }
@@ -315,6 +250,7 @@ internal object JavaPlanBuilder : PlanBuilder {
                     end = fragment.translate(range.endOffset),
                     text = written,
                     symbol = evidenceOf(project, reference.resolve(), written),
+                    language = LANGUAGE,
                 )
             }
             .sortedBy { it.start }
@@ -486,71 +422,9 @@ internal object JavaPlanBuilder : PlanBuilder {
         // The role of a name that did not resolve is not knowable, and no rule reads this one: the
         // engine takes the namespace off the origin precisely because the role would be an
         // invention. It is filled in rather than made nullable so that every other role stays a fact.
-        val symbol = declaration?.let(::declaredSymbolOf) ?: return SymbolEvidence(
-            key = "unresolved:" + writtenName,
-            role = SymbolRole.TYPE,
-            origin = SymbolOrigin.UNRESOLVED,
-            declaredName = writtenName,
-        )
+        val symbol = declaration?.let(::declaredSymbolOf) ?: return SymbolFacts.unresolvedEvidence(writtenName)
 
-        return SymbolEvidence(
-            key = keyOf(symbol),
-            role = roleOf(symbol),
-            origin = originOf(project, symbol),
-            declaredName = (symbol as? PsiNameIdentifierOwner)?.name ?: declaredName,
-            qualifiedName = (symbol as? PsiQualifiedNamedElement)?.qualifiedName,
-            packageName = packageNameOf(symbol),
-            signature = (symbol as? PsiMethod)?.let { method ->
-                method.parameterList.parameters.joinToString(",", "(", ")") { it.type.canonicalText }
-            },
-            overrideRoots = (symbol as? PsiMethod)?.let { overrideRootsOf(project, it) }.orEmpty(),
-            accessor = (symbol as? PsiMethod)?.let(::accessorEvidenceOf),
-            keyIsQualified = keyIsQualified(symbol),
-        )
-    }
-
-    /**
-     * The roots of [method]'s override chain: the methods it overrides that override nothing
-     * themselves. Empty when it overrides nothing, which is most methods.
-     *
-     * `findDeepestSuperMethods()` rather than `findSuperMethods()`, because both rules that read
-     * this are statements about the whole chain rather than about one link: a chain reaching a
-     * framework type is name-constrained however many project classes sit between, and a chain keyed
-     * by anything but its root splits an interface from its implementation.
-     *
-     * Reported as evidence and judged nowhere near here — the origins come back as the plain facts
-     * they are, and whether a JDK root means *keep this name* is the engine's call.
-     */
-    private fun overrideRootsOf(project: Project, method: PsiMethod): List<OverrideRoot> =
-        method.findDeepestSuperMethods().map {
-            OverrideRoot(keyOf(it), originOf(project, it), packageNameOf(it), keyIsQualified(it))
-        }
-
-    /**
-     * The field [method] reads or writes, when it is a JavaBeans accessor of one — and `null`
-     * otherwise, which is the answer for the overwhelming majority of methods.
-     *
-     * **Matched on the name and the arity rather than on the body**, and that is the case this
-     * exists for rather than a shortcut: with Lombok the accessor has no body, no declaration and no
-     * `TextRange` at all. A body-reading match would find every accessor except the ones that need
-     * it most.
-     *
-     * `getPropertyNameAndKind` is what keeps fluent accessors out. `merchantId()` is not a JavaBeans
-     * accessor, so nothing is reported for it, and the engine leaves it an ordinary method —
-     * deliberately, because nothing in Java forces a fluent accessor's name to track its field's.
-     *
-     * The field is looked up on the declaring class alone, never up the hierarchy: a superclass's
-     * field is a symbol of that superclass, and an accessor deriving from a name it does not declare
-     * would tie two placeholders together on a resemblance rather than on a rule.
-     */
-    private fun accessorEvidenceOf(method: PsiMethod): AccessorEvidence? {
-        val owner = method.containingClass ?: return null
-        val property = PropertyUtilBase.getPropertyNameAndKind(method.name) ?: return null
-        val parameters = if (property.second == PropertyKind.SETTER) 1 else 0
-        if (method.parameterList.parametersCount != parameters) return null
-
-        val field = owner.findFieldByName(property.first, false) ?: return null
-        return AccessorEvidence(keyOf(field), field.name, property.second.prefix, keyIsQualified(field))
+        return SymbolFacts.evidenceOf(project, symbol, declaredName)
     }
 
     /**
@@ -708,233 +582,6 @@ internal object JavaPlanBuilder : PlanBuilder {
     }
 
     /**
-     * **The spine rule's evidence: anonymize a symbol iff its declaring file is project-owned.**
-     *
-     * Ownership is a `VirtualFile` question, and the platform facts that decide how it is asked are
-     * worth stating, because three of them are traps:
-     *  - [PsiUtilCore.getVirtualFile] rather than `containingFile.virtualFile`, because it handles
-     *    in-memory copies and returns `null` for light elements instead of throwing.
-     *  - `isInContent`, never `isInSource` — the latter includes *library sources*, so an attached
-     *    source jar would classify as project code.
-     *  - **Never `instanceof PsiCompiledElement`.** An attached source jar makes a library symbol
-     *    resolve to source PSI, so compiled-ness says nothing at all about who owns the code.
-     *
-     * Generated sources are content, and therefore project-owned, which is the right answer: they
-     * are generated *from* the project's own domain. `isInContent` is project-wide, so a
-     * multi-module project needs no rule of its own.
-     */
-    private fun originOf(project: Project, symbol: PsiElement): SymbolOrigin {
-        // A package declares nothing and lives in no file, so the question is asked of the
-        // directories behind it instead. Left to fall through, the light-element branch below would
-        // read the missing file as *fail closed* and rename `util` in `java.util.List`.
-        if (symbol is PsiPackage) return packageOriginOf(project, symbol)
-
-        // Project-owned by construction: none of these can be declared anywhere but in the file
-        // under analysis, so there is no file to classify and no index to ask.
-        if (symbol is PsiLocalVariable || symbol is PsiParameter ||
-            symbol is PsiTypeParameter || symbol is PsiLabeledStatement
-        ) {
-            return SymbolOrigin.IN_CONTENT
-        }
-
-        // A light element — an IDE-synthesized member with no file of its own. Fail closed: it was
-        // synthesized from something, and in this codebase's Java the something is a project class.
-        val virtualFile = PsiUtilCore.getVirtualFile(symbol) ?: return SymbolOrigin.IN_CONTENT
-
-        val index = ProjectFileIndex.getInstance(project)
-        return when {
-            index.isInContent(virtualFile) -> SymbolOrigin.IN_CONTENT
-            index.getOrderEntriesForFile(virtualFile).any { it is JdkOrderEntry } -> SymbolOrigin.JDK
-            else -> SymbolOrigin.LIBRARY
-        }
-    }
-
-    /**
-     * Where a package lives, asked of **every directory the package has**, because that is the only
-     * file-level thing a `PsiPackage` has: it is not declared anywhere, and
-     * [PsiUtilCore.getVirtualFile] answers `null` for it.
-     *
-     * Any directory in project content makes the whole package the project's, and that is the
-     * fail-closed direction rather than a tie-break. A package split across a source root and a jar
-     * — the project's own `com.acme` alongside a shaded `com.acme` from a dependency — is a package
-     * the project contributes domain-named subpackages and classes to, and the segment naming it is
-     * the project's word.
-     *
-     * A package with no directories at all — a package prefix, and nothing else in practice — is
-     * reported as the project's for the same reason: an unclassifiable name is not one the spine
-     * rule may preserve. **Not [SymbolOrigin.UNRESOLVED]**, which would be a false claim rather than
-     * a safe one: the reference resolved, and *the IDE could not resolve this* is a sentence the
-     * balloon shows a user and the preview lets them act on.
-     */
-    private fun packageOriginOf(project: Project, symbol: PsiPackage): SymbolOrigin {
-        val index = ProjectFileIndex.getInstance(project)
-        val directories = symbol.directories.map { it.virtualFile }
-        return when {
-            directories.any { index.isInContent(it) } -> SymbolOrigin.IN_CONTENT
-            directories.isEmpty() -> SymbolOrigin.IN_CONTENT
-            directories.any { file -> index.getOrderEntriesForFile(file).any { it is JdkOrderEntry } } ->
-                SymbolOrigin.JDK
-            else -> SymbolOrigin.LIBRARY
-        }
-    }
-
-    /**
-     * **The package a symbol belongs to** — `com.acme.billing` for the class
-     * `com.acme.billing.Payment`, for its `merchantRef` field, and for the package segment written
-     * `billing`, which belongs to itself.
-     *
-     * A fact about where the declaration sits, reported like every other fact: whether a package
-     * prefix makes a library symbol the company's own is a policy, and it is applied in the engine
-     * where a test can reach it without an IDE.
-     *
-     * Read off the **top-level** class's qualified name rather than off the symbol's own, because a
-     * nested class's qualified name carries its owners — `com.acme.billing.Payment.Status` would
-     * otherwise report a package of `com.acme.billing.Payment`, and a prefix rule reading it would
-     * be matching a class name against a package one. The containing file is the fallback, which is
-     * what answers for an anonymous or local class and for a member of one.
-     */
-    private fun packageNameOf(symbol: PsiElement): String? {
-        // A package is not declared in a package; it *is* one. Every rule that reads this field is
-        // asking which package a name is part of, and a package is part of itself.
-        if (symbol is PsiPackage) return symbol.qualifiedName.takeIf { it.isNotEmpty() }
-
-        val owner = symbol as? PsiClass ?: (symbol as? PsiMember)?.containingClass
-        val topLevel = owner?.let { generateSequence(it) { nested -> nested.containingClass }.last() }
-        topLevel?.qualifiedName?.substringBeforeLast('.', "")?.takeIf { it.isNotEmpty() }?.let { return it }
-
-        return (symbol.containingFile as? PsiJavaFile)?.packageName?.takeIf { it.isNotEmpty() }
-    }
-
-    /**
-     * The identity of a declared symbol, as a string the engine can compare and a later ticket can
-     * persist.
-     *
-     * A method's key deliberately omits its signature, which is how overloads collapse to one
-     * placeholder: they share a name in source, so they share a placeholder. The signature is still
-     * reported as evidence, so a rule that needs to tell them apart can, without this changing.
-     *
-     * Anything with no qualified name — an anonymous class, a local, a parameter, a label — is keyed
-     * on where it is written. That key is stable for exactly as long as the file is not edited,
-     * which is exactly as long as one invocation lasts.
-     *
-     * **Anonymous and local class members inherit that fallback through their owner**, and that is
-     * the point of routing every member key through [memberKeyOf]. `PsiClass.getQualifiedName()` is
-     * `null` inside one, so an owner keyed by name alone collapsed the `state` fields of two
-     * different anonymous classes onto one placeholder — two unrelated symbols rendered as one name,
-     * which is precisely what the injectivity invariant forbids.
-     *
-     * **A Lombok light member is keyed by `(owner FQN, kind, name)` and nothing else**, which is
-     * what these three branches already say: a light member has no `TextRange` to anchor on, so a
-     * key that reached for one would have nothing to read.
-     */
-    private fun keyOf(symbol: PsiElement): String = when (symbol) {
-        // A package is keyed by the whole qualified name and not by the segment that ends it, which
-        // is what makes `com.acme.billing` and `org.acme.billing` two symbols and what makes two
-        // types in one package share a placeholder for it.
-        is PsiPackage -> "package:" + symbol.qualifiedName
-
-        is PsiClass -> "class:" + (symbol.qualifiedName ?: anchorOf(symbol))
-        is PsiMethod -> memberKeyOf("method", symbol.containingClass, symbol.name)
-        is PsiField -> memberKeyOf("field", symbol.containingClass, symbol.name)
-
-        // Keyed as the field it compiles to, which is rule 5 stated as identity: one declared symbol
-        // wearing three PSI faces reaches one key from whichever face the walk arrives at.
-        is PsiRecordComponent -> memberKeyOf("field", symbol.containingClass, symbol.name)
-
-        else -> "local:" + anchorOf(symbol)
-    }
-
-    /**
-     * A member's key: what kind of member it is, whose it is, and what it is called.
-     *
-     * The owner's key is [keyOf] again rather than a qualified name, which is the whole of what
-     * makes an anonymous class's members work: the owner has no qualified name, so it falls through
-     * to an anchor, and the member's key inherits that. A `null` owner is the light member with no
-     * class at all, and it gets a name rather than an exception.
-     */
-    private fun memberKeyOf(kind: String, owner: PsiClass?, name: String): String =
-        kind + ":" + (owner?.let(::keyOf) ?: "<none>") + "#" + name
-
-    /**
-     * **Whether [keyOf] derived this symbol's key from a fully-qualified name**, which is the fact the
-     * engine reads when it decides what may be written down. See [SymbolEvidence.keyIsQualified].
-     *
-     * It answers the branches of [keyOf] one for one, and that is the point of writing it as a `when`
-     * over the same shapes rather than as a test on the resulting string: the two are one decision
-     * made twice, and a rule that parsed the key back out would go quietly wrong the day a key format
-     * changed. A member inherits the answer from its owner, exactly as its key inherits the owner's,
-     * so an anonymous class's field is positional however ordinary the field itself looks.
-     *
-     * Everything not named here — a local, a parameter, a label, a type parameter — is keyed on where
-     * it is written, and so is a class with no qualified name and every member of one. A name that
-     * did not resolve never reaches this at all: it is keyed on its own text, and [evidenceOf] returns
-     * before it gets here.
-     */
-    private fun keyIsQualified(symbol: PsiElement): Boolean = when (symbol) {
-        is PsiPackage -> true
-        is PsiClass -> symbol.qualifiedName != null
-        is PsiMethod -> symbol.containingClass?.let(::keyIsQualified) == true
-        is PsiField -> symbol.containingClass?.let(::keyIsQualified) == true
-        is PsiRecordComponent -> symbol.containingClass?.let(::keyIsQualified) == true
-        else -> false
-    }
-
-    private fun anchorOf(symbol: PsiElement): String =
-        (PsiUtilCore.getVirtualFile(symbol)?.url ?: "<light>") + "@" + symbol.textOffset
-
-    /**
-     * What a symbol is. **Total, on purpose.**
-     *
-     * This used to return `null` for a shape it did not recognise, and the caller dropped the
-     * occurrence — which copied the name through verbatim. That is precisely the fail-open this
-     * action exists to prevent, and it was not hypothetical: a record component is a named,
-     * project-owned symbol that is a `PsiVariable` and **not** a `PsiField`, so
-     * `record Payment(String merchantRef)` put `merchantRef` on the clipboard intact.
-     *
-     * Hence the `else`, and hence that it conceals. **The role is cosmetic and a missing placeholder
-     * is a leak** — the role only decides how cheaply a human maps the AI's reply back onto real
-     * code, whereas a name that never became a placeholder is the whole failure. `FIELD` is the
-     * fallback because every other named thing a `PsiIdentifier` resolves to in Java is a member of
-     * a type, and `field1` is the least surprising way to read one.
-     */
-    private fun roleOf(symbol: PsiElement): SymbolRole = when (symbol) {
-        // Before PsiClass, which a type parameter is one of. Its own kind: `<T>` carries no domain
-        // and `<REQ extends MerchantRequest>` does, and preserving by name length is inspecting the
-        // text — so both are anonymized, and the prefix is what says which was which.
-        is PsiTypeParameter -> SymbolRole.TYPE_PARAMETER
-        // An annotation type before a plain one: `@interface` is a class declaration and reads as
-        // nothing of the kind.
-        is PsiClass -> if (symbol.isAnnotationType) SymbolRole.ANNOTATION else SymbolRole.TYPE
-
-        // One segment of a package name. Never the whole name: the engine renames these one at a
-        // time so that same-package and different-package survive the rename.
-        is PsiPackage -> SymbolRole.PACKAGE
-
-        // An annotation type's member is a method in the bytecode and an attribute everywhere it is
-        // written, and what is written is what a reader has to map back. Asked of the declaring
-        // type rather than of `PsiAnnotationMethod`, which every *compiled* method implements.
-        is PsiMethod -> if (symbol.containingClass?.isAnnotationType == true) {
-            SymbolRole.ATTRIBUTE
-        } else {
-            SymbolRole.METHOD
-        }
-
-        is PsiField -> SymbolRole.FIELD
-
-        // A record component is compiled to a private final field of the same name, and Java forces
-        // the component, that field and the accessor to agree. Naming it a field here is the reading
-        // that stays true when the ticket for forced sharing collapses all three onto one symbol.
-        is PsiRecordComponent -> SymbolRole.FIELD
-
-        is PsiParameter -> SymbolRole.PARAMETER
-        is PsiLocalVariable -> SymbolRole.LOCAL
-
-        // A label is not a variable, and `break local7;` reads as though it were.
-        is PsiLabeledStatement -> SymbolRole.LABEL
-        else -> SymbolRole.FIELD
-    }
-
-    /**
      * The analysed file's root package — `com.acme` out of `com.acme.web.PaymentController`.
      *
      * A *fact about the file*, and the one the internal-library rule is derived from: a library
@@ -948,8 +595,12 @@ internal object JavaPlanBuilder : PlanBuilder {
             ?.split('.')
             ?.let { segments -> segments.take(2).joinToString(".") }
 
-    /** A separator that cannot merge two fragments into one token, which is all it has to be. */
-    private const val FRAGMENT_SEPARATOR = "\n"
+    /**
+     * **The language every occurrence this walk reports is written in**, which is the one thing a
+     * Java walk can state about a token without looking at it. See
+     * [com.snippetveil.core.Occurrence.language].
+     */
+    private val LANGUAGE = SourceLanguage.JAVA
 
     // What opens and closes a comment, and the asterisk a block comment's continuation lines are
     // written with. Read only to find the body a parser is handed — never to decide anything about
@@ -974,9 +625,4 @@ internal object JavaPlanBuilder : PlanBuilder {
     private const val BOOLEAN_TYPE = "boolean"
     private const val NULL_TYPE = "null"
     private val NUMERIC_TYPES = setOf("byte", "short", "int", "long", "float", "double")
-}
-
-/** One analysed range, and where its text starts in the plan. */
-private class Fragment(val range: TextRange, val planStart: Int) {
-    fun translate(fileOffset: Int): Int = planStart + (fileOffset - range.startOffset)
 }

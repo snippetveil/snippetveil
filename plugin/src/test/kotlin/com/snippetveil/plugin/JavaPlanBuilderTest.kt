@@ -5,6 +5,7 @@ import com.snippetveil.core.AccessorEvidence
 import com.snippetveil.core.CommentOccurrence
 import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.SnippetPlan
+import com.snippetveil.core.SourceLanguage
 import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.SymbolOccurrence
@@ -512,6 +513,44 @@ class JavaPlanBuilderTest : JavaSnippetTestCase() {
         assertEquals(
             listOf("method:class:com.acme.audit.AuditLogged#action", "method:class:org.junit.Test#timeout"),
             attributes.map { it.symbol.key },
+        )
+    }
+
+    /**
+     * **The Java path's occurrences carry their own language, and every one of them carries it.**
+     *
+     * The tag went on because rendering stopped being language-independent — one symbol holds one
+     * placeholder, and how that placeholder is *spelled* at a token depends on the language the token
+     * is written in. Nothing in the Java path spells anything differently because of it; what is
+     * asserted is that the walk populates it, and populates it everywhere, so that a rule reading it
+     * later never has to ask whether it was filled in.
+     *
+     * Over a snippet holding all three occurrence shapes at once — an identifier, a literal and a
+     * comment — because a tag that only reached the shape the walk reports most of is a tag with a
+     * hole in it.
+     */
+    fun `test every occurrence of the java walk carries java as its language`() {
+        assertTheHarnessResolves()
+        val plan = planFor(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>// a note about the merchant
+                String merchantRef = "acme";</selection>
+            }
+            """.trimIndent(),
+        )
+
+        assertTrue(
+            "the snippet did not produce all three occurrence shapes, so this asserts less than it says",
+            plan.occurrences.filterIsInstance<SymbolOccurrence>().isNotEmpty() &&
+                plan.occurrences.filterIsInstance<LiteralOccurrence>().isNotEmpty() &&
+                plan.occurrences.filterIsInstance<CommentOccurrence>().isNotEmpty(),
+        )
+        assertEquals(
+            "an occurrence of a Java token is not tagged Java",
+            setOf(SourceLanguage.JAVA),
+            plan.occurrences.map { it.language }.toSet(),
         )
     }
 

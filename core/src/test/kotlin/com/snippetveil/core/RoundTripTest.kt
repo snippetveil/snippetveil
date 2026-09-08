@@ -145,7 +145,7 @@ private fun planFor(text: String): SnippetPlan {
         text,
         (
             plan.occurrences +
-                CommentOccurrence(comment, comment + COMMENT.length, CommentVerdict.PROSE) +
+                CommentOccurrence(comment, comment + COMMENT.length, CommentVerdict.PROSE, SourceLanguage.JAVA) +
                 // The quotes are the delimiters and the replacement lands inside them, so the
                 // content range is the literal's own range less one character at each end.
                 LiteralOccurrence(
@@ -154,6 +154,7 @@ private fun planFor(text: String): SnippetPlan {
                     LiteralKind.STRING,
                     literal + 1,
                     literal + LITERAL.length - 1,
+                    language = SourceLanguage.JAVA,
                 )
             ).sortedBy { it.start },
         plan.rootPackage,

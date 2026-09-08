@@ -4,6 +4,16 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 
 /**
+ * **The language every occurrence these literals build is written in.**
+ *
+ * Java, because every rule tested against a plan literal here is a rule about a Java-shaped plan —
+ * these tests state the evidence a Java walk reports and assert what the engine makes of it. Spelled
+ * once so that a test asserting something *about* the tag has one place to read it from, rather than
+ * a literal repeated at every construction site.
+ */
+private val LANGUAGE = SourceLanguage.JAVA
+
+/**
  * A plan over [text] whose occurrences are located by searching [text] for each symbol's name, so a
  * test states the code and the evidence and never an offset. Each symbol is keyed by its own name,
  * which is what a test wants by default: same name, same symbol.
@@ -14,7 +24,7 @@ internal fun planOf(text: String, vararg symbols: SymbolEvidence, rootPackage: S
         var from = 0
         while (true) {
             val at = text.indexOf(symbol.declaredName, from).takeIf { it >= 0 } ?: break
-            occurrences += SymbolOccurrence(at, at + symbol.declaredName.length, symbol.declaredName, symbol)
+            occurrences += SymbolOccurrence(at, at + symbol.declaredName.length, symbol.declaredName, symbol, LANGUAGE)
             from = at + symbol.declaredName.length
         }
     }
@@ -38,7 +48,7 @@ internal fun planPlacing(text: String, vararg placements: Placement, rootPackage
         }
         val at = offsets.getOrNull(placement.ordinal)
             ?: error("`$name` occurs ${offsets.size} times in the snippet; there is no #${placement.ordinal}")
-        SymbolOccurrence(at, at + name.length, name, placement.symbol)
+        SymbolOccurrence(at, at + name.length, name, placement.symbol, LANGUAGE)
     }
     return SnippetPlan(text, occurrences.sortedBy { it.start }, rootPackage)
 }
@@ -112,6 +122,7 @@ internal fun symbolAt(
         signature = signature,
         keyIsQualified = keyIsQualified,
     ),
+    LANGUAGE,
 )
 
 /**
@@ -225,6 +236,7 @@ internal fun SnippetPlan.withLiteral(
             contentStart,
             contentEnd,
             references.sortedBy { it.start },
+            LANGUAGE,
         )).sortedBy { it.start },
         rootPackage,
     )
@@ -267,7 +279,7 @@ internal fun SnippetPlan.withComment(comment: String, verdict: CommentVerdict): 
 
     return SnippetPlan(
         text,
-        (occurrences + CommentOccurrence(start, start + comment.length, verdict)).sortedBy { it.start },
+        (occurrences + CommentOccurrence(start, start + comment.length, verdict, LANGUAGE)).sortedBy { it.start },
         rootPackage,
     )
 }
