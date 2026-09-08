@@ -464,7 +464,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * than one.
      *
      * Overloads are the case this exists for and the only case it admits: they share a name and a
-     * declaring class, so they share a [keyOf] and a placeholder, and picking between them is not a
+     * declaring class, so they share a [SymbolKeys.keyOf] and a placeholder, and picking between them is not a
      * choice that can be made wrongly. Anything else — two members of the same name reached through
      * an on-demand import, a reference the IDE genuinely cannot pin down — comes back `null` and
      * fails closed, because there the candidates are different symbols and the first one is a guess.
@@ -551,7 +551,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * `com.intellij.psi.impl.light`, which nothing else in this plugin reaches into, and the name
      * lookup answers identically on every shape Java can spell. The one input that could part them
      * is red code declaring two components of one name, and there the two are already one symbol to
-     * this walk: [keyOf] keys a component by its class and its name, so they shared a placeholder
+     * this walk: [SymbolKeys.keyOf] keys a component by its class and its name, so they shared a placeholder
      * before this function existed and still do.
      *
      * **The lookup is total by construction, and the caller's `?:` is not a described behaviour.** A

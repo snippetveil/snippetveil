@@ -17,6 +17,7 @@ import org.jetbrains.kotlin.asJava.KotlinAsJavaSupport
 import org.jetbrains.kotlin.asJava.LightClassUtil
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtParameter
 import java.util.concurrent.Callable
 
@@ -361,88 +362,43 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
     }
 
     /**
-     * **A top-level declaration is keyed through the file facade** — which is the key rule stated as
-     * a fact: the key a Kotlin declaration receives is the key its light element would receive, so a
-     * Java file calling `LedgerKt.ledgerOf(…)` and this walk land on one placeholder and one shared
-     * ledger row.
+     * **Every key in the plan is the one key rule's**, for every declaration the fixture writes.
      *
-     * It is also what makes the facade a live path in this walk rather than only a classified
-     * element: a top-level function has no containing class in Kotlin, and the facade is the class
-     * Java sees it on.
+     * The walk's job here is to *call* [KotlinSymbolKeys.ledgerKeyOf], not to reach the same answer
+     * by its own route — one key rule for two languages is only one rule if nothing computes a second
+     * opinion beside it. Whether that rule is *right* is `KotlinSymbolKeyingTest`'s question, and it
+     * asks it against the shipped Java walk; this is the seam above it, and it goes red the moment a
+     * key derivation reappears in this file.
+     *
+     * Total over the fixture rather than sampled: every named declaration in it is checked, so a
+     * shape the walk started keying for itself cannot hide by not being one of three named here.
+     * Both halves of the rule are compared, because [LedgerKey] answers them together — a site taking
+     * the key from one place and the flag from another is exactly the fork the rule exists to prevent.
      */
-    fun `test a top-level function is keyed through its file facade`() {
+    fun `test every key in the plan is the one key rule's`() {
         assertTheHarnessResolves()
-        val plan = kotlinPlanFor(LEDGER_PATH, LEDGER)
+        val file = ledgerInTheEditor() as KtFile
 
-        val topLevel = plan.symbols().first { it.text == "ledgerOf" }.symbol
-        assertEquals("method:class:com.acme.ledger.LedgerKt#ledgerOf", topLevel.key)
-        assertTrue("a key taken from a facade is a qualified key", topLevel.keyIsQualified)
-        assertEquals(SymbolOrigin.IN_CONTENT, topLevel.origin)
-        assertEquals(SymbolRole.METHOD, topLevel.role)
-    }
+        // The whole file, so a plan offset is a file offset and a declaration's name identifier
+        // locates its occurrence exactly.
+        val plan = KotlinPlanBuilder.build(SnippetRequest(project, file, emptyList()))
 
-    /**
-     * **One declared symbol reaches one key from either walk** — the claim the whole bridge rests on,
-     * checked against what the Java walk actually produces rather than against a string spelled here.
-     *
-     * This is the invariant that makes a shared ledger possible, and it is the one that goes wrong
-     * silently: the two walks derive a key from different starting points — Kotlin from the light
-     * element a Java reference *would* resolve to, Java from the element it *did* — so they can drift
-     * apart without either side looking wrong on its own. Every rule downstream would still pass, and
-     * the same declaration would simply get two placeholders.
-     *
-     * Both faces Java has of a Kotlin declaration are asserted. A top-level function is a static
-     * method on the file facade; a property is a light field with an accessor over it, and the
-     * accessor is tied back to that field by the evidence the Java walk reports for it — which is the
-     * same shape a Lombok accessor has, and is why the two agree without the property's key having to
-     * be the accessor's.
-     */
-    fun `test a Java reference and the Kotlin declaration it names reach one key`() {
-        assertTheHarnessResolves()
+        val declarations = PsiTreeUtil.findChildrenOfType(file, KtNamedDeclaration::class.java)
+            .filter { it.nameIdentifier != null }
+        assertTrue("the fixture declares nothing, so this asserts nothing", declarations.size >= 4)
 
-        // A real project file rather than the editor's, because the Java file below has to resolve
-        // against it after the fixture has moved on to configuring that one.
-        val ledger = myFixture.addFileToProject(LEDGER_PATH, LEDGER)
-        val kotlin = KotlinPlanBuilder.build(SnippetRequest(project, ledger, emptyList()))
+        for (declaration in declarations) {
+            val at = declaration.nameIdentifier!!.textRange.startOffset
+            val occurrence = plan.symbols().single { it.start == at }
+            val expected = KotlinSymbolKeys.ledgerKeyOf(declaration)
 
-        val java = planFor(
-            "Caller.java",
-            """
-            import com.acme.ledger.Ledger;
-            import com.acme.ledger.LedgerKt;
-
-            class Caller {
-                <selection>String call() {
-                    Ledger ledger = LedgerKt.ledgerOf("x");
-                    return ledger.getMerchantRef();
-                }</selection>
-            }
-            """.trimIndent(),
-        )
-
-        val topLevelFromJava = java.symbols().single { it.text == "ledgerOf" }.symbol
-        val accessorFromJava = java.symbols().single { it.text == "getMerchantRef" }.symbol
-        assertEquals(
-            "the Java walk did not reach the Kotlin declarations through the bridge, so this compares nothing",
-            listOf(SymbolOrigin.IN_CONTENT, SymbolOrigin.IN_CONTENT),
-            listOf(topLevelFromJava.origin, accessorFromJava.origin),
-        )
-
-        assertEquals(
-            "a top-level function is keyed differently by the two walks, so it would get two placeholders",
-            kotlin.symbols().first { it.text == "ledgerOf" }.symbol.key,
-            topLevelFromJava.key,
-        )
-
-        // The property's own key is the light *field*'s; Java reaches it through the accessor, which
-        // reports that field as the one it reads. That indirection is the rule rather than a mismatch
-        // — the engine derives `getField1()` from `field1`, which is the same shape a Lombok accessor
-        // has — so it is the accessor's evidence that has to carry the Kotlin walk's key.
-        assertEquals(
-            "the accessor Java sees does not name the field the Kotlin walk keyed the property as",
-            kotlin.symbols().first { it.text == "merchantRef" && it.symbol.role == SymbolRole.FIELD }.symbol.key,
-            accessorFromJava.accessor?.fieldKey,
-        )
+            assertEquals("the key of " + declaration.name, expected.key, occurrence.symbol.key)
+            assertEquals(
+                "whether the key of " + declaration.name + " may be written down",
+                expected.keyIsQualified,
+                occurrence.symbol.keyIsQualified,
+            )
+        }
     }
 
     /** [LEDGER], open in the editor — the file every test here that needs the tree rather than the plan reads. */

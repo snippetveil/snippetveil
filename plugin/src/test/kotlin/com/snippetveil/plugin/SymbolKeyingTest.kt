@@ -4,6 +4,7 @@ import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.psi.PsiDocumentManager
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerSnapshot
+import com.snippetveil.core.MintedName
 import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.SymbolEvidence
 import com.snippetveil.core.anonymize
@@ -219,6 +220,52 @@ class SymbolKeyingTest : JavaSnippetTestCase() {
         )
     }
 
+    /**
+     * **A mapping written before Kotlin existed reads back identically afterwards.**
+     *
+     * The reason there is one key rule for two languages rather than a rule each is that a ledger
+     * already on a developer's disk has to gain Kotlin with **no migration** — no key it holds may be
+     * spelled differently after the change. The table above pins each key as a literal, which holds
+     * the *spelling*; this holds the *consequence*, which is the thing a developer would actually
+     * notice: every placeholder the old file handed out is still handed out, and nothing in it was
+     * re-minted under a new name.
+     *
+     * The ledger is written out as literals rather than produced by running the walk twice. A round
+     * trip through this same build would agree with itself whatever the keys had become, which is
+     * precisely the failure this exists to catch.
+     *
+     * Both halves are needed, and the first one is easy to write so that it cannot fail. Asking
+     * whether one of *these* keys is in the delta is asking nothing: the delta holds what this
+     * invocation **minted**, a key already in the snapshot is never minted again, and a key whose
+     * spelling changed mints under the **new** string — so that filter is empty on every input,
+     * including the one failure it would claim to catch. The question that does have an answer is
+     * asked of the *names*: a symbol this file already named must not be minted a second time under
+     * any key at all, and `Ledger` appearing in the delta says it was.
+     */
+    fun `test a mapping written before Kotlin existed reads back identically`() {
+        assertTheHarnessResolves()
+        val plan = planFor(FIXTURE_PATH, FIXTURE)
+
+        val result = anonymize(
+            plan,
+            AnonymizationSettings.DEFAULTS,
+            LedgerSnapshot(MAPPING_ON_DISK, nextNumber = 901),
+        )
+
+        assertEquals(
+            "a symbol this mapping already named was minted again, so its key is spelled " +
+                "differently now and the file needs a migration",
+            emptyList<String>(),
+            result.delta.placeholders.values.map { it.original }
+                .filter { it in MAPPING_ON_DISK.values.map(MintedName::original) },
+        )
+        assertEquals(
+            "a placeholder the mapping already handed out is no longer reachable from this snippet",
+            emptyList<String>(),
+            MAPPING_ON_DISK.values.map { it.placeholder }.filterNot { it in result.mapping },
+        )
+    }
+
     /** The [ordinal]-th occurrence of [token] in the plan, and the key the walk gave it. */
     private fun SnippetPlan.keyOf(token: String, ordinal: Int): String =
         evidenceOf(token, ordinal).key
@@ -331,3 +378,23 @@ private val FIXTURE = """
         static String of(Payment p) { return p.merchantRef(); }
     }
 """.trimIndent()
+
+/**
+ * **The mapping as this plugin wrote one before a second language could reach its keys**, spelled out
+ * rather than derived — the file on a developer's disk, standing in for itself.
+ *
+ * Every key here is a row of [KINDS] whose `persistable` column is `true`, which is exactly the set a
+ * durable mapping may hold, plus the package the fixture declares. The placeholders are numbered out
+ * of the way of anything a fresh invocation would mint, so that *this name came from the file* and
+ * *this name was allocated just now* cannot be confused.
+ */
+private val MAPPING_ON_DISK = mapOf(
+    "package:com.acme" to MintedName("package900", "acme"),
+    "class:com.acme.Ledger" to MintedName("Type900", "Ledger"),
+    "field:class:com.acme.Ledger#total" to MintedName("field900", "total"),
+    "method:class:com.acme.Ledger#audit" to MintedName("method900", "audit"),
+    "class:com.acme.Ledger.Status" to MintedName("Type901", "Status"),
+    "field:class:com.acme.Ledger.Status#ACTIVE" to MintedName("field901", "ACTIVE"),
+    "class:com.acme.Payment" to MintedName("Type902", "Payment"),
+    "field:class:com.acme.Payment#merchantRef" to MintedName("field902", "merchantRef"),
+)

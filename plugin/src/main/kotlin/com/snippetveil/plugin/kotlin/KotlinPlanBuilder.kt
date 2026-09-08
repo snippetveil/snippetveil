@@ -2,12 +2,10 @@ package com.snippetveil.plugin.kotlin
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
-import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNamedElement
-import com.intellij.psi.PsiQualifiedNamedElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.snippetveil.core.Occurrence
@@ -22,17 +20,18 @@ import com.snippetveil.plugin.Fragment
 import com.snippetveil.plugin.PlanBuilder
 import com.snippetveil.plugin.SnippetRequest
 import com.snippetveil.plugin.SymbolFacts
+import com.snippetveil.plugin.SymbolKeys
 import com.snippetveil.plugin.fragmentsOf
 import com.snippetveil.plugin.snapEnd
 import com.snippetveil.plugin.snapStart
-import org.jetbrains.kotlin.asJava.LightClassUtil
+import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
-import org.jetbrains.kotlin.asJava.toLightElements
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtClass
+import org.jetbrains.kotlin.psi.KtClassLikeDeclaration
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtDestructuringDeclarationEntry
@@ -67,11 +66,10 @@ import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
  *
  * > **Light classes are a bridge, not a walker.**
  *
- * The bridge direction is the valuable one and it is used here for exactly what it is good at:
- * *identity*. A Java reference to a Kotlin declaration resolves to that declaration's light element,
- * so keying a Kotlin declaration by [the key its light element would receive][bridgeOf] is what makes
- * one shared ledger across the two languages possible. Ranges come from this walk; keys come from the
- * bridge; the two never swap jobs.
+ * The bridge direction is the valuable one, and it is already settled elsewhere:
+ * [KotlinSymbolKeys.ledgerKeyOf] is the one key rule for both languages, and this walk **calls it**
+ * rather than deriving a key of its own. Ranges come from this walk; keys come from that rule; the
+ * two never swap jobs, and there is no second spelling of either to keep in step.
  *
  * ### Identifiers, and a stated limit
  *
@@ -232,57 +230,37 @@ internal object KotlinPlanBuilder : PlanBuilder {
         val symbol = declaration ?: return SymbolFacts.unresolvedEvidence(writtenName)
         if (symbol !is KtElement) return SymbolFacts.evidenceOf(project, symbol, declaredNameOf(symbol, writtenName))
 
-        val bridge = bridgeOf(symbol)
+        val ledgerKey = (symbol as? KtNamedDeclaration)?.let(KotlinSymbolKeys::ledgerKeyOf)
+            ?: LedgerKey(SymbolKeys.localKeyOf(symbol), keyIsQualified = false)
+
         return SymbolEvidence(
-            key = bridge?.let(SymbolFacts::keyOf) ?: ("local:" + SymbolFacts.anchorOf(symbol)),
+            key = ledgerKey.key,
             role = roleOf(symbol),
             origin = ownershipOf(project, symbol),
             declaredName = declaredNameOf(symbol, writtenName),
-            qualifiedName = qualifiedNameOf(symbol, bridge),
+            qualifiedName = qualifiedNameOf(symbol),
             packageName = packageNameOf(symbol),
-            signature = (bridge as? PsiMethod)?.let(SymbolFacts::signatureOf),
-            overrideRoots = (bridge as? PsiMethod)
+            signature = lightMethodOf(symbol)?.let(SymbolFacts::signatureOf),
+            overrideRoots = lightMethodOf(symbol)
                 ?.let { method -> SymbolFacts.overrideRootsOf(method) { ownershipOf(project, it) } }
                 .orEmpty(),
-            accessor = (bridge as? PsiMethod)?.let(SymbolFacts::accessorEvidenceOf),
-            keyIsQualified = bridge?.let(SymbolFacts::keyIsQualified) == true,
+            accessor = lightMethodOf(symbol)?.let(SymbolFacts::accessorEvidenceOf),
+            keyIsQualified = ledgerKey.keyIsQualified,
         )
     }
 
     /**
-     * **The light element a Java reference to [symbol] would resolve to** — the bridge, used for
-     * identity and for nothing else.
+     * **The light method a function compiles to**, which is what the three method-shaped fields of
+     * the evidence — the signature, the override chain and the accessor pair — are read off.
      *
-     * This is where *the key its light element would receive* is spelled. A light class for a class,
-     * a light backing field for a property, a light method for a function, a light field for an enum
-     * entry: whichever face Java sees is the face the key is taken from, so a Kotlin declaration and
-     * every Java reference to it land on one placeholder.
-     *
-     * A light method's name is preferred to match the declaration's own where one does — an
-     * annotation type's attribute is a light method named `action`, while a property's is an accessor
-     * named `getAction`, and only the first of those is the same *name* the token spells.
-     *
-     * `null` for everything Java cannot see: a local, a parameter, a type alias, a label's target, a
-     * lambda. Those are keyed on where they are written, exactly as the Java walk keys its own — and
-     * there is no bridge to disagree with, because no Java file can name one.
+     * **A function only, and a property deliberately not.** A property's representative light method
+     * is its *getter*, and a property is keyed as the **field** it compiles to — so describing it
+     * through the getter would attach one symbol's override chain and accessor pair to a different
+     * symbol's key. The Java walk reports those fields for the accessor itself, which is the symbol
+     * they are about, and it still does: a Java file calling `getMerchantRef()` gets them there.
      */
-    private fun bridgeOf(symbol: PsiElement): PsiElement? {
-        if (symbol is KtEnumEntry) {
-            val owner = symbol.containingClassOrObject?.let(::lightClassOf) ?: return null
-            return symbol.name?.let { owner.findFieldByName(it, false) }
-        }
-        if (symbol !is KtDeclaration) return null
-
-        val lights = symbol.toLightElements()
-        lights.filterIsInstance<PsiClass>().firstOrNull()?.let { return it }
-        LightClassUtil.getLightClassBackingField(symbol)?.let { return it }
-
-        val methods = lights.filterIsInstance<PsiMethod>()
-        return methods.firstOrNull { it.name == symbol.name } ?: methods.firstOrNull()
-    }
-
-    private fun lightClassOf(declaration: KtClassOrObject): PsiClass? =
-        declaration.toLightElements().filterIsInstance<PsiClass>().firstOrNull()
+    private fun lightMethodOf(symbol: PsiElement): PsiMethod? =
+        (symbol as? KtNamedFunction)?.getRepresentativeLightMethod()
 
     /**
      * What a symbol is, in **Kotlin's** grammar — which is not always what its light element is in
@@ -340,25 +318,29 @@ internal object KotlinPlanBuilder : PlanBuilder {
         (symbol as? PsiNamedElement)?.name?.takeIf { it.isNotEmpty() && '<' !in it } ?: writtenName
 
     /**
-     * The symbol's fully-qualified name, for a Kotlin declaration that has one — taken from the
-     * bridge, which is the same answer the Java walk gives for the same declaration: a light class
-     * has a qualified name, a light field or method does not.
+     * The symbol's fully-qualified name, for a Kotlin declaration that has one.
      *
-     * A type alias has no light element at all and so has to answer for itself.
+     * Classifiers only — a class, an object, an enum, a typealias — because those are the
+     * declarations Java gives a qualified name to, and this field is read as the Java walk's
+     * `PsiQualifiedNamedElement.qualifiedName` is. An enum entry is answered **before** the
+     * classifier branch and answered `null`, for the reason [KotlinSymbolKeys.ledgerKeyOf] orders
+     * its branches the same way: an entry is a `KtClass` in the grammar and a field on the JVM, and
+     * a field has no qualified name.
      *
      * **A package does not reach this function**, and that is worth saying because the field matters
      * so much: [com.snippetveil.core.SymbolEvidence.qualifiedName] is what the top-level-segment rule
-     * reads and nothing else reads it at all, so a package symbol arriving with a null one renames the
-     * root segment silently and everywhere — measured on the spike, `org` survived 8,043 times in Java
-     * output and not once in Kotlin until the field was populated. A package resolved from Kotlin is a
-     * [com.intellij.psi.PsiPackage] rather than a [KtElement], so [evidenceOf] hands it to [SymbolFacts] and it is
-     * described exactly as the Java walk describes it, qualified name included. That the two walks
-     * agree on it *because they are one function* is stronger than a second branch here would be, and
-     * it is asserted either way.
+     * reads and nothing else reads it at all, so a package symbol arriving with a null one renames
+     * the root segment silently and everywhere — measured on the spike, `org` survived 8,043 times in
+     * Java output and not once in Kotlin until the field was populated. A package resolved from
+     * Kotlin is a [com.intellij.psi.PsiPackage] rather than a [KtElement], so [evidenceOf] hands it
+     * to [SymbolFacts] and it is described exactly as the Java walk describes it, qualified name
+     * included. That the two walks agree on it *because they are one function* is stronger than a
+     * second branch here would be, and it is asserted either way.
      */
-    private fun qualifiedNameOf(symbol: PsiElement, bridge: PsiElement?): String? = when (symbol) {
-        is KtTypeAlias -> symbol.fqName?.asString()
-        else -> (bridge as? PsiQualifiedNamedElement)?.qualifiedName
+    private fun qualifiedNameOf(symbol: PsiElement): String? = when (symbol) {
+        is KtEnumEntry -> null
+        is KtClassLikeDeclaration -> symbol.fqName?.asString()
+        else -> null
     }
 
     /**
