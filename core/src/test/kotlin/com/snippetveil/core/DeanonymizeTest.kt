@@ -251,6 +251,55 @@ class DeanonymizeTest {
     }
 
     /**
+     * **The three characters a Kotlin string template writes a placeholder flush against**, each
+     * asserted on its own — `$`, `{` and `"`.
+     *
+     * They are the boundaries the word-boundary contract had never had to meet before this language
+     * arrived: a Java reply writes a placeholder next to a dot, a bracket or a space, and every one
+     * of those was outside the word class already. `"str1$local2 str3${local4.method5()}"` is output
+     * this engine mints, so a `$` inside the word class would make `str1$local2` one token standing
+     * for nothing — two names the tables both hold, lost in silence.
+     */
+    @Test
+    fun `a placeholder written against a template's own punctuation is restored`() {
+        val reply = """it logs "str1${'$'}local2 str3${'$'}{local4.method5()}" on the way out"""
+
+        val reversal = deanonymize(
+            reply,
+            sidecarOf("str1" to "Refund ", "local2" to "refundId", "str3" to "rejected by "),
+            mappingOf(6, "local4" to "merchant", "method5" to "label"),
+        )
+
+        assertEquals(
+            """it logs "Refund ${'$'}refundId rejected by ${'$'}{merchant.label()}" on the way out""",
+            reversal.text,
+        )
+        assertEquals(listOf("str1", "local2", "str3", "local4", "method5"), reversal.restored)
+        assertEquals(emptyList<Unrestored>(), reversal.unrestored)
+    }
+
+    /**
+     * **The stated cost of `$` being a boundary**, pinned rather than left to be discovered.
+     *
+     * A Java identifier may legally contain `$` — a nested class in its bytecode spelling, a
+     * generated lambda's name — and a reply writing one now has its placeholder-shaped parts
+     * restored. That is the direction to err in: `Type1` in `Type1$Inner` **is** the placeholder
+     * standing for the outer class, so what comes back is the name the reply meant. The alternative
+     * left every placeholder a Kotlin template writes against `$` unreadable, to protect a spelling
+     * that is generated code's rather than a developer's.
+     *
+     * The half that does **not** move is asserted beside it: `$` is a boundary, not a character that
+     * absorbs its neighbours, so `Inner` is still nobody's placeholder and is left exactly as written.
+     */
+    @Test
+    fun `a placeholder beside a dollar in a Java name is restored and the rest is left alone`() {
+        val reversal = deanonymize("Type1\$Inner", sidecarOf(), mappingOf(2, "Type1" to "Payment"))
+
+        assertEquals("Payment\$Inner", reversal.text)
+        assertEquals(listOf("Type1"), reversal.restored)
+    }
+
+    /**
      * A leading digit makes the whole run one word, so nothing is restored out of the middle of a
      * token. The boundary is drawn round everything an identifier could contain rather than round
      * what one could *start* with, which is what makes that true.

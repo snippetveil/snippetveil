@@ -11,6 +11,8 @@ import com.intellij.psi.PsiQualifiedNamedElement
 import com.intellij.psi.PsiReference
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
+import com.snippetveil.core.LiteralKind
+import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.Occurrence
 import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.SourceLanguage
@@ -25,8 +27,7 @@ import com.snippetveil.plugin.SnippetRequest
 import com.snippetveil.plugin.SymbolFacts
 import com.snippetveil.plugin.SymbolKeys
 import com.snippetveil.plugin.fragmentsOf
-import com.snippetveil.plugin.snapEnd
-import com.snippetveil.plugin.snapStart
+import com.snippetveil.plugin.snappedRangesOf
 import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
@@ -42,6 +43,7 @@ import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtDestructuringDeclarationEntry
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtEnumEntry
+import org.jetbrains.kotlin.psi.KtEscapeStringTemplateEntry
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtFunctionLiteral
@@ -58,6 +60,10 @@ import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtPsiUtil
 import org.jetbrains.kotlin.psi.KtQualifiedExpression
+import org.jetbrains.kotlin.psi.KtSimpleNameStringTemplateEntry
+import org.jetbrains.kotlin.psi.KtStringTemplateEntry
+import org.jetbrains.kotlin.psi.KtStringTemplateEntryWithExpression
+import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.kotlin.psi.KtTypeAlias
 import org.jetbrains.kotlin.psi.KtTypeParameter
 import org.jetbrains.kotlin.psi.KtValueArgument
@@ -81,13 +87,17 @@ import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
  * rather than deriving a key of its own. Ranges come from this walk; keys come from that rule; the
  * two never swap jobs, and there is no second spelling of either to keep in step.
  *
- * ### Identifiers, and a stated limit
+ * ### Identifiers and string templates, and a stated limit
  *
- * **This walk reports identifiers.** Kotlin's literals and comments are not walked here — a string
- * template with interpolation is a container with a snapping rule of its own, and deciding that is a
- * separate piece of work. Nothing is registered against this builder, so no `.kt` file reaches it
- * from a user's IDE: `com.snippetveil-withKotlin.xml` declares no `languageSupport`, and the source
- * file gate keeps returning its stated refusal on every `.kt` file.
+ * **This walk reports identifiers and the literal text of string templates.** A template is a
+ * container rather than a token: it snaps as a whole — see [tokenOf] — and it is then decomposed
+ * into its parts, each of which meets a rule on its own. See [templateChunksIn].
+ *
+ * **Kotlin's comments are still not walked**, and that is a limit rather than a decision made here:
+ * a comment's verdict is *what a parser makes of its body*, and the parser this product asks is
+ * Java's. Nothing is registered against this builder either way, so no `.kt` file reaches it from a
+ * user's IDE: `com.snippetveil-withKotlin.xml` declares no `languageSupport`, and the source file
+ * gate keeps returning its stated refusal on every `.kt` file.
  *
  * ### Threading
  *
@@ -112,14 +122,16 @@ internal object KotlinPlanBuilder : PlanBuilder {
 
     override fun build(request: SnippetRequest): SnippetPlan {
         val file = request.file
-        val snapped = request.selections.map { TextRange(snapStart(file, it.startOffset), snapEnd(file, it.endOffset)) }
+        val snapped = snappedRangesOf(file, request.selections, ::tokenOf)
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
+        val occurrences = (symbolsIn(request.project, file, fragments) + templateChunksIn(file, fragments))
+            .sortedBy { it.start }
 
         return SnippetPlan(
             text,
-            symbolsIn(request.project, file, fragments),
+            occurrences,
             rootPackageOf(file),
             // A range moved iff the two lists differ, which is the claim itself rather than a proxy
             // for it. Snapping is the only thing between them, and the whole-file case reaches
@@ -159,6 +171,178 @@ internal object KotlinPlanBuilder : PlanBuilder {
         }
         return occurrences
     }
+
+    /**
+     * **What one token is, in Kotlin: the string template a leaf belongs to, or the leaf itself.**
+     * See [com.snippetveil.plugin.TokenOf].
+     *
+     * Kotlin's token classes are the identifier, the string literal, the raw string and the string
+     * template — and the last three are one PSI type, [KtStringTemplateExpression], whose leaves are
+     * its **entries**. So a leaf is not a token here: `findElementAt` inside `"Refund $refundId"`
+     * comes back with a `REGULAR_STRING_PART`, and snapping to it would cut a template open and
+     * leave the opening quote outside the analysed range.
+     *
+     * > **A selection cutting into a template snaps to the whole template — never to one of its
+     * > entries.**
+     *
+     * That is the fail-open argument rather than a tidiness one, and it is stated in full beside
+     * [com.snippetveil.plugin.fragmentsOf]. The **topmost** template, because templates nest —
+     * `"a ${"b"}"` — and the outer one is the container the selection actually cut.
+     */
+    private fun tokenOf(leaf: PsiElement): PsiElement =
+        PsiTreeUtil.getTopmostParentOfType(leaf, KtStringTemplateExpression::class.java) ?: leaf
+
+    /**
+     * **A construct PSI exposes as a tree of parts is decomposed structurally, and each part meets
+     * the rules on its own. It is never rewritten as one span of text.**
+     *
+     * A string template is that construct, and this is where it is taken apart. Each **literal-entry
+     * run** — a maximal run of entries that are not interpolations — is reported as a literal of its
+     * own, so the engine's ordinary literal rule replaces it with a `str` placeholder; each
+     * interpolated expression is left to [symbolsIn], where it is **ordinary code under the ordinary
+     * rules**. Nothing else is reported, so the quotes are never inside any occurrence and a raw
+     * template stays raw for exactly the reason a Java text block does: no delimiter is ever written
+     * by anything downstream.
+     *
+     * ```
+     * "Refund $refundId rejected by $merchant"  ->  "str1$local2 str3$local4"
+     * "$name"                                   ->  "$local1"
+     * "a ${x.foo()}"                            ->  "str1${local2.method3()}"
+     * "no refs here"                            ->  "str1"
+     * ```
+     *
+     * **Why a container may be decomposed at all, when a Java literal may not.** A Java literal is
+     * one token, so rewriting a sub-range of it means splicing into text — which is why the coverage
+     * rule exists, and why *mixed-always* (rewrite what is covered, **pass the gaps through**) was a
+     * live leak. A template is a **tree**, so this decomposition is structural rather than textual,
+     * and **nothing passes through**: every chunk is replaced, none is preserved for want of a rule.
+     * A change that starts comparing covered ranges against gaps inside a template has stopped
+     * implementing that sentence.
+     *
+     * **Transposing the coverage rule verbatim was rejected**, and so was collapsing every template
+     * to `"str1"`. Either sends an idiomatic Kotlin log or error template to a single placeholder,
+     * losing **every** reference in it — while the Java sibling `"Refund {} rejected by {}", a, b`
+     * keeps them, so the two languages would disagree about the same message for no reason a reader
+     * could see.
+     *
+     * A template with no interpolation is one run and therefore one chunk, which is the ordinary
+     * literal rule reached by the ordinary route rather than a case of its own.
+     *
+     * **Two stated limits.** Kotlin's comments are not walked, so nothing here strips one — the
+     * builder's header says why that is still true. And a chunk carries **no references**: the
+     * per-framework contributors that make a Java literal splice are Java's, and a Kotlin chunk is
+     * therefore always replaced whole, which is the safe direction and not a rule this decides.
+     */
+    private fun templateChunksIn(file: PsiFile, fragments: List<Fragment>): List<Occurrence> =
+        PsiTreeUtil.findChildrenOfType(file, KtStringTemplateExpression::class.java)
+            .flatMap { template ->
+                val fragment = fragments.firstOrNull { it.range.contains(template.textRange) }
+                    ?: return@flatMap emptyList()
+                val kind = kindOf(template)
+
+                chunksOf(template).map { chunk ->
+                    val end = fragment.translate(chunk.range.endOffset)
+                    LiteralOccurrence(
+                        start = fragment.translate(chunk.range.startOffset),
+                        end = end,
+                        kind = kind,
+                        contentStart = fragment.translate(chunk.contentStart),
+                        // The chunk's own end: a chunk's content runs to the end of the run, because
+                        // what closes it is the next entry rather than a delimiter of its own.
+                        contentEnd = end,
+                        language = LANGUAGE,
+                    )
+                }
+            }
+
+    /**
+     * **The literal-entry runs of one template**, in order — which partition the template's entries
+     * and never span the template itself.
+     *
+     * A run is maximal, so `"tab\there $name"` is one chunk and not three: an escape is literal text
+     * spelled differently, and a chunk that stopped at one would report two placeholders where a
+     * reader sees one string.
+     */
+    private fun chunksOf(template: KtStringTemplateExpression): List<Chunk> {
+        val chunks = mutableListOf<Chunk>()
+        var run = mutableListOf<KtStringTemplateEntry>()
+        var followsBareName = false
+
+        fun close() {
+            if (run.isNotEmpty()) chunks += chunkOf(run, followsBareName)
+            run = mutableListOf()
+        }
+
+        for (entry in template.entries) {
+            if (entry is KtStringTemplateEntryWithExpression) {
+                close()
+                followsBareName = entry is KtSimpleNameStringTemplateEntry
+            } else {
+                run += entry
+            }
+        }
+        close()
+
+        return chunks
+    }
+
+    /**
+     * One chunk over [run], and **the one character of it the splice may not eat**.
+     *
+     * A chunk that follows a `$name` entry is written flush against the name the language just
+     * ended, and a placeholder is a word: `$local2` followed by `str3` is `$local2str3`, which is
+     * Kotlin for **one** name that stands for nothing — two placeholders fused into a word neither a
+     * reader nor [com.snippetveil.core.deanonymize] can take apart. So the chunk keeps the boundary
+     * the source already had, and the placeholder replaces the rest:
+     * `" rejected by "` after `$refundId` becomes `" str3"`.
+     *
+     * **What is kept is the character the lexer ended the name at, rather than a character this
+     * inspected and approved of**: `$name` runs to the first character that could not continue it,
+     * so what is kept is by construction not one of those — a space, a punctuation mark, a line
+     * break. It is reported as the chunk's *opening delimiter* —
+     * [com.snippetveil.core.LiteralOccurrence.contentStart] — which is the field that already means
+     * *what the replacement lands after*, and it is why the chunk's range still covers the whole
+     * run: the entries partition the template, delimiters included.
+     *
+     * **Whole units, never half of one**, in both directions, because half of either is a boundary
+     * that does not lex:
+     *
+     *  - **An escape**, whole — `\` alone in front of a placeholder is `\s`, which Kotlin does not
+     *    have.
+     *  - **A code point**, whole — a supplementary character is two UTF-16 units, and keeping one of
+     *    them writes a lone surrogate into the clipboard.
+     *
+     * The disclosed cost is that a `A` opening a chunk is kept as written, so **one** escaped
+     * character survives a redaction: bounded at one, because everything after the boundary is
+     * replaced, and taken knowingly against emitting source that does not lex. `KotlinTemplateTest`
+     * pins it rather than leaving it to be discovered.
+     *
+     * A chunk whose whole run is that boundary — the ` ` of `"$a $b"` — has empty content, and the
+     * engine preserves an empty literal rather than numbering it. Nothing is lost: the character it
+     * is made of is the one the language put there.
+     */
+    private fun chunkOf(run: List<KtStringTemplateEntry>, followsBareName: Boolean): Chunk {
+        val opening = run.first()
+        val range = TextRange(opening.textRange.startOffset, run.last().textRange.endOffset)
+        val boundary = when {
+            !followsBareName -> 0
+            opening is KtEscapeStringTemplateEntry -> opening.textLength
+            else -> opening.text.offsetByCodePoints(0, 1)
+        }
+        return Chunk(range, range.startOffset + boundary)
+    }
+
+    /**
+     * What a template is, in **Kotlin's** grammar — the fact, reported as one, though both answers
+     * reach the same rule.
+     *
+     * A raw string is the [LiteralKind.TEXT_BLOCK] of this language: triple-quoted, multi-line, and
+     * written without escapes. Read off the opening quote the tree hands over rather than off the
+     * expression's text, which is the same question about *form* that Java's builder asks and is
+     * asked of PSI here because PSI has the answer.
+     */
+    private fun kindOf(template: KtStringTemplateExpression): LiteralKind =
+        if (template.firstChild?.text == RAW_QUOTE) LiteralKind.TEXT_BLOCK else LiteralKind.STRING
 
     /**
      * What is known about the symbol [identifier] names.
@@ -595,7 +779,20 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * [com.snippetveil.core.Occurrence.language].
      */
     private val LANGUAGE = SourceLanguage.KOTLIN
+
+    /** What opens and closes a raw string, and the one thing that tells one from an escaped one. */
+    private const val RAW_QUOTE = "\"\"\""
 }
+
+/**
+ * One literal-entry run of a template: the whole run, and where inside it the replacement starts.
+ *
+ * The two are the same pair a [LiteralOccurrence] carries — the literal, and its content — and they
+ * are computed together for the reason that type keeps them together: what is *outside* the content
+ * is what survives the replacement, and a chunk whose range and content were decided in two places
+ * would be a chunk whose boundary could go missing from one of them. See [KotlinPlanBuilder.chunkOf].
+ */
+private class Chunk(val range: TextRange, val contentStart: Int)
 
 /**
  * **Where the file declaring [symbol] lives** — the spine rule's evidence, asked the way Kotlin
