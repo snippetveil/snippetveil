@@ -147,7 +147,7 @@ internal object SymbolFacts {
      * to an anchor, and the member's key inherits that. A `null` owner is the light member with no
      * class at all, and it gets a name rather than an exception.
      */
-    fun memberKeyOf(kind: String, owner: PsiClass?, name: String): String =
+    private fun memberKeyOf(kind: String, owner: PsiClass?, name: String): String =
         kind + ":" + (owner?.let(::keyOf) ?: "<none>") + "#" + name
 
     /**
@@ -327,7 +327,7 @@ internal object SymbolFacts {
      * be matching a class name against a package one. The containing file is the fallback, which is
      * what answers for an anonymous or local class and for a member of one.
      */
-    fun packageNameOf(symbol: PsiElement): String? {
+    private fun packageNameOf(symbol: PsiElement): String? {
         // A package is not declared in a package; it *is* one. Every rule that reads this field is
         // asking which package a name is part of, and a package is part of itself.
         if (symbol is PsiPackage) return symbol.qualifiedName.takeIf { it.isNotEmpty() }

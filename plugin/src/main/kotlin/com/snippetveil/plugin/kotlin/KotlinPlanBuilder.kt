@@ -7,7 +7,6 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNamedElement
-import com.intellij.psi.PsiPackage
 import com.intellij.psi.PsiQualifiedNamedElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
@@ -90,10 +89,14 @@ import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
  * makes it load-bearing for Java. The shape the invocation already has satisfies all of it: EDT
  * capture, then `ReadAction.nonBlocking().inSmartMode().expireWith(project)`.
  *
- * **No analysis session outlives the walk.** Resolution goes through the Kotlin plugin's own
- * reference layer, which opens and closes its session inside each `resolve()` call and hands back
- * plain PSI; nothing here holds a `KaSession` or a `KaSymbol`, and the plan itself could not carry
- * one — [SnippetPlan] lives in `:core`, which has no IntelliJ dependency at all. A concurrent write
+ * **No analysis session outlives the walk, and there is none to leak.** Resolution goes through the
+ * Kotlin plugin's own reference layer, which opens and closes its session inside each `resolve()`
+ * call and hands back plain PSI — so this walk opens no analysis block of its own and holds no
+ * `KaSession` or `KaSymbol`. The plan could not carry one in any case: [SnippetPlan] lives in
+ * `:core`, which has no IntelliJ dependency at all, and `core does not reach for the IDE` asserts it
+ * over shipped bytecode. **A walk that later reaches for `analyze { }` directly owes an assertion
+ * this one does not**: the test beside this only shows that what comes back is readable once the read
+ * action has ended, which a leak-free walk and a careful leaky one both satisfy. A concurrent write
  * action cancels and restarts this walk, and the restart is free: it allocates nothing, mutates
  * nothing and touches no ledger. It only describes.
  */
@@ -294,7 +297,6 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * last Kotlin branch reads, and it is why it can be as broad as it is.
      */
     private fun roleOf(symbol: PsiElement): SymbolRole = when {
-        symbol is PsiPackage -> SymbolRole.PACKAGE
         symbol is KtTypeParameter -> SymbolRole.TYPE_PARAMETER
 
         // Before KtClass, which an enum entry is one of. An entry is compiled to a static field of
@@ -338,20 +340,24 @@ internal object KotlinPlanBuilder : PlanBuilder {
         (symbol as? PsiNamedElement)?.name?.takeIf { it.isNotEmpty() && '<' !in it } ?: writtenName
 
     /**
-     * The symbol's fully-qualified name, for a symbol that has one.
+     * The symbol's fully-qualified name, for a Kotlin declaration that has one — taken from the
+     * bridge, which is the same answer the Java walk gives for the same declaration: a light class
+     * has a qualified name, a light field or method does not.
      *
-     * **A package's is read here and not left to fall out of the bridge**, because that field is what
-     * the top-level-segment rule reads and nothing else reads it at all. A package symbol arriving
-     * with a null qualified name renames the root segment, silently and everywhere: measured on the
-     * spike, `org` survived 8,043 times in Java output and not once in Kotlin until this was
-     * populated.
+     * A type alias has no light element at all and so has to answer for itself.
      *
-     * Everything else takes it from the bridge, which is the same answer the Java walk gives for the
-     * same declaration: a light class has a qualified name, a light field or method does not.
+     * **A package does not reach this function**, and that is worth saying because the field matters
+     * so much: [com.snippetveil.core.SymbolEvidence.qualifiedName] is what the top-level-segment rule
+     * reads and nothing else reads it at all, so a package symbol arriving with a null one renames the
+     * root segment silently and everywhere — measured on the spike, `org` survived 8,043 times in Java
+     * output and not once in Kotlin until the field was populated. A package resolved from Kotlin is a
+     * [com.intellij.psi.PsiPackage] rather than a [KtElement], so [evidenceOf] hands it to [SymbolFacts] and it is
+     * described exactly as the Java walk describes it, qualified name included. That the two walks
+     * agree on it *because they are one function* is stronger than a second branch here would be, and
+     * it is asserted either way.
      */
-    private fun qualifiedNameOf(symbol: PsiElement, bridge: PsiElement?): String? = when {
-        symbol is PsiPackage -> symbol.qualifiedName.takeIf { it.isNotEmpty() }
-        symbol is KtTypeAlias -> symbol.fqName?.asString()
+    private fun qualifiedNameOf(symbol: PsiElement, bridge: PsiElement?): String? = when (symbol) {
+        is KtTypeAlias -> symbol.fqName?.asString()
         else -> (bridge as? PsiQualifiedNamedElement)?.qualifiedName
     }
 
@@ -360,13 +366,11 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * puts it: a nested class, a top-level function and a member all belong to their file's package,
      * and Kotlin does not require that package to match the directory.
      *
-     * A package is part of itself, exactly as in the Java walk, because every rule reading this field
-     * is asking which package a name is part of.
+     * A package answers this for itself and is not asked here, for the reason [qualifiedNameOf] gives:
+     * it is not a [KtElement], so it never reaches this walk's own description at all.
      */
-    private fun packageNameOf(symbol: PsiElement): String? = when {
-        symbol is PsiPackage -> symbol.qualifiedName.takeIf { it.isNotEmpty() }
-        else -> (symbol.containingFile as? KtFile)?.packageFqName?.asString()?.takeIf { it.isNotEmpty() }
-    }
+    private fun packageNameOf(symbol: PsiElement): String? =
+        (symbol.containingFile as? KtFile)?.packageFqName?.asString()?.takeIf { it.isNotEmpty() }
 
     /**
      * The analysed file's root package — `com.acme` out of `com.acme.ledger.Ledger`.
@@ -403,16 +407,14 @@ internal object KotlinPlanBuilder : PlanBuilder {
  *    is.** This is where *ownership is resolved, never assumed* is actually enforced: a `KtParameter`
  *    reached through a named argument can be a library's, and the file says so.
  *
- * Anything else is a Java declaration reached from Kotlin, and it is classified exactly as the Java
- * walk classifies it.
+ * Anything else is a Java declaration reached from Kotlin — a package among them, which is why there
+ * is no package branch here — and it is classified exactly as the Java walk classifies it.
  *
  * Internal rather than private to [KotlinPlanBuilder] because the facade branch is a **required**
  * resolution path that no ordinary fixture can steer the walk into — a Kotlin file has no syntax that
  * names its own facade — so it is asserted directly. See `KotlinPlanBuilderTest`.
  */
 internal fun ownershipOf(project: Project, symbol: PsiElement): SymbolOrigin = when {
-    symbol is PsiPackage -> SymbolFacts.packageOriginOf(project, symbol)
-
     symbol is KtLightElement<*, *> || symbol is KtLightClassForFacade ->
         SymbolFacts.originOfFile(project, PsiUtilCore.getVirtualFile(kotlinOriginOf(symbol)))
 

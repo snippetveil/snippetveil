@@ -411,17 +411,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         val declaredName = (declaration as? PsiNameIdentifierOwner)?.name ?: writtenName
 
         // A name that resolved to nothing is reported as unresolved rather than dropped, and the
-        // engine fails it closed. Red or incomplete code is normal rather than exceptional, and the
-        // snippet a developer is debugging is the likely one.
-        //
-        // Keyed on the text, which is the only thing there is to key an unresolved name on. Two
-        // distinct symbols spelled alike therefore share a placeholder — the reverse mapping stays
-        // well-defined, since `Unknown1` still stands for exactly one *name*, which is all a reader
-        // can be handed back about a name that resolved to nothing.
-        //
-        // The role of a name that did not resolve is not knowable, and no rule reads this one: the
-        // engine takes the namespace off the origin precisely because the role would be an
-        // invention. It is filled in rather than made nullable so that every other role stays a fact.
+        // engine fails it closed. Why, and what it is keyed on, is [SymbolFacts.unresolvedEvidence].
         val symbol = declaration?.let(::declaredSymbolOf) ?: return SymbolFacts.unresolvedEvidence(writtenName)
 
         return SymbolFacts.evidenceOf(project, symbol, declaredName)

@@ -2,6 +2,7 @@ package com.snippetveil.plugin.kotlin
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
+import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.snippetveil.core.SnippetPlan
@@ -67,7 +68,7 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
      */
     fun `test a property reports its own range and not its light accessor's`() {
         assertTheHarnessResolves()
-        val file = myFixture.configureByText(LEDGER_PATH.substringAfterLast('/'), LEDGER) as KtFile
+        val file = ledgerInTheEditor() as KtFile
         val property = PsiTreeUtil.findChildrenOfType(file, KtParameter::class.java).single { it.name == "merchantRef" && it.hasValOrVar() }
         val accessor = LightClassUtil.getLightClassPropertyMethods(property).getter
 
@@ -82,8 +83,46 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
         val plan = KotlinPlanBuilder.build(SnippetRequest(project, file, emptyList()))
         val occurrence = plan.symbols().single { it.text == "merchantRef" && it.symbol.role == SymbolRole.FIELD }
 
+        // The whole file, so a plan offset *is* a file offset — which is what lets this compare the
+        // occurrence against the source tree rather than only against the plan's own text. Against
+        // the plan alone the two sides come off one leaf and agree with themselves.
+        assertEquals(property.nameIdentifier!!.textRange.startOffset, occurrence.start)
+        assertEquals(property.nameIdentifier!!.textRange.endOffset, occurrence.end)
         assertEquals("merchantRef", plan.text.substring(occurrence.start, occurrence.end))
         assertEquals("merchantRef", occurrence.symbol.declaredName)
+    }
+
+    /**
+     * **A selection's occurrences are offsets into the snippet, not into the file** — the translation
+     * every offset in a plan depends on, and the one thing a whole-file fixture can never exercise,
+     * because there the two are equal.
+     *
+     * Snapping is asserted in both directions for the reason the Java walk asserts it in both: a
+     * notice that fires on every invocation is one nobody reads on the invocation where it matters.
+     */
+    fun `test a selection reports offsets into the snippet and says whether it was widened`() {
+        assertTheHarnessResolves()
+        val plan = kotlinPlanFor(
+            LEDGER_PATH,
+            """
+            package com.acme.ledger
+
+            class Ledger {
+                fun settle(amount: Int): Int {
+                    val owed = amount
+                    return ow<selection>ed</selection>
+                }
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("snapping was not reported although the selection cut a token", true, plan.selectionExpanded)
+        assertEquals("owed", plan.text)
+
+        val occurrence = plan.symbols().single()
+        assertEquals(0, occurrence.start)
+        assertEquals("owed", plan.text.substring(occurrence.start, occurrence.end))
+        assertEquals(SymbolRole.LOCAL, occurrence.symbol.role)
     }
 
     /**
@@ -111,8 +150,23 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
         )
         assertEquals(SymbolRole.PARAMETER, library.role)
 
-        val project = plan.symbols().last { it.text == "amount" }.symbol
-        assertEquals("a named argument on a call declared in this file is not this project's", SymbolOrigin.IN_CONTENT, project.origin)
+        // Every `amount` in the fixture — the parameter, the named argument naming it and the body's
+        // reference to it — is one symbol, so asserting all of them is the claim without a positional
+        // trick to pick the argument out.
+        val ours = plan.symbols().filter { it.text == "amount" }
+        assertEquals("the declaration, the named argument and the reference should all be reported", 3, ours.size)
+        for (occurrence in ours) {
+            assertEquals(
+                "a named argument on a call declared in this file is not this project's",
+                SymbolOrigin.IN_CONTENT,
+                occurrence.symbol.origin,
+            )
+        }
+        assertEquals(
+            "the named argument and the parameter it names are one symbol and have to share a key",
+            1,
+            ours.map { it.symbol.key }.toSet().size,
+        )
     }
 
     /**
@@ -132,7 +186,9 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
         assertTheKotlinStandardLibraryIsALibrary()
         val plan = kotlinPlanFor(LEDGER_PATH, LEDGER)
 
-        val label = plan.symbols().single { it.text == "forEach" && it.start > plan.text.indexOf("forEach") }.symbol
+        val forEaches = plan.symbols().filter { it.text == "forEach" }
+        assertEquals("the call and the label it is named after should both be reported", 2, forEaches.size)
+        val label = forEaches.single { plan.text[it.start - 1] == '@' }.symbol
         assertEquals(
             "a label named after a library call was not resolved to it: " + label.key,
             SymbolOrigin.LIBRARY,
@@ -140,7 +196,7 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
         )
         assertEquals(
             "the label does not share the callee's key, so the two cannot rename in lockstep",
-            plan.symbols().first { it.text == "forEach" }.symbol.key,
+            forEaches.single { plan.text[it.start - 1] != '@' }.symbol.key,
             label.key,
         )
 
@@ -166,15 +222,20 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
      * required resolution path rather than an optimisation, and it is asserted directly because no
      * Kotlin fixture can steer the walk into it — Kotlin has no syntax that names its own facade.
      *
-     * The platform fact the path rests on is pinned alongside, in the habit of
-     * [assertTheFacadeBehaviourIsPinned]: on this platform `PsiUtilCore.getVirtualFile` happens to
-     * answer for a facade too, and *that it agrees today* is what is written down. If it stops
-     * agreeing, this goes red naming the platform rather than some later rendering test going red and
-     * being triaged as a regression here.
+     * **What this test cannot do, stated rather than implied.** The obligation was written as *the
+     * test fails if ownership is read from `getVirtualFile()`*, and on this platform it cannot: a
+     * facade's containing file is a `FakeFileForLightClass` whose virtual file is the `.kt` file, so
+     * `PsiUtilCore.getVirtualFile` answers the same thing `files.first()` does and no assertion can
+     * separate the two. The premise the obligation rests on — that a light element returns `null`
+     * there — did not reproduce, so what is written down instead is the pair of facts that *are*
+     * observable: the facade reports no `kotlinOrigin`, which is what makes `files.first()` the only
+     * thing left to read it from, and the two paths agree today. If either stops holding, this goes
+     * red naming the platform, in the habit of [assertTheFacadeBehaviourIsPinned] — rather than some
+     * later rendering test going red and being triaged as a regression here.
      */
     fun `test a file facade is the project's through the files behind it`() {
         assertTheHarnessResolves()
-        val file = myFixture.configureByText(LEDGER_PATH.substringAfterLast('/'), LEDGER) as KtFile
+        val file = ledgerInTheEditor() as KtFile
         val facade = KotlinAsJavaSupport.getInstance(project).getLightFacade(file)
 
         assertNotNull("the fixture produced no file facade, so nothing here holds", facade)
@@ -249,7 +310,7 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
      */
     fun `test the walk runs inside a non-blocking read action in smart mode`() {
         assertTheHarnessResolves()
-        val file = myFixture.configureByText(LEDGER_PATH.substringAfterLast('/'), LEDGER)
+        val file = ledgerInTheEditor()
         val request = SnippetRequest(project, file, selectedRangesOf(myFixture.editor))
 
         val onThisThread = KotlinPlanBuilder.build(request)
@@ -274,10 +335,16 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
      * rather than answer. It cannot: [SnippetPlan] lives in `:core`, which has no IntelliJ dependency
      * at all — the structural half of this claim is `core does not reach for the IDE`, and this is the
      * half that runs.
+     *
+     * **Its limit, stated.** This walk opens no analysis block: resolution goes through the Kotlin
+     * plugin's reference layer, which enters and leaves its own session inside each `resolve()`. So
+     * what is asserted here is that nothing needing a session came back — which is the property that
+     * matters, but is *not* a guard on a future walk that calls `analyze { }` itself. That walk needs
+     * an assertion of its own.
      */
     fun `test the plan is readable after the read action that built it has ended`() {
         assertTheHarnessResolves()
-        val file = myFixture.configureByText(LEDGER_PATH.substringAfterLast('/'), LEDGER)
+        val file = ledgerInTheEditor()
         val request = SnippetRequest(project, file, selectedRangesOf(myFixture.editor))
 
         val inside = ApplicationManager.getApplication().executeOnPooledThread(
@@ -313,6 +380,74 @@ internal class KotlinPlanBuilderTest : KotlinSnippetTestCase() {
         assertEquals(SymbolOrigin.IN_CONTENT, topLevel.origin)
         assertEquals(SymbolRole.METHOD, topLevel.role)
     }
+
+    /**
+     * **One declared symbol reaches one key from either walk** — the claim the whole bridge rests on,
+     * checked against what the Java walk actually produces rather than against a string spelled here.
+     *
+     * This is the invariant that makes a shared ledger possible, and it is the one that goes wrong
+     * silently: the two walks derive a key from different starting points — Kotlin from the light
+     * element a Java reference *would* resolve to, Java from the element it *did* — so they can drift
+     * apart without either side looking wrong on its own. Every rule downstream would still pass, and
+     * the same declaration would simply get two placeholders.
+     *
+     * Both faces Java has of a Kotlin declaration are asserted. A top-level function is a static
+     * method on the file facade; a property is a light field with an accessor over it, and the
+     * accessor is tied back to that field by the evidence the Java walk reports for it — which is the
+     * same shape a Lombok accessor has, and is why the two agree without the property's key having to
+     * be the accessor's.
+     */
+    fun `test a Java reference and the Kotlin declaration it names reach one key`() {
+        assertTheHarnessResolves()
+
+        // A real project file rather than the editor's, because the Java file below has to resolve
+        // against it after the fixture has moved on to configuring that one.
+        val ledger = myFixture.addFileToProject(LEDGER_PATH, LEDGER)
+        val kotlin = KotlinPlanBuilder.build(SnippetRequest(project, ledger, emptyList()))
+
+        val java = planFor(
+            "Caller.java",
+            """
+            import com.acme.ledger.Ledger;
+            import com.acme.ledger.LedgerKt;
+
+            class Caller {
+                <selection>String call() {
+                    Ledger ledger = LedgerKt.ledgerOf("x");
+                    return ledger.getMerchantRef();
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        val topLevelFromJava = java.symbols().single { it.text == "ledgerOf" }.symbol
+        val accessorFromJava = java.symbols().single { it.text == "getMerchantRef" }.symbol
+        assertEquals(
+            "the Java walk did not reach the Kotlin declarations through the bridge, so this compares nothing",
+            listOf(SymbolOrigin.IN_CONTENT, SymbolOrigin.IN_CONTENT),
+            listOf(topLevelFromJava.origin, accessorFromJava.origin),
+        )
+
+        assertEquals(
+            "a top-level function is keyed differently by the two walks, so it would get two placeholders",
+            kotlin.symbols().first { it.text == "ledgerOf" }.symbol.key,
+            topLevelFromJava.key,
+        )
+
+        // The property's own key is the light *field*'s; Java reaches it through the accessor, which
+        // reports that field as the one it reads. That indirection is the rule rather than a mismatch
+        // — the engine derives `getField1()` from `field1`, which is the same shape a Lombok accessor
+        // has — so it is the accessor's evidence that has to carry the Kotlin walk's key.
+        assertEquals(
+            "the accessor Java sees does not name the field the Kotlin walk keyed the property as",
+            kotlin.symbols().first { it.text == "merchantRef" && it.symbol.role == SymbolRole.FIELD }.symbol.key,
+            accessorFromJava.accessor?.fieldKey,
+        )
+    }
+
+    /** [LEDGER], open in the editor — the file every test here that needs the tree rather than the plan reads. */
+    private fun ledgerInTheEditor(): PsiFile =
+        myFixture.configureByText(LEDGER_PATH.substringAfterLast('/'), LEDGER)
 
     /** Every field of every occurrence, as one string — so that reading them all is one assertion. */
     private fun describe(plan: SnippetPlan): String = buildString {
