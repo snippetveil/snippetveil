@@ -6,6 +6,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNamedElement
+import com.intellij.psi.PsiReference
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.snippetveil.core.Occurrence
@@ -27,6 +28,7 @@ import com.snippetveil.plugin.snapStart
 import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
+import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtCallExpression
@@ -40,14 +42,17 @@ import org.jetbrains.kotlin.psi.KtEnumEntry
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtFunctionLiteral
+import org.jetbrains.kotlin.psi.KtImportAlias
 import org.jetbrains.kotlin.psi.KtLabelReferenceExpression
 import org.jetbrains.kotlin.psi.KtLabeledExpression
 import org.jetbrains.kotlin.psi.KtLambdaArgument
 import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtNamedFunction
+import org.jetbrains.kotlin.psi.KtObjectDeclaration
 import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.psi.KtPsiUtil
 import org.jetbrains.kotlin.psi.KtTypeAlias
 import org.jetbrains.kotlin.psi.KtTypeParameter
 import org.jetbrains.kotlin.psi.KtValueArgument
@@ -132,13 +137,17 @@ internal object KotlinPlanBuilder : PlanBuilder {
             var leaf: PsiElement? = file.findElementAt(fragment.range.startOffset)
             while (leaf != null && leaf.textRange.startOffset < fragment.range.endOffset) {
                 if (PsiUtilCore.getElementType(leaf) == KtTokens.IDENTIFIER && fragment.range.contains(leaf.textRange)) {
-                    occurrences += SymbolOccurrence(
-                        start = fragment.translate(leaf.textRange.startOffset),
-                        end = fragment.translate(leaf.textRange.endOffset),
-                        text = leaf.text,
-                        symbol = evidenceFor(project, leaf),
-                        language = LANGUAGE,
-                    )
+                    // `null` is the silence rule and nothing else — a name the *language* fixed, which
+                    // there is nothing to splice over. See [evidenceFor].
+                    evidenceFor(project, leaf)?.let { evidence ->
+                        occurrences += SymbolOccurrence(
+                            start = fragment.translate(leaf.textRange.startOffset),
+                            end = fragment.translate(leaf.textRange.endOffset),
+                            text = leaf.text,
+                            symbol = evidence,
+                            language = LANGUAGE,
+                        )
+                    }
                 }
                 leaf = PsiTreeUtil.nextLeaf(leaf)
             }
@@ -163,18 +172,117 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * parameter names and break every call it touches — a plausible artifact, which is the class this
      * product refuses outright. So nothing here is short-circuited on its PSI type; it is resolved,
      * and the declaring file answers.
+     *
+     * **`null` is the silence rule**, and it is the one thing a reference may come back as instead of
+     * evidence — see [namesSomethingTheLanguageFixed]. A declaration is never silent, and a label has
+     * a rule of its own, so the check sits on the reference branch alone.
      */
-    private fun evidenceFor(project: Project, identifier: PsiElement): SymbolEvidence {
+    private fun evidenceFor(project: Project, identifier: PsiElement): SymbolEvidence? {
         val parent = identifier.parent
-        val declaration = when {
-            parent is KtLabelReferenceExpression -> labelTargetOf(parent)
-            parent is KtNamedDeclaration && parent.nameIdentifier === identifier -> parent
-            parent is KtElement -> parent.mainReference?.resolve()
-            else -> null
+        return when {
+            parent is KtLabelReferenceExpression -> evidenceOf(project, labelTargetOf(parent), identifier.text)
+
+            parent is KtNamedDeclaration && parent.nameIdentifier === identifier ->
+                evidenceOf(project, parent, identifier.text)
+
+            parent is KtElement -> {
+                val reference = parent.mainReference
+                val resolved = reference?.resolve()
+                if (namesSomethingTheLanguageFixed(identifier.text, reference, resolved)) {
+                    null
+                } else {
+                    evidenceOf(project, resolved, identifier.text)
+                }
+            }
+
+            else -> evidenceOf(project, null, identifier.text)
+        }
+    }
+
+    /**
+     * **The silence rule.**
+     *
+     * > A generated name is silent iff the *language* fixes it. A generated name fixed to a
+     * > *declared symbol's* name is not silent — it force-shares with that symbol.
+     *
+     * **Both halves look identical in PSI**, and getting the second wrong is a **leak** rather than a
+     * degradation, which is the whole reason that is one sentence. The half that force-shares is not
+     * decided here at all, and needs no branch: the platform resolves the argument label in
+     * `p.copy(merchantRef = x)` to the primary-constructor `val` itself, so it reaches the property's
+     * key through the ordinary path and renders the property's placeholder. Only the language's own
+     * half is silenced, in three shapes:
+     *
+     *  - **`it`** — the implicit lambda parameter, and the second-largest no-token class in the
+     *    corpus at 151 occurrences. There is no declaration to resolve to, so it resolves to the
+     *    lambda. A `val it` the developer wrote is an ordinary declaration and is not this.
+     *  - **`Companion`**, on a companion object the source did not name. A *named* companion carries
+     *    a name identifier and is an ordinary type declaration.
+     *  - **A generated member the platform resolves back to the declaration it was generated from,
+     *    which the token does not spell** — `copy` to its primary constructor, `component1` and the
+     *    `field` soft keyword to the property. The token names what the language, not the developer,
+     *    decided to call it.
+     *
+     * **Silent, uncounted, no notice, no refusal**, which is what reporting no occurrence at all
+     * buys: there is no loss to disclose, because a name the language fixed was never going to be
+     * replaced, and 151 `it`s in the preserved count would swamp a number that means *names that
+     * survived verbatim*. A third fidelity notice is rejected — it would reopen a list closed on
+     * purpose and fire on nearly every Kotlin snippet, which is the definition of wallpaper.
+     *
+     * **Two near-misses on the third shape, and both are excluded — each of them a leak if it were
+     * not.** They are the same failure: a word the *developer* chose, spelled differently from the
+     * declaration it reaches, which silence would copy onto the clipboard while the declaration a few
+     * lines above renamed.
+     *
+     *  - **An import alias.** `import Payment as Pay` makes `Pay` resolve to a class it does not
+     *    spell, exactly as `copy` does. The alias is asked of the reference rather than matched by
+     *    spelling.
+     *  - **A backtick-escaped name.** The `IDENTIFIER` leaf of `` `merchant ref`() `` carries its
+     *    backticks and `KtNamedDeclaration.getName()` does not, so the raw texts differ over a name
+     *    that is the same name. The comparison is made on the unquoted spelling, which is the one
+     *    both sides mean.
+     *
+     * The other near-miss is stated where it lives: a **file facade** name has no declaration in
+     * source either and is **not** silent, because it is the file name and the file name is domain
+     * vocabulary. It never reaches here — no Kotlin token names a facade — and it is asserted from
+     * the Java side.
+     *
+     * Nothing else in the silent list needs a branch, and that is asserted rather than assumed: `this`
+     * and `super`, the `get` / `set` soft keywords that open a property accessor and the use-site and
+     * file annotation targets `@get:` / `@file:` are keywords rather than [KtTokens.IDENTIFIER]; the
+     * operator conventions behind `a + b`, `list[i]` and `x++` are `KtOperationReferenceExpression`s
+     * with no identifier; and a label reference carrying no name identifier has no token to report.
+     * This walk never sees any of them.
+     */
+    private fun namesSomethingTheLanguageFixed(
+        written: String,
+        reference: PsiReference?,
+        resolved: PsiElement?,
+    ): Boolean = when {
+        resolved is KtFunctionLiteral -> true
+
+        // Before the branch below, which a named companion would otherwise never reach — and does
+        // not need to, since a named companion is spelled by the token that names it.
+        resolved is KtObjectDeclaration -> resolved.isCompanion() && resolved.nameIdentifier == null
+
+        resolved is KtDeclaration -> {
+            val declared = (resolved as? PsiNamedElement)?.name
+            declared != null &&
+                declared != KtPsiUtil.unquoteIdentifier(written) &&
+                importAliasOf(reference) == null
         }
 
-        return evidenceOf(project, declaration, identifier.text)
+        else -> false
     }
+
+    /**
+     * The import alias [reference] is written under, or `null` where it is written under the
+     * declaration's own name.
+     *
+     * Asked of the reference rather than matched against the file's import list, so that a name which
+     * merely *coincides* with an alias declared somewhere in the file is not mistaken for one.
+     */
+    private fun importAliasOf(reference: PsiReference?): KtImportAlias? =
+        (reference as? KtSimpleNameReference)?.getImportAlias()
 
     /**
      * The symbol a label names, which is **never the label reference's own resolution alone**.
