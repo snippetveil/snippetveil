@@ -12,6 +12,7 @@ import com.snippetveil.plugin.attachJar
 import com.snippetveil.plugin.complaintAboutFixtureOrigin
 import com.snippetveil.plugin.originInTheFixture
 import com.snippetveil.plugin.selectedRangesOf
+import com.snippetveil.core.AnonymizationResult
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.SnippetPlan
@@ -79,8 +80,31 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
      * both sides of the same question: what is spliced, and what is silent. Two spellings of this
      * would be two ways for a fixture to differ from the one the other class measured.
      */
-    protected fun kotlinOutputFor(path: String, text: String): String =
-        anonymize(kotlinPlanFor(path, text), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY).text
+    protected fun kotlinOutputFor(path: String, text: String): String = kotlinResultFor(path, text).text
+
+    /**
+     * The whole of what the engine made of [kotlinPlanFor]'s plan, for the assertions that are about
+     * something other than the characters — the mapping table a reader decodes a reply against, and
+     * the counts a balloon reports.
+     *
+     * [kotlinOutputFor] is this function's `text`, rather than a second invocation beside it: a
+     * fixture that measured the output through one call and the counts through another would be
+     * measuring two runs, and *the count belongs to this output* is exactly what those assertions
+     * claim.
+     */
+    protected fun kotlinResultFor(path: String, text: String): AnonymizationResult =
+        kotlinResultFor(kotlinPlanFor(path, text))
+
+    /**
+     * The same, for a fixture that already holds the plan — because it is asserting something about
+     * the **plan** as well as about the result.
+     *
+     * The overload is the whole of what *one invocation* means here: a fixture that read the
+     * occurrences from one call and the counts from another would be reading two walks of two
+     * fixtures, and *these counts belong to those occurrences* is exactly the claim such a test makes.
+     */
+    protected fun kotlinResultFor(plan: SnippetPlan): AnonymizationResult =
+        anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
     /**
      * **A `kotlin.*` member resolves, and resolves to _library_ origin** — not `null`, and not

@@ -127,6 +127,15 @@ internal class KotlinSilenceTest : KotlinSnippetTestCase() {
      * own word at every call site, which is the leak class this rule exists to prevent rather than a
      * degradation of it.
      *
+     * **The two are excluded by different mechanisms, and only one of them is the silence rule's
+     * own.** A backtick-escaped name is compared on its unquoted spelling, which is a clause in
+     * `namesSomethingTheLanguageFixed`. An import alias is not: it is a declaration in its own right
+     * and every token spelled `Pay` names *it*, so `evidenceFor` has already redirected the token by
+     * the time silence is asked, and there is no declaration left to compare a spelling against. That
+     * this test is green for a reason it did not used to be green for is the point of saying so here
+     * — the rule it once asserted is gone, and what it asserts now is the outcome both mechanisms owe:
+     * neither word reaches the clipboard. `KotlinImportAliasTest` holds the alias half whole.
+     *
      * Asserted as output rather than as a plan, because a leak is a fact about the clipboard.
      */
     fun `test a backticked name and an import alias are the developer's words and are not silent`() {
