@@ -494,7 +494,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         )
 
         return SymbolEvidence(
-            key = keyOf(symbol),
+            key = SymbolKeys.keyOf(symbol),
             role = roleOf(symbol),
             origin = originOf(project, symbol),
             declaredName = (symbol as? PsiNameIdentifierOwner)?.name ?: declaredName,
@@ -505,7 +505,7 @@ internal object JavaPlanBuilder : PlanBuilder {
             },
             overrideRoots = (symbol as? PsiMethod)?.let { overrideRootsOf(project, it) }.orEmpty(),
             accessor = (symbol as? PsiMethod)?.let(::accessorEvidenceOf),
-            keyIsQualified = keyIsQualified(symbol),
+            keyIsQualified = SymbolKeys.keyIsQualified(symbol),
         )
     }
 
@@ -523,7 +523,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      */
     private fun overrideRootsOf(project: Project, method: PsiMethod): List<OverrideRoot> =
         method.findDeepestSuperMethods().map {
-            OverrideRoot(keyOf(it), originOf(project, it), packageNameOf(it), keyIsQualified(it))
+            OverrideRoot(SymbolKeys.keyOf(it), originOf(project, it), packageNameOf(it), SymbolKeys.keyIsQualified(it))
         }
 
     /**
@@ -539,9 +539,11 @@ internal object JavaPlanBuilder : PlanBuilder {
      * accessor, so nothing is reported for it, and the engine leaves it an ordinary method —
      * deliberately, because nothing in Java forces a fluent accessor's name to track its field's.
      *
-     * The field is looked up on the declaring class alone, never up the hierarchy: a superclass's
-     * field is a symbol of that superclass, and an accessor deriving from a name it does not declare
-     * would tie two placeholders together on a resemblance rather than on a rule.
+     * The field is found by [SymbolKeys.backingFieldOf], which is the one light-class call either
+     * language makes on the way to a property's key — Java to key `getBar()` to the `bar` it reads,
+     * Kotlin to key `val bar` to the field it compiles to. One call rather than two agreeing ones is
+     * what makes a change in the platform's answer move both languages together; that function says
+     * why, and why the lookup does not go up the hierarchy.
      */
     private fun accessorEvidenceOf(method: PsiMethod): AccessorEvidence? {
         val owner = method.containingClass ?: return null
@@ -549,8 +551,13 @@ internal object JavaPlanBuilder : PlanBuilder {
         val parameters = if (property.second == PropertyKind.SETTER) 1 else 0
         if (method.parameterList.parametersCount != parameters) return null
 
-        val field = owner.findFieldByName(property.first, false) ?: return null
-        return AccessorEvidence(keyOf(field), field.name, property.second.prefix, keyIsQualified(field))
+        val field = SymbolKeys.backingFieldOf(owner, property.first) ?: return null
+        return AccessorEvidence(
+            SymbolKeys.keyOf(field),
+            field.name,
+            property.second.prefix,
+            SymbolKeys.keyIsQualified(field),
+        )
     }
 
     /**
@@ -600,7 +607,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * than one.
      *
      * Overloads are the case this exists for and the only case it admits: they share a name and a
-     * declaring class, so they share a [keyOf] and a placeholder, and picking between them is not a
+     * declaring class, so they share a [SymbolKeys.keyOf] and a placeholder, and picking between them is not a
      * choice that can be made wrongly. Anything else — two members of the same name reached through
      * an on-demand import, a reference the IDE genuinely cannot pin down — comes back `null` and
      * fails closed, because there the candidates are different symbols and the first one is a guess.
@@ -687,7 +694,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * `com.intellij.psi.impl.light`, which nothing else in this plugin reaches into, and the name
      * lookup answers identically on every shape Java can spell. The one input that could part them
      * is red code declaring two components of one name, and there the two are already one symbol to
-     * this walk: [keyOf] keys a component by its class and its name, so they shared a placeholder
+     * this walk: [SymbolKeys.keyOf] keys a component by its class and its name, so they shared a placeholder
      * before this function existed and still do.
      *
      * **The lookup is total by construction, and the caller's `?:` is not a described behaviour.** A
@@ -804,83 +811,6 @@ internal object JavaPlanBuilder : PlanBuilder {
 
         return (symbol.containingFile as? PsiJavaFile)?.packageName?.takeIf { it.isNotEmpty() }
     }
-
-    /**
-     * The identity of a declared symbol, as a string the engine can compare and a later ticket can
-     * persist.
-     *
-     * A method's key deliberately omits its signature, which is how overloads collapse to one
-     * placeholder: they share a name in source, so they share a placeholder. The signature is still
-     * reported as evidence, so a rule that needs to tell them apart can, without this changing.
-     *
-     * Anything with no qualified name — an anonymous class, a local, a parameter, a label — is keyed
-     * on where it is written. That key is stable for exactly as long as the file is not edited,
-     * which is exactly as long as one invocation lasts.
-     *
-     * **Anonymous and local class members inherit that fallback through their owner**, and that is
-     * the point of routing every member key through [memberKeyOf]. `PsiClass.getQualifiedName()` is
-     * `null` inside one, so an owner keyed by name alone collapsed the `state` fields of two
-     * different anonymous classes onto one placeholder — two unrelated symbols rendered as one name,
-     * which is precisely what the injectivity invariant forbids.
-     *
-     * **A Lombok light member is keyed by `(owner FQN, kind, name)` and nothing else**, which is
-     * what these three branches already say: a light member has no `TextRange` to anchor on, so a
-     * key that reached for one would have nothing to read.
-     */
-    private fun keyOf(symbol: PsiElement): String = when (symbol) {
-        // A package is keyed by the whole qualified name and not by the segment that ends it, which
-        // is what makes `com.acme.billing` and `org.acme.billing` two symbols and what makes two
-        // types in one package share a placeholder for it.
-        is PsiPackage -> "package:" + symbol.qualifiedName
-
-        is PsiClass -> "class:" + (symbol.qualifiedName ?: anchorOf(symbol))
-        is PsiMethod -> memberKeyOf("method", symbol.containingClass, symbol.name)
-        is PsiField -> memberKeyOf("field", symbol.containingClass, symbol.name)
-
-        // Keyed as the field it compiles to, which is rule 5 stated as identity: one declared symbol
-        // wearing three PSI faces reaches one key from whichever face the walk arrives at.
-        is PsiRecordComponent -> memberKeyOf("field", symbol.containingClass, symbol.name)
-
-        else -> "local:" + anchorOf(symbol)
-    }
-
-    /**
-     * A member's key: what kind of member it is, whose it is, and what it is called.
-     *
-     * The owner's key is [keyOf] again rather than a qualified name, which is the whole of what
-     * makes an anonymous class's members work: the owner has no qualified name, so it falls through
-     * to an anchor, and the member's key inherits that. A `null` owner is the light member with no
-     * class at all, and it gets a name rather than an exception.
-     */
-    private fun memberKeyOf(kind: String, owner: PsiClass?, name: String): String =
-        kind + ":" + (owner?.let(::keyOf) ?: "<none>") + "#" + name
-
-    /**
-     * **Whether [keyOf] derived this symbol's key from a fully-qualified name**, which is the fact the
-     * engine reads when it decides what may be written down. See [SymbolEvidence.keyIsQualified].
-     *
-     * It answers the branches of [keyOf] one for one, and that is the point of writing it as a `when`
-     * over the same shapes rather than as a test on the resulting string: the two are one decision
-     * made twice, and a rule that parsed the key back out would go quietly wrong the day a key format
-     * changed. A member inherits the answer from its owner, exactly as its key inherits the owner's,
-     * so an anonymous class's field is positional however ordinary the field itself looks.
-     *
-     * Everything not named here — a local, a parameter, a label, a type parameter — is keyed on where
-     * it is written, and so is a class with no qualified name and every member of one. A name that
-     * did not resolve never reaches this at all: it is keyed on its own text, and [evidenceOf] returns
-     * before it gets here.
-     */
-    private fun keyIsQualified(symbol: PsiElement): Boolean = when (symbol) {
-        is PsiPackage -> true
-        is PsiClass -> symbol.qualifiedName != null
-        is PsiMethod -> symbol.containingClass?.let(::keyIsQualified) == true
-        is PsiField -> symbol.containingClass?.let(::keyIsQualified) == true
-        is PsiRecordComponent -> symbol.containingClass?.let(::keyIsQualified) == true
-        else -> false
-    }
-
-    private fun anchorOf(symbol: PsiElement): String =
-        (PsiUtilCore.getVirtualFile(symbol)?.url ?: "<light>") + "@" + symbol.textOffset
 
     /**
      * What a symbol is. **Total, on purpose.**
