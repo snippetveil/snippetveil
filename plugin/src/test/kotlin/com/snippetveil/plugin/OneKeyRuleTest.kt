@@ -2,6 +2,7 @@ package com.snippetveil.plugin
 
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiField
+import com.snippetveil.plugin.kotlin.KotlinSymbolKeys
 import com.snippetveil.trust.SHIPPED_CLASSES
 import com.tngtech.archunit.base.DescribedPredicate
 import com.tngtech.archunit.core.domain.JavaAccess
@@ -13,9 +14,11 @@ import com.tngtech.archunit.lang.ArchRule
 import com.tngtech.archunit.lang.ConditionEvents
 import com.tngtech.archunit.lang.SimpleConditionEvent
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
+import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -134,6 +137,46 @@ class OneKeyRuleTest {
 }
 
 /**
+ * **The locality half of the persistence rule, exercised where only a hand-built id can reach it.**
+ *
+ * A plain test rather than a fixture-based one: nothing here needs an IDE, and the failure it pins
+ * is one no fixture on this platform produces — the PSI-derived id of a local is `null`, so the
+ * `!isLocal` half would never fire and would sit there looking like a line nobody needed.
+ *
+ * Here rather than beside the Kotlin keying fixtures for the reason the rules above are here: the
+ * floor cell excludes `com.snippetveil.plugin.kotlin` because K1 answers light-class questions
+ * differently, and this asks none. A predicate that holds in every cell should be checked in every
+ * cell.
+ *
+ * It is needed because **the sources disagree about what a local's id is**. `CallableId`'s own
+ * documentation gives `<local>/loc` — non-null, and not stable — while a survey of the API recorded
+ * `callableId` as `null`. Persisting a local on a non-null-but-local id writes a key that re-points
+ * on the next edit, which is precisely the failure structural path keys were rejected over.
+ */
+internal class StablePositionTest {
+
+    @Test
+    fun `a local callable id does not name a stable position, and neither does a missing one`() {
+        assertFalse(
+            KotlinSymbolKeys.namesAStablePosition(
+                CallableId(FqName("<local>"), FqName("loc"), Name.identifier("settle"))
+            ),
+            "a `<local>` id is non-null and still names nothing that survives an edit",
+        )
+        assertFalse(
+            KotlinSymbolKeys.namesAStablePosition(null),
+            "a missing id names no position at all",
+        )
+        org.junit.jupiter.api.Assertions.assertTrue(
+            KotlinSymbolKeys.namesAStablePosition(
+                CallableId(FqName("com.acme"), FqName("Clock"), Name.identifier("now"))
+            ),
+            "an ordinary member's id was rejected, which would keep every Kotlin callable out of the ledger",
+        )
+    }
+}
+
+/**
  * The red path of both rules, baked in rather than observed once.
  *
  * Test scope, so [SHIPPED_CLASSES] excludes it and the rules never see it in anger; neither method is
@@ -156,10 +199,9 @@ internal class KeysTheOtherWay {
  */
 internal class ReadsTheCallableIdFlag {
 
-    fun stable(id: org.jetbrains.kotlin.name.CallableId): Boolean = !id.isLocal
+    fun stable(id: CallableId): Boolean = !id.isLocal
 
-    fun anId(): org.jetbrains.kotlin.name.CallableId =
-        org.jetbrains.kotlin.name.CallableId(FqName("com.acme"), FqName("Clock"), Name.identifier("now"))
+    fun anId(): CallableId = CallableId(FqName("com.acme"), FqName("Clock"), Name.identifier("now"))
 }
 
 /**

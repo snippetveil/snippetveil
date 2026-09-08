@@ -6,9 +6,7 @@ import com.snippetveil.core.SymbolEvidence
 import com.snippetveil.plugin.SymbolKeys
 import com.snippetveil.plugin.symbols
 import org.jetbrains.kotlin.asJava.toLightClass
-import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.asJava.toLightElements
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtEnumEntry
@@ -22,8 +20,6 @@ import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtTypeAlias
 import org.jetbrains.kotlin.psi.KtTypeParameter
 import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
-import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Test
 import kotlin.reflect.KClass
 
 /**
@@ -85,7 +81,7 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
             assertEquals(
                 "${kind.description}: the key rule reported the wrong answer for `keyIsQualified`",
                 kind.persistable,
-                KotlinSymbolKeys.of(file.declarationOf(kind)).keyIsQualified,
+                KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(kind)).keyIsQualified,
             )
         }
     }
@@ -119,9 +115,18 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
             assertEquals(
                 "the native key and the light class's key parted company for ${light.qualifiedName}",
                 SymbolKeys.keyOf(light),
-                KotlinSymbolKeys.of(declaration).key,
+                KotlinSymbolKeys.ledgerKeyOf(declaration).key,
             )
         }
+
+        // The one classifier this comparison cannot reach, pinned rather than quietly skipped: a
+        // typealias gets no light element at all, so its row in the table above is the only
+        // classifier row nothing corroborates. If the platform starts making one, this goes red and
+        // the comparison should be widened to include it.
+        assertTrue(
+            "a typealias now has a light element, so its native key can be checked against one",
+            file.declarationOf(KtTypeAlias::class, "Alias").toLightElements().isEmpty(),
+        )
     }
 
     /**
@@ -143,7 +148,7 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
         assertEquals(
             "a property with a backing field must key to that field, which is where the Java path lands",
             SymbolKeys.keyOf(backed!!),
-            KotlinSymbolKeys.of(file.declarationOf(KtProperty::class, "backed")).key,
+            KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(KtProperty::class, "backed")).key,
         )
 
         assertNull(
@@ -153,7 +158,7 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
         assertEquals(
             "a computed property has no backing field, so its key is its getter's",
             "method:class:com.acme.keys.Clock#getComputed",
-            KotlinSymbolKeys.of(file.declarationOf(KtProperty::class, "computed")).key,
+            KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(KtProperty::class, "computed")).key,
         )
 
         // The open question about private backing fields, measured rather than left open: this
@@ -188,22 +193,22 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
 
         assertEquals(
             "the class",
-            KotlinSymbolKeys.of(file.declarationOf(KtClass::class, "Clock")).key,
+            KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(KtClass::class, "Clock")).key,
             java.evidenceOf("Clock").key,
         )
         assertEquals(
             "a member function",
-            KotlinSymbolKeys.of(file.declarationOf(KtNamedFunction::class, "now")).key,
+            KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(KtNamedFunction::class, "now")).key,
             java.evidenceOf("now").key,
         )
         assertEquals(
             "an enum constant",
-            KotlinSymbolKeys.of(file.declarationOf(KtEnumEntry::class, "RED")).key,
+            KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(KtEnumEntry::class, "RED")).key,
             java.evidenceOf("RED").key,
         )
         assertEquals(
             "a computed property, which both languages key to its getter",
-            KotlinSymbolKeys.of(file.declarationOf(KtProperty::class, "computed")).key,
+            KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(KtProperty::class, "computed")).key,
             java.evidenceOf("getComputed").key,
         )
 
@@ -211,7 +216,7 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
         assertNotNull("the Java walk reported no accessor evidence for `getBacked`", accessor)
         assertEquals(
             "a Kotlin property and the Java view of its generated accessor must name one entry",
-            KotlinSymbolKeys.of(file.declarationOf(KtProperty::class, "backed")).key,
+            KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(KtProperty::class, "backed")).key,
             accessor!!.fieldKey,
         )
     }
@@ -242,10 +247,10 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
         assertEquals(
             "an internal member keys on the light element's name unmodified",
             SymbolKeys.memberKeyOf(SymbolKeys.METHOD, owner, internal.name),
-            KotlinSymbolKeys.of(file.declarationOf(KtNamedFunction::class, "secret")).key,
+            KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(KtNamedFunction::class, "secret")).key,
         )
 
-        val renamed = KotlinSymbolKeys.of(file.declarationOf(KtNamedFunction::class, "jvmNamed")).key
+        val renamed = KotlinSymbolKeys.ledgerKeyOf(file.declarationOf(KtNamedFunction::class, "jvmNamed")).key
         assertEquals(
             "a @JvmName member keys on the name the annotation gave its light method",
             SymbolKeys.memberKeyOf(SymbolKeys.METHOD, owner, "renamed"),
@@ -254,6 +259,20 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
         assertFalse(
             "the source name reached the key, so @JvmName was not read: $renamed",
             "jvmNamed" in renamed,
+        )
+
+        // **The one row where the platform and the ticket's table disagree, measured rather than
+        // assumed.** The table put a value class's members in the *through the light element,
+        // mangled* column; on this platform they get no light method at all — `Money.plus` is not on
+        // the light class — so the key comes down the native path, unmangled. The rule is unchanged;
+        // only which branch the case lands in. What keeps that safe is the partition: no Java file
+        // can name a method the light class does not expose, so no Java token can key to it.
+        val money = file.declarationOf(KtClass::class, "Money").toLightClass()!!
+        assertTrue(
+            "a value class's member function now has a light method (" +
+                money.methods.joinToString { it.name } + "), so the `a value class's member " +
+                "function` row keys through it — mangled — instead of natively",
+            money.methods.none { it.name.startsWith("plus") },
         )
     }
 
@@ -287,7 +306,7 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
             Triple("its property", common.declarationOf(KtProperty::class, "id"), "field:class:com.acme.pair.Session#id"),
             Triple("a top-level expect callable", common.declarationOf(KtNamedFunction::class, "connect"), "method:class:com.acme.pair.CommonKt#connect"),
         )) {
-            val keyed = KotlinSymbolKeys.of(declaration)
+            val keyed = KotlinSymbolKeys.ledgerKeyOf(declaration)
             assertEquals("$description: keyed wrongly", key, keyed.key)
             assertTrue("$description: a stable qualified name must persist", keyed.keyIsQualified)
         }
@@ -320,22 +339,34 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
         )) {
             assertEquals(
                 "$description: an expect and its actual are one declaration and must reach one key",
-                KotlinSymbolKeys.of(expect).key,
-                KotlinSymbolKeys.of(actual).key,
+                KotlinSymbolKeys.ledgerKeyOf(expect).key,
+                KotlinSymbolKeys.ledgerKeyOf(actual).key,
             )
         }
 
         assertEquals(
             "the recorded residual moved: a top-level actual is keyed by its own file's facade",
             "method:class:com.acme.pair.JvmKt#connect",
-            KotlinSymbolKeys.of(jvm.declarationOf(KtNamedFunction::class, "connect")).key,
+            KotlinSymbolKeys.ledgerKeyOf(jvm.declarationOf(KtNamedFunction::class, "connect")).key,
         )
-        assertTrue(
-            "the top-level facade split is no longer a split, so the residual above is stale and " +
-                "should be deleted rather than left as a warning about nothing",
-            KotlinSymbolKeys.of(common.declarationOf(KtNamedFunction::class, "connect")).key !=
-                KotlinSymbolKeys.of(jvm.declarationOf(KtNamedFunction::class, "connect")).key,
-        )
+
+        // The three splits, each asserted as a split. A residual nobody asserted is a residual that
+        // grows: the day one of these stops splitting, this goes red naming the line to delete,
+        // instead of the note above quietly describing a problem that no longer exists.
+        for ((description, name) in listOf(
+            "a top-level pair, whose halves are owned by two differently-named facades" to "connect",
+            "an actual carrying @JvmName, which keys on the name the annotation gave it" to "close",
+            "an internal actual, which keys on the mangled name its light method carries" to "sync",
+        )) {
+            val expect = KotlinSymbolKeys.ledgerKeyOf(common.declarationOf(KtNamedFunction::class, name)).key
+            val actual = KotlinSymbolKeys.ledgerKeyOf(jvm.declarationOf(KtNamedFunction::class, name)).key
+            assertTrue(
+                "$description: this split is recorded as a residual and is no longer one — both " +
+                    "halves reach $expect, so the note above is stale and should be deleted rather " +
+                    "than left as a warning about nothing",
+                expect != actual,
+            )
+        }
     }
 
     /**
@@ -354,7 +385,7 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
 
         val keyed = file.collectDescendantsOfType<KtNamedDeclaration>()
             .filterNot { it is KtPrimaryConstructor }
-            .associateWith { KotlinSymbolKeys.of(it).key }
+            .associateWith { KotlinSymbolKeys.ledgerKeyOf(it).key }
 
         assertNotEmpty(keyed.keys.toList())
         val collisions = keyed.entries.groupBy { it.value }
@@ -364,7 +395,7 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
     }
 
     /** The [Kind]'s declaration in this file, found by its PSI shape and its name. */
-    private fun KtFile.keyOf(kind: Kind): String = KotlinSymbolKeys.of(declarationOf(kind)).key
+    private fun KtFile.keyOf(kind: Kind): String = KotlinSymbolKeys.ledgerKeyOf(declarationOf(kind)).key
 
     private fun KtFile.declarationOf(kind: Kind): KtNamedDeclaration = declarationOf(kind.type, kind.name)
 
@@ -396,41 +427,6 @@ internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
     private fun expectFixture(): KtFile = myFixture.addFileToProject("com/acme/pair/Common.kt", COMMON) as KtFile
 
     private fun actualFixture(): KtFile = myFixture.addFileToProject("com/acme/pair/Jvm.kt", JVM) as KtFile
-}
-
-/**
- * **The locality half of the persistence rule, exercised where only a hand-built id can reach it.**
- *
- * A plain test rather than a fixture-based one: nothing here needs an IDE, and the failure it pins
- * is one no fixture on this platform produces — the PSI-derived id of a local is `null`, so the
- * `!isLocal` half would never fire and would sit there looking like a line nobody needed.
- *
- * It is needed because **the sources disagree about what a local's id is**. `CallableId`'s own
- * documentation gives `<local>/loc` — non-null, and not stable — while a survey of the API recorded
- * `callableId` as `null`. Persisting a local on a non-null-but-local id writes a key that re-points
- * on the next edit, which is precisely the failure structural path keys were rejected over.
- */
-internal class StablePositionTest {
-
-    @Test
-    fun `a local callable id does not name a stable position, and neither does a missing one`() {
-        assertFalse(
-            KotlinSymbolKeys.namesAStablePosition(
-                CallableId(FqName("<local>"), FqName("loc"), Name.identifier("settle"))
-            ),
-            "a `<local>` id is non-null and still names nothing that survives an edit",
-        )
-        assertFalse(
-            KotlinSymbolKeys.namesAStablePosition(null),
-            "a missing id names no position at all",
-        )
-        org.junit.jupiter.api.Assertions.assertTrue(
-            KotlinSymbolKeys.namesAStablePosition(
-                CallableId(FqName("com.acme"), FqName("Clock"), Name.identifier("now"))
-            ),
-            "an ordinary member's id was rejected, which would keep every Kotlin callable out of the ledger",
-        )
-    }
 }
 
 /**
@@ -493,6 +489,12 @@ private val KINDS = listOf(
     Kind("a local function", KtNamedFunction::class, "localFun", "local:<anchor>", persistable = false),
     Kind("a local value", KtProperty::class, "localValue", "local:<anchor>", persistable = false),
     Kind("a plain parameter", KtParameter::class, "other", "local:<anchor>", persistable = false),
+
+    // A plain primary-constructor parameter declares no member — it sits in the constructor's
+    // parameter list beside the `val` that does, and the only thing telling them apart is the
+    // keyword. Keyed as a member it would be `method:class:com.acme.keys.Clock#seed`, *persistable*,
+    // and a real `fun seed()` on the same class would collide with it.
+    Kind("a plain primary-constructor parameter", KtParameter::class, "seed", "local:<anchor>", persistable = false),
 )
 
 private const val FIXTURE_PATH = "com/acme/keys/Keys.kt"
@@ -501,8 +503,8 @@ private const val FIXTURE_PATH = "com/acme/keys/Keys.kt"
 private val FIXTURE = """
     package com.acme.keys
 
-    class Clock(val amount: Int) {
-        val backed: Int = 1
+    class Clock(val amount: Int, seed: Int) {
+        val backed: Int = seed
         val computed: Int get() = 2
         private val hidden: Int = 3
 
@@ -569,6 +571,8 @@ private val COMMON = """
     expect class Session {
         fun open(): Int
         val id: Int
+        fun close(): Int
+        fun sync(): Int
     }
 
     expect fun connect(): Int
@@ -588,7 +592,9 @@ private val JVM = """
     class Session {
         fun open(): Int = 1
         val id: Int = 2
+        @JvmName("shut") fun close(): Int = 3
+        internal fun sync(): Int = 4
     }
 
-    fun connect(): Int = 3
+    fun connect(): Int = 5
 """.trimIndent()

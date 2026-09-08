@@ -234,9 +234,13 @@ class SymbolKeyingTest : JavaSnippetTestCase() {
      * trip through this same build would agree with itself whatever the keys had become, which is
      * precisely the failure this exists to catch.
      *
-     * Both halves are needed. *Nothing was re-minted* on its own is satisfied by a plan that never
-     * names these symbols at all, so every placeholder in the file is also required to appear in the
-     * output — which is what makes this a statement about continuity rather than about an empty map.
+     * Both halves are needed, and the first one is easy to write so that it cannot fail. Asking
+     * whether one of *these* keys is in the delta is asking nothing: the delta holds what this
+     * invocation **minted**, a key already in the snapshot is never minted again, and a key whose
+     * spelling changed mints under the **new** string — so that filter is empty on every input,
+     * including the one failure it would claim to catch. The question that does have an answer is
+     * asked of the *names*: a symbol this file already named must not be minted a second time under
+     * any key at all, and `Ledger` appearing in the delta says it was.
      */
     fun `test a mapping written before Kotlin existed reads back identically`() {
         assertTheHarnessResolves()
@@ -249,9 +253,11 @@ class SymbolKeyingTest : JavaSnippetTestCase() {
         )
 
         assertEquals(
-            "a key this mapping already holds is spelled differently now, so the file needs a migration",
+            "a symbol this mapping already named was minted again, so its key is spelled " +
+                "differently now and the file needs a migration",
             emptyList<String>(),
-            MAPPING_ON_DISK.keys.filter { it in result.delta.placeholders },
+            result.delta.placeholders.values.map { it.original }
+                .filter { it in MAPPING_ON_DISK.values.map(MintedName::original) },
         )
         assertEquals(
             "a placeholder the mapping already handed out is no longer reachable from this snippet",

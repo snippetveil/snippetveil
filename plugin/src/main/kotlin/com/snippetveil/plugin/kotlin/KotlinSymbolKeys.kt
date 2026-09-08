@@ -1,6 +1,7 @@
 package com.snippetveil.plugin.kotlin
 
 import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiElement
 import com.snippetveil.plugin.SymbolKeys
 import org.jetbrains.kotlin.asJava.findFacadeClass
 import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
@@ -90,7 +91,7 @@ internal object KotlinSymbolKeys {
      * keying a `KtConstructor` to its light constructor would put a second key on a symbol Java
      * already spells one way.
      */
-    fun of(declaration: KtNamedDeclaration): LedgerKey = when (declaration) {
+    fun ledgerKeyOf(declaration: KtNamedDeclaration): LedgerKey = when (declaration) {
         is KtEnumEntry -> enumEntryKeyOf(declaration)
         is KtConstructor<*> -> classifierKeyOf(declaration.getContainingClassOrObject())
         is KtClassLikeDeclaration -> classifierKeyOf(declaration)
@@ -170,14 +171,23 @@ internal object KotlinSymbolKeys {
      * two keyed by a stable name, the last not keyed at all.
      */
     private fun callableKeyOf(declaration: KtCallableDeclaration): LedgerKey {
-        val kind = if (declaration.isProperty()) SymbolKeys.FIELD else SymbolKeys.METHOD
-        if (declaration.isProperty()) fieldKeyOf(declaration)?.let { return it }
+        val isProperty = declaration.isProperty()
+        if (isProperty) fieldKeyOf(declaration)?.let { return it }
 
-        declaration.getRepresentativeLightMethod()?.let {
-            return LedgerKey(SymbolKeys.keyOf(it), SymbolKeys.keyIsQualified(it))
-        }
-        return nativeCallableKeyOf(declaration, kind)
+        declaration.getRepresentativeLightMethod()?.let { return keyOfLightElement(it) }
+        return nativeCallableKeyOf(declaration, if (isProperty) SymbolKeys.FIELD else SymbolKeys.METHOD)
     }
+
+    /**
+     * The rule's own sentence as a function: **the key this light element would receive from
+     * [SymbolKeys.keyOf]**, with the persistability [SymbolKeys] gives the same element.
+     *
+     * One shape rather than the pair spelled out at each site, because the pair *is* the rule — a
+     * site that took the key from the light element and the flag from somewhere else would be the
+     * fork this whole file exists to avoid, and it would look like an ordinary two-argument call.
+     */
+    private fun keyOfLightElement(element: PsiElement): LedgerKey =
+        LedgerKey(SymbolKeys.keyOf(element), SymbolKeys.keyIsQualified(element))
 
     /**
      * The key of the field [declaration] compiles to, or `null` where its light class exposes none —
@@ -186,8 +196,7 @@ internal object KotlinSymbolKeys {
     private fun fieldKeyOf(declaration: KtNamedDeclaration): LedgerKey? {
         val name = declaration.name ?: return null
         val owner = lightOwnerOf(declaration) ?: return null
-        val field = SymbolKeys.backingFieldOf(owner, name) ?: return null
-        return LedgerKey(SymbolKeys.keyOf(field), SymbolKeys.keyIsQualified(field))
+        return SymbolKeys.backingFieldOf(owner, name)?.let(::keyOfLightElement)
     }
 
     /**
@@ -250,9 +259,20 @@ internal object KotlinSymbolKeys {
      * Everything else — a declaration inside a function body, a top-level one, a plain parameter —
      * has no classifier owner, and saying so here is what keeps a local out of the ledger.
      */
-    private fun ownerOf(declaration: KtDeclaration): KtClassOrObject? = when (val parent = declaration.parent) {
-        is KtClassBody -> parent.parent as? KtClassOrObject
-        is KtParameterList -> (parent.parent as? KtPrimaryConstructor)?.getContainingClassOrObject()
+    private fun ownerOf(declaration: KtDeclaration): KtClassOrObject? = when (declaration.parent) {
+        is KtClassBody -> declaration.parent.parent as? KtClassOrObject
+
+        // **`val`, and not merely *in the constructor's parameter list*.** A plain
+        // `class Clock(amount: Int)` parameter is a local: it declares no member, no Java file can
+        // name it, and giving it the class as an owner would mint `method:class:p.Clock#amount` —
+        // a *persistable* key, written to a durable file, that a real `fun amount()` on the same
+        // class then collides with. That is the injectivity invariant broken in the one direction
+        // the compiler cannot catch for us, so the test is the `val` keyword rather than the shape
+        // of the tree around it.
+        is KtParameterList -> (declaration as? KtParameter)
+            ?.takeIf { it.hasValOrVar() }
+            ?.let { (it.parent.parent as? KtPrimaryConstructor)?.getContainingClassOrObject() }
+
         else -> null
     }
 
