@@ -799,10 +799,16 @@ not that.
 
 `assertTheReleaseCarriesTheSignedZip`, in the root `build.gradle.kts` and wired into `check`, holds
 the arrangement together from a clone. A gated job uploads an artifact whose path ends `-signed.zip`;
-one job that is **not** gated downloads that artifact **by name** and attaches it; that job declares
-`contents: write`, and no gated job does. The by-name rule is the one that earns its lines — a check
-that only looked for `gh release upload` would pass on a pipeline whose two halves were still
-present and no longer joined to each other, which is close to the shape the original problem had.
+one job that is **not** gated downloads that artifact **by name**, waits on it through `needs:`,
+declares `contents: write` and attaches it; no gated job holds that write; and no other workflow
+attaches an asset at all.
+
+The last three rules are what make it a *wiring* check rather than a list of facts. A check that
+only looked for `gh release upload` would pass on a pipeline whose halves were joined to nothing —
+close to the shape the original problem had. One that matched only the artifact name would pass on
+two jobs running at once, where the download races an upload that has not happened. And one that
+read `release.yml` alone would let `build.yml` attach the unsigned archive, which is the claim this
+whole arrangement exists to avoid making.
 
 **`snippetveil.com` carries the same sentence, and nothing checks the site's copy.** That is a
 separate gap, in a separate repository, and this rule does not close it.

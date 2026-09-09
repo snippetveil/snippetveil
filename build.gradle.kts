@@ -810,6 +810,19 @@ val assertEveryIssueFormLinkIsHttps = tasks.register("assertEveryIssueFormLinkIs
 }
 
 /**
+ * The workflow that publishes, and the GitHub Environment its one gated job declares.
+ *
+ * **Spelled once, because two rules depend on them and they are halves of one arrangement.**
+ * [assertOnlyTheGatedJobCanReachTheSigningKey] says the signing key stays inside that job;
+ * [assertTheReleaseCarriesTheSignedZip] says the signed bytes still get out of it. A rename that
+ * moved one and not the other would leave a rule pointed at a file or an environment that does not
+ * exist, and a rule that finds nothing passes — which is the failure a green build hides, and the
+ * reason `check`'s task names are spelled once elsewhere in this build rather than twice here.
+ */
+val publishingWorkflowName = "release.yml"
+val marketplaceEnvironment = "marketplace"
+
+/**
  * **The four secrets are the plugin's identity, and this is what keeps `build.yml` away from them.**
  *
  * They live in a GitHub Environment named `marketplace` rather than in repository secrets, and the
@@ -853,10 +866,10 @@ val assertOnlyTheGatedJobCanReachTheSigningKey = tasks.register("assertOnlyTheGa
     val secrets = listOf("CERTIFICATE_CHAIN", "PRIVATE_KEY", "PRIVATE_KEY_PASSWORD", "PUBLISH_TOKEN")
 
     // The Environment the four live in. A job that names a secret must name this.
-    val environment = "marketplace"
+    val environment = marketplaceEnvironment
 
     // The one file allowed to name them, because it is the only one whose job is gated.
-    val gatedWorkflow = "release.yml"
+    val gatedWorkflow = publishingWorkflowName
 
     inputs.dir(workflows).withPropertyName("workflows")
     inputs.property("secrets", secrets)
@@ -1034,11 +1047,17 @@ val assertOnlyTheGatedJobCanReachTheSigningKey = tasks.register("assertOnlyTheGa
  * keeping the read-only token this file's top comment promises, and a following job with
  * `contents: write` and no environment does the write.
  *
- * The rules below check that as a *wiring* rather than as a handful of separate facts: a gated job
- * uploads an artifact whose path ends `-signed.zip`, and one job that is not gated downloads *that
- * artifact, by name* and attaches it, holding `contents: write` to do so. A rule that only looked
- * for `gh release upload` would pass on a pipeline whose two halves were connected to nothing —
- * which is close to the shape the bug actually had.
+ * The rules below check that as a *wiring* rather than as a handful of separate facts. A gated job
+ * uploads an artifact whose path ends `-signed.zip`; one job that is not gated downloads *that
+ * artifact, by name*, waits for the signing job through `needs:`, holds `contents: write`, and
+ * attaches it; no gated job holds that write; and no other workflow attaches an asset at all.
+ *
+ * **The last three of those are what make it a wiring rule.** A check that only looked for
+ * `gh release upload` would pass on a pipeline whose halves were joined to nothing, which is close
+ * to the shape this had. A check that matched them only by artifact name would pass on two jobs
+ * that run at once, where the download races an upload that has not happened. And a check that read
+ * this file alone would let `build.yml` — which runs on every pull request and already holds
+ * `contents: write` in the job that drafts the release — attach the unsigned archive instead.
  *
  * What it does not check is that an asset ends up on a release. That is a fact about GitHub rather
  * than about anything in a clone, and it is checked where it can be: `release.yml` reads the
@@ -1055,8 +1074,8 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
     // read from the file under these names, exactly as [assertOnlyTheGatedJobCanReachTheSigningKey]
     // spells them. The two rules are halves of one arrangement: that one says the key stays in the
     // gated job, this one says the signed bytes still get out of it.
-    val publishingWorkflow = "release.yml"
-    val environment = "marketplace"
+    val publishingWorkflow = publishingWorkflowName
+    val environment = marketplaceEnvironment
 
     // What `signPlugin` writes beside the unsigned archive. The suffix rather than the whole name,
     // because the name carries a version this file does not get to know — that is gradle.properties'
@@ -1070,8 +1089,15 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
     val downloadAction = "actions/download-artifact"
 
     inputs.dir(workflows).withPropertyName("workflows")
+
+    // Every constant the rules are built from, so that editing one of them re-runs the task. A
+    // value the rules read but the inputs do not name leaves this UP-TO-DATE with stale rules —
+    // and the fixtures that would have caught it live in `doLast`, so they would not run either.
+    inputs.property("publishingWorkflow", publishingWorkflow)
     inputs.property("environment", environment)
     inputs.property("signedSuffix", signedSuffix)
+    inputs.property("uploadAction", uploadAction)
+    inputs.property("downloadAction", downloadAction)
     outputs.file(report).withPropertyName("report")
 
     doLast {
@@ -1120,6 +1146,27 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
                 .toMap()
         }
 
+        /**
+         * What [job] declares `needs:`, in each of the three shapes GitHub accepts: a scalar, a
+         * flow list, and a block list. All three mean the same thing, and a rule that read one of
+         * them would be a rule a reformat turns off.
+         */
+        fun needsOf(job: String): List<String> {
+            val lines = job.lines()
+            val at = lines.indexOfFirst { Regex("""^\s*needs:""").containsMatchIn(it) }
+            if (at < 0) return emptyList()
+
+            fun clean(name: String) = name.trim().trim('"', '\'')
+
+            val inline = lines[at].substringAfter("needs:").trim()
+            if (inline.isNotEmpty()) {
+                return inline.removeSurrounding("[", "]").split(",").map(::clean).filter { it.isNotEmpty() }
+            }
+            return lines.drop(at + 1)
+                .takeWhile { Regex("""^\s*-\s""").containsMatchIn(it) }
+                .map { clean(it.substringAfter("-")) }
+        }
+
         // `environment: marketplace`, as a scalar or as the `name:` of a mapping — the same
         // declaration to GitHub, and read both ways here for the reason
         // [assertOnlyTheGatedJobCanReachTheSigningKey] reads both: a rule that saw only one of them
@@ -1136,6 +1183,20 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
          */
         fun inspect(name: String, text: String): Pair<List<String>, Int> {
             val violations = mutableListOf<String>()
+
+            // Every other workflow, checked for the one thing none of them may do. `build.yml` runs
+            // on every pull request and already holds `contents: write` in the job that drafts the
+            // release, so it is a file that *could* attach an asset — and the bytes on a release
+            // are the signed ones, which only the gated job can produce.
+            if (name != publishingWorkflow) {
+                if (attaches.containsMatchIn(text)) {
+                    violations += "$name attaches an asset to a release, and only " +
+                        "$publishingWorkflow may: the zip a reader downloads has to be the one " +
+                        "that was signed, and no job in $name can produce it"
+                }
+                return violations to 0
+            }
+
             val jobs = jobsOf(text)
 
             val gated = jobs.filterKeys { declaresEnvironment.containsMatchIn(jobs.getValue(it)) }
@@ -1195,6 +1256,15 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
                 }
 
                 if (signer != null) {
+                    // Ordering, which is the other half of the same joint. Without it the two jobs
+                    // start together and the download races an upload that has not happened — both
+                    // halves still present, and no longer joined to each other.
+                    if (signer !in needsOf(block)) {
+                        violations += "$name's `$attacher` job does not declare `needs: $signer`, " +
+                            "so it starts beside the job that signs instead of after it and " +
+                            "downloads an artifact nothing has uploaded yet"
+                    }
+
                     val handedOut = withBlockOf(jobs.getValue(signer), uploadAction)["name"]
                     val takenUp = withBlockOf(block, downloadAction)["name"]
                     if (handedOut == null || handedOut != takenUp) {
@@ -1206,7 +1276,15 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
                 }
             }
 
-            return violations to jobs.size
+            // The check's own coverage: the two `with:` mappings the handoff is made of. Counted
+            // rather than assumed, because every rule above is a statement about what those blocks
+            // say, and a parser that stopped reading them would report a pipeline it never read.
+            val handoffBlocksRead = listOf(
+                signer?.let { withBlockOf(jobs.getValue(it), uploadAction) },
+                attacher?.let { withBlockOf(jobs.getValue(it), downloadAction) },
+            ).count { !it.isNullOrEmpty() }
+
+            return violations to handoffBlocksRead
         }
 
         fun violationsIn(name: String, text: String) = inspect(name, text).first
@@ -1250,11 +1328,26 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
         check(
             violationsIn(
                 publishingWorkflow,
-                wired.replace("      - name: Attach", "      - name: Attach it twice")
-                    .replace("  attach:\n", "      - run: gh release upload \"v0.0.0\" x.zip\n  attach:\n")
+                wired.replace("  attach:\n", "      - run: gh release upload \"v0.0.0\" x.zip\n  attach:\n")
             ).size == 1
         ) {
             "The rules failed to flag two jobs racing to attach an asset to the same release."
+        }
+        check(violationsIn(publishingWorkflow, wired.replace("    needs: release\n", "")).size == 1) {
+            "The rules failed to flag an attaching job that does not wait for the job that signs — " +
+                "both halves present, and no longer joined, which is the shape this task names."
+        }
+        check(violationsIn(publishingWorkflow, wired.replace("    needs: release", "    needs: [release]")).isEmpty()) {
+            "The rules failed to read `needs:` written as a flow list, which is the same declaration."
+        }
+        check(violationsIn(publishingWorkflow, wired.replace("    needs: release", "    needs:\n      - release")).isEmpty()) {
+            "The rules failed to read `needs:` written as a block list, which is the same declaration."
+        }
+        check(violationsIn("build.yml", wired).size == 1) {
+            "The rules failed to flag a workflow other than $publishingWorkflow attaching an asset."
+        }
+        check(inspect("build.yml", wired.replace("gh release upload", "echo")).first.isEmpty()) {
+            "The rules flagged another workflow that attaches nothing, which every other workflow does."
         }
         check(violationsIn(publishingWorkflow, wired.replace("*$signedSuffix", "*.zip")).size == 1) {
             "The rules failed to flag a handoff of an archive that is not the signed one, which is " +
@@ -1283,8 +1376,8 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
             "The rules failed to flag a handoff whose two halves name different artifacts."
         }
         check(inspect(publishingWorkflow, wired).second == 2) {
-            "The rules read ${inspect(publishingWorkflow, wired).second} jobs out of a fixture that " +
-                "has two. They are not counting coverage."
+            "The rules read ${inspect(publishingWorkflow, wired).second} of the handoff's two " +
+                "`with:` blocks out of a fixture that has both. They are not counting coverage."
         }
 
         val files = workflows.asFile.listFiles().orEmpty()
@@ -1301,15 +1394,26 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
             "$publishingWorkflow is not in ${workflows.asFile}. These rules are named after a file that is not there."
         }
 
-        val (violations, jobsRead) = inspect(publishingWorkflow, publishing.readText())
+        val inspected = files.map { it to inspect(it.name, it.readText()) }
+        val violations = inspected.flatMap { (_, result) -> result.first }
+        val handoffBlocksRead = inspected
+            .single { (file, _) -> file.name == publishingWorkflow }
+            .let { (_, result) -> result.second }
 
         report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
             buildString {
-                appendLine("Workflow checked: $publishingWorkflow; jobs read: $jobsRead")
+                appendLine("Workflows checked: ${files.size}; handoff `with:` blocks read: $handoffBlocksRead")
                 appendLine()
                 appendLine("A job declaring `environment: $environment` uploads an artifact whose path ends")
                 appendLine("`$signedSuffix`, and one job outside the environment downloads that artifact by name")
-                appendLine("and attaches it, holding `contents: write` to do so. No gated job holds that write.")
+                appendLine("and attaches it, holding `contents: write` to do so and waiting on `needs:` for the")
+                appendLine("job that signed it. No gated job holds that write.")
+                appendLine()
+                appendLine("No other workflow may attach an asset at all.")
+                appendLine()
+                inspected.forEach { (file, _) ->
+                    appendLine(".github/workflows/${file.name}" + if (file.name == publishingWorkflow) " — the arrangement above" else " — must attach nothing")
+                }
                 appendLine()
                 appendLine("Not checked here: that an asset is on the release afterwards. That is a fact")
                 appendLine("about GitHub, and $publishingWorkflow reads it back on the run instead.")
@@ -1324,9 +1428,16 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
             )
         }
 
-        check(jobsRead > 0) {
-            "No job was read out of $publishingWorkflow, which has several. The rules stopped " +
-                "matching the shape the file is written in."
+        // Both halves of the handoff, exactly — the form [assertOnlyTheGatedJobCanReachTheSigningKey]
+        // asserts its own coverage in, and for the same reason: a run that read one of them and
+        // reported no violations would be reporting on a pipeline it had only half seen.
+        //
+        // **Asserted after the violations above have had their say.** A broken handoff moves this
+        // number, and a coverage miscount reported in place of the real answer would name the
+        // wrong problem.
+        check(handoffBlocksRead == 2) {
+            "$handoffBlocksRead of the handoff's 2 `with:` blocks were read out of " +
+                "$publishingWorkflow, which has both. The rules read the wrong thing."
         }
     }
 }

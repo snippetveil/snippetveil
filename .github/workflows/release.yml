@@ -11,8 +11,13 @@ on:
   release:
     types: [prereleased, released]
 
-# Nothing here writes to the repository. The upload is authenticated by PUBLISH_TOKEN against
-# JetBrains Marketplace, not by the GitHub token, so the GitHub token stays read-only.
+# The floor for every job in this file, and everything the job that signs ever needs: the Marketplace
+# upload is authenticated by PUBLISH_TOKEN against JetBrains, not by the GitHub token, so the job
+# holding the key writes to the repository not at all.
+#
+# Two jobs below do write, and both ask on themselves: `attach` puts the signed zip on the release,
+# and `changelog` opens the pull request that closes the changelog. Neither is the gated one, which
+# is the point rather than an accident of how they were written.
 permissions:
   contents: read
 
