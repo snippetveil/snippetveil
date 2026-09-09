@@ -57,7 +57,8 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
      * right-click → **SnippetVeil** → **Copy Anonymized**, and the balloon names only the last step.
      * It is a false statement the product makes about its own menu; it is false in pure Java, has
      * nothing to do with which languages are supported, and correcting it is a change with its own
-     * reasoning rather than a rider on a language edit.
+     * reasoning rather than a rider on a language edit — snippetveil/snippetveil#101, which is where
+     * *what the sentence should say* gets decided.
      *
      * Two assertions, and the second is the one that will go red when it is fixed — deliberately, so
      * that the fix arrives here and updates the sentence this test pins, instead of leaving a second
