@@ -24,7 +24,7 @@ plugins {
 // task keeps the name it was registered under. What is left is a build that calls a check one
 // thing and registers it as another. Change the string alone and the mirror image happens: the
 // task is renamed, `check` still runs it, and the name published as a command a reader can run is
-// quietly no longer the name. CONTRIBUTING.md names twelve of the thirteen checks across the two
+// quietly no longer the name. CONTRIBUTING.md names thirteen of the fourteen checks across the two
 // build scripts, and four of those are named again in README.md, THREAT-MODEL.md or a README under
 // `demo/` or `docs/`. The compiler catches neither drift. The line does, and that is all adjacency
 // is being asked to buy.
@@ -611,7 +611,6 @@ val assertNoBannedPhraseAppearsOnAnySurface = tasks.register("assertNoBannedPhra
     }
 }
 
-
 /**
  * Fails if an issue form links anywhere but over https.
  *
@@ -651,10 +650,10 @@ val assertEveryIssueFormLinkIsHttps = tasks.register("assertEveryIssueFormLinkIs
     group = LifecycleBasePlugin.VERIFICATION_GROUP
     description = "Fails if an issue form's contact link is not https, or any link in one is plaintext."
 
-    val forms = fileTree(layout.projectDirectory.dir(".github/ISSUE_TEMPLATE")) {
-        include("**/*.yml")
-        include("**/*.yaml")
-    }
+    // Every file in the directory, with no extension filter. A Markdown template is as legitimate
+    // there as a YAML form and its links render the same way, and an extension list is the shape a
+    // glob that matches nothing takes when somebody adds a file kind nobody thought of.
+    val forms = fileTree(layout.projectDirectory.dir(".github/ISSUE_TEMPLATE"))
     val report = layout.buildDirectory.file("reports/trust/issue-form-links.txt")
     val root = layout.projectDirectory.asFile
 
@@ -680,8 +679,11 @@ val assertEveryIssueFormLinkIsHttps = tasks.register("assertEveryIssueFormLinkIs
          * Every link rule, over one file's text, and the number of `url:` values the rules actually
          * read — which is the check's own coverage and is asserted over the fixture below.
          *
-         * The first rule owns `url:` lines and the second owns every other line, so a contact link
-         * pointed at a plaintext URL is reported once, by the rule that names the key it broke.
+         * **Both rules read every line, and the second reports only what the first did not.** The
+         * scheme rule has first refusal on a line it can name the key of, so `url:` pointed at a
+         * plaintext URL is one violation rather than two; but a `url:` line is not exempt from the
+         * plaintext rule, because a trailing comment on it is a line of the file like any other and
+         * the rule is *no plaintext link anywhere*.
          */
         fun inspect(name: String, text: String): Pair<List<String>, Int> {
             val violations = mutableListOf<String>()
@@ -689,24 +691,35 @@ val assertEveryIssueFormLinkIsHttps = tasks.register("assertEveryIssueFormLinkIs
 
             text.lines().forEachIndexed { index, line ->
                 val where = "$name:${index + 1}"
+                val flagged = violations.size
 
                 if (urlKey.matches(line)) {
                     val match = urlValue.matchEntire(line)
-                    if (match == null) {
-                        violations += "$where writes a `url:` in a shape these rules cannot read, " +
-                            "so it was not checked"
-                        return@forEachIndexed
+                    // An empty value is its own answer, and not a shape the rules failed to read:
+                    // `url: ""` is a row GitHub renders as nothing, exactly as a `mailto:` is.
+                    val value = match?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }
+                    when {
+                        match == null ->
+                            violations += "$where writes a `url:` in a shape these rules cannot " +
+                                "read, so it was not checked"
+
+                        value == null -> {
+                            linksRead++
+                            violations += "$where writes a `url:` with no value, which is a row " +
+                                "with nothing to resolve and nothing on the page"
+                        }
+
+                        !value.startsWith("https://") -> {
+                            linksRead++
+                            violations += "$where points a link at `$value`, which GitHub resolves " +
+                                "to nothing and drops from the rendered chooser without a word"
+                        }
+
+                        else -> linksRead++
                     }
-                    linksRead++
-                    val value = match.groupValues.drop(1).first { it.isNotEmpty() }
-                    if (!value.startsWith("https://")) {
-                        violations += "$where points a link at `$value`, which GitHub resolves to " +
-                            "nothing and drops from the rendered chooser without a word"
-                    }
-                    return@forEachIndexed
                 }
 
-                if (plaintext.containsMatchIn(line)) {
+                if (violations.size == flagged && plaintext.containsMatchIn(line)) {
                     violations += "$where carries a plaintext link, on a page every other link in " +
                         "this repository reaches over https"
                 }
@@ -749,6 +762,12 @@ val assertEveryIssueFormLinkIsHttps = tasks.register("assertEveryIssueFormLinkIs
         check(violationsIn("fixture", chooser.replace("url: https", "url: \"https")).size == 1) {
             "The rules read a `url:` they could not parse as a value, instead of flagging it."
         }
+        check(violationsIn("fixture", chooser.replace("url: https://example.com/security/policy", "url: \"\"")).size == 1) {
+            "The rules crashed or passed on an empty `url:`, which renders as no row at all."
+        }
+        check(violationsIn("fixture", chooser.replace("policy\n", "policy # see http://elsewhere\n")).size == 1) {
+            "The rules missed a plaintext link in a comment on a `url:` line. The rule is anywhere."
+        }
 
         val files = forms.files.sortedBy { it.path }
 
@@ -775,9 +794,8 @@ val assertEveryIssueFormLinkIsHttps = tasks.register("assertEveryIssueFormLinkIs
                     appendLine("${file.relativeTo(root)} — ${result.second} link(s)")
                 }
                 appendLine()
-                appendLine("How these files render is not checkable from a clone: GraphQL returns Markdown")
-                appendLine("templates only and an anonymous fetch of the chooser gets the sign-in wall.")
-                appendLine("Open issues/new/choose signed in and read it.")
+                appendLine("How these files render is not checkable from a clone at all. Open")
+                appendLine("issues/new/choose signed in and read it; CONTRIBUTING.md says why.")
             }
         )
 
@@ -790,6 +808,7 @@ val assertEveryIssueFormLinkIsHttps = tasks.register("assertEveryIssueFormLinkIs
         }
     }
 }
+
 /**
  * **The four secrets are the plugin's identity, and this is what keeps `build.yml` away from them.**
  *
