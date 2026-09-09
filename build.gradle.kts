@@ -24,7 +24,7 @@ plugins {
 // task keeps the name it was registered under. What is left is a build that calls a check one
 // thing and registers it as another. Change the string alone and the mirror image happens: the
 // task is renamed, `check` still runs it, and the name published as a command a reader can run is
-// quietly no longer the name. CONTRIBUTING.md names twelve of the thirteen checks across the two
+// quietly no longer the name. CONTRIBUTING.md names thirteen of the fourteen checks across the two
 // build scripts, and four of those are named again in README.md, THREAT-MODEL.md or a README under
 // `demo/` or `docs/`. The compiler catches neither drift. The line does, and that is all adjacency
 // is being asked to buy.
@@ -612,6 +612,204 @@ val assertNoBannedPhraseAppearsOnAnySurface = tasks.register("assertNoBannedPhra
 }
 
 /**
+ * Fails if an issue form links anywhere but over https.
+ *
+ * **A GitHub issue form has no build-time and no API verification of how it renders**, and the
+ * chooser at `issues/new/choose` is read by a stranger before they have typed anything. That pair
+ * is what makes this rule worth its lines. The contact link the chooser shipped with pointed at a
+ * `mailto:`, and GitHub dropped the row — no build error, no banner on the blob page, nothing in
+ * the API. The file was correct in review, correct in the repository, and correct to every
+ * automated thing pointed at it; the only surface it was wrong on was the one nothing could read.
+ * And the row that went missing was the one telling a security reporter not to file in public.
+ *
+ * Two rules, and the second is why this is not a check on one key:
+ *
+ *  1. **Every `url:` value starts `https://`.** That is the reference GitHub resolves, and anything
+ *     else is discarded silently. Plaintext `http` fails with the rest: every other surface in this
+ *     repository is https-only, and the page strangers reach first is not the one to be laxer on.
+ *  2. **No link anywhere in the file is plaintext.** A form's descriptions and a contact row's
+ *     `about:` render on the chooser as much as the link does, and a link in one is a link.
+ *
+ * A `url:` written in a shape these rules cannot read is a violation rather than a quiet skip, for
+ * the reason it is in [assertWorkflowsAreHardened]: a line the check cannot parse is a hole in the
+ * check, and extending the rules to a new shape should be a deliberate act.
+ *
+ * The files are read whole, comments included, for the reason
+ * [assertNoBannedPhraseAppearsOnAnySurface] reads a document whole — a file exempted "because it is
+ * only explaining the rule" is where a violation eventually hides.
+ *
+ * What this does not do is validate the forms' schema. GitHub ignores whatever it does not
+ * understand in these files, so schema validation is a real but much larger problem, and a rule
+ * guessing at the schema would fail on valid files. **And it does not make the chooser verified.**
+ * GraphQL's `issueTemplates` returns Markdown templates only — it comes back empty for YAML forms,
+ * so it proves nothing either way — and an anonymous fetch of `issues/new/choose` gets the sign-in
+ * wall. The only evidence that a form renders as intended is a signed-in page load, by a person.
+ * This rule catches the one mistake that has a machine-checkable shape, and that is all it claims.
+ */
+val assertEveryIssueFormLinkIsHttps = tasks.register("assertEveryIssueFormLinkIsHttps") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if an issue form's contact link is not https, or any link in one is plaintext."
+
+    // Every file in the directory, with no extension filter. A Markdown template is as legitimate
+    // there as a YAML form and its links render the same way, and an extension list is the shape a
+    // glob that matches nothing takes when somebody adds a file kind nobody thought of.
+    val forms = fileTree(layout.projectDirectory.dir(".github/ISSUE_TEMPLATE"))
+    val report = layout.buildDirectory.file("reports/trust/issue-form-links.txt")
+    val root = layout.projectDirectory.asFile
+
+    inputs.files(forms).withPropertyName("forms")
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        // `url: <value>`, as a mapping key or as the first key of a list item, bare or quoted, with
+        // an optional trailing comment. Written tightly on purpose, in the shape these files are
+        // actually written in: the quotes have to balance and the value carries none of YAML's
+        // block or comment punctuation, so a folded `url: >-` or an unterminated quote falls
+        // through to `urlKey` below and is reported rather than read as a value it is not.
+        val urlValue = Regex("""^\s*(?:-\s+)?url:\s*(?:"([^"]*)"|'([^']*)'|([^\s#"'>|]+))\s*(?:#.*)?$""")
+
+        // Anything that names a `url:` at all. A line this matches and `urlValue` does not is a
+        // link the rules could not read, which is a hole in the check rather than a line to skip.
+        val urlKey = Regex("""^\s*(?:-\s+)?url:.*""")
+
+        // A plaintext link, anywhere on any other line. Case-insensitive because the scheme is.
+        val plaintext = Regex("""http://""", RegexOption.IGNORE_CASE)
+
+        /**
+         * Every link rule, over one file's text, and the number of `url:` values the rules actually
+         * read — which is the check's own coverage and is asserted over the fixture below.
+         *
+         * **Both rules read every line, and the second reports only what the first did not.** The
+         * scheme rule has first refusal on a line it can name the key of, so `url:` pointed at a
+         * plaintext URL is one violation rather than two; but a `url:` line is not exempt from the
+         * plaintext rule, because a trailing comment on it is a line of the file like any other and
+         * the rule is *no plaintext link anywhere*.
+         */
+        fun inspect(name: String, text: String): Pair<List<String>, Int> {
+            val violations = mutableListOf<String>()
+            var linksRead = 0
+
+            text.lines().forEachIndexed { index, line ->
+                val where = "$name:${index + 1}"
+                val flagged = violations.size
+
+                if (urlKey.matches(line)) {
+                    val match = urlValue.matchEntire(line)
+                    // An empty value is its own answer, and not a shape the rules failed to read:
+                    // `url: ""` is a row GitHub renders as nothing, exactly as a `mailto:` is.
+                    val value = match?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }
+                    when {
+                        match == null ->
+                            violations += "$where writes a `url:` in a shape these rules cannot " +
+                                "read, so it was not checked"
+
+                        value == null -> {
+                            linksRead++
+                            violations += "$where writes a `url:` with no value, which is a row " +
+                                "with nothing to resolve and nothing on the page"
+                        }
+
+                        !value.startsWith("https://") -> {
+                            linksRead++
+                            violations += "$where points a link at `$value`, which GitHub resolves " +
+                                "to nothing and drops from the rendered chooser without a word"
+                        }
+
+                        else -> linksRead++
+                    }
+                }
+
+                if (violations.size == flagged && plaintext.containsMatchIn(line)) {
+                    violations += "$where carries a plaintext link, on a page every other link in " +
+                        "this repository reaches over https"
+                }
+            }
+
+            return violations to linksRead
+        }
+
+        fun violationsIn(name: String, text: String) = inspect(name, text).first
+
+        // The rules prove they can fail before they report that nothing failed. This is the check
+        // whose whole subject is a mistake that looks correct everywhere except the rendered page,
+        // so a red path nobody exercises would be the same failure wearing a task name.
+        val chooser = """
+            blank_issues_enabled: false
+            contact_links:
+              - name: Report a security vulnerability
+                url: https://example.com/security/policy
+                about: The policy is at https://example.com/security/policy.
+        """.trimIndent()
+
+        check(violationsIn("fixture", chooser).isEmpty()) {
+            "The rules flagged a chooser that breaks none of them: ${violationsIn("fixture", chooser)}"
+        }
+        check(inspect("fixture", chooser).second == 1) {
+            "The rules read no `url:` out of a fixture that has one. They are not counting coverage."
+        }
+
+        val mailto = chooser.replace("https://example.com/security/policy\n", "mailto:security@example.com\n")
+        check(violationsIn("fixture", mailto).singleOrNull()?.contains("mailto:security@example.com") == true) {
+            "The rules failed to flag `mailto:` and name it: ${violationsIn("fixture", mailto)}. " +
+                "That is the exact value that shipped, and the exact one GitHub discards in silence."
+        }
+        check(violationsIn("fixture", chooser.replace("url: https", "url: http")).size == 1) {
+            "The rules failed to flag a plaintext contact link."
+        }
+        check(violationsIn("fixture", chooser.replace("at https", "at http")).size == 1) {
+            "The rules failed to flag a plaintext link in an `about:`, which renders like any other."
+        }
+        check(violationsIn("fixture", chooser.replace("url: https", "url: \"https")).size == 1) {
+            "The rules read a `url:` they could not parse as a value, instead of flagging it."
+        }
+        check(violationsIn("fixture", chooser.replace("url: https://example.com/security/policy", "url: \"\"")).size == 1) {
+            "The rules crashed or passed on an empty `url:`, which renders as no row at all."
+        }
+        check(violationsIn("fixture", chooser.replace("policy\n", "policy # see http://elsewhere\n")).size == 1) {
+            "The rules missed a plaintext link in a comment on a `url:` line. The rule is anywhere."
+        }
+
+        val files = forms.files.sortedBy { it.path }
+
+        // A check that found nothing to check is not a pass — and a glob matching nothing is how
+        // this one would fail: the directory it reads was added in the same week as the bug.
+        check(files.isNotEmpty()) {
+            "No issue forms were found under ${File(root, ".github/ISSUE_TEMPLATE")}. Nothing was checked."
+        }
+        // There is deliberately no floor on the links read across the real tree, unlike the actions
+        // read in `assertWorkflowsAreHardened`. Every workflow uses an action; a form legitimately
+        // has no `url:` in it, and only the chooser's config carries one. The coverage the matcher
+        // needs is asserted over the fixture above, where a zero cannot be a true answer.
+
+        val inspected = files.map { it to inspect(it.relativeTo(root).path, it.readText()) }
+        val violations = inspected.flatMap { (_, result) -> result.first }
+        val linksRead = inspected.sumOf { (_, result) -> result.second }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Issue forms checked: ${files.size}; `url:` values read: $linksRead")
+                appendLine("Every `url:` must be https, and no line may carry a plaintext link.")
+                appendLine()
+                inspected.forEach { (file, result) ->
+                    appendLine("${file.relativeTo(root)} — ${result.second} link(s)")
+                }
+                appendLine()
+                appendLine("How these files render is not checkable from a clone at all. Open")
+                appendLine("issues/new/choose signed in and read it; CONTRIBUTING.md says why.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "The chooser page is read by a stranger before they have typed anything, and GitHub " +
+                    "discards a link it cannot resolve without saying so anywhere:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
+/**
  * **The four secrets are the plugin's identity, and this is what keeps `build.yml` away from them.**
  *
  * They live in a GitHub Environment named `marketplace` rather than in repository secrets, and the
@@ -812,5 +1010,6 @@ tasks.named("check") {
     dependsOn(assertWorkflowsAreHardened)
     dependsOn(assertTheSweepIsNeverRunInCi)
     dependsOn(assertNoBannedPhraseAppearsOnAnySurface)
+    dependsOn(assertEveryIssueFormLinkIsHttps)
     dependsOn(assertOnlyTheGatedJobCanReachTheSigningKey)
 }
