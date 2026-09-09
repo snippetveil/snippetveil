@@ -1006,10 +1006,336 @@ val assertOnlyTheGatedJobCanReachTheSigningKey = tasks.register("assertOnlyTheGa
     }
 }
 
+/**
+ * Fails if `release.yml` does not carry the signed distribution out of the gated job and attach it
+ * to the release.
+ *
+ * **Three published surfaces tell a reader the zip is on the GitHub Release, and no release has
+ * ever carried one.** README's *About this repository*, CONTRIBUTING's *One Marketplace channel,
+ * and no `beta`*, and the status note on snippetveil.com all send them to the Releases page for
+ * bytes they can read before installing — which, for a plugin whose pitch is *audit me*, is the
+ * half of the offer that does not require trusting the Marketplace first. It was untrue from
+ * v1.0.0 through v1.2.0, and it was found by somebody publishing a release rather than by anything
+ * that checks. This is the thing that checks.
+ *
+ * **The bytes have to be the signed ones**, because the sentence beside the offer says every
+ * release is signed, and `build.yml`'s archive is not them. `signPlugin` writes the signed archive
+ * inside the gated job, which is the only place it exists — so the rule is not "an asset is
+ * attached" but "the archive the gated job signed is the one that reaches the release".
+ *
+ * **And the attaching must not happen inside the gate.** CONTRIBUTING settles that in as many
+ * words, about the `changelog` job:
+ *
+ * > It must not sit inside the gated one — a job that writes to the repository does not belong in
+ * > the environment that holds the signing key.
+ *
+ * `upload-artifact` is what makes both true at once: it authenticates against the run's own
+ * artifact store rather than against the repository, so the signing job hands the zip off while
+ * keeping the read-only token this file's top comment promises, and a following job with
+ * `contents: write` and no environment does the write.
+ *
+ * The rules below check that as a *wiring* rather than as a handful of separate facts: a gated job
+ * uploads an artifact whose path ends `-signed.zip`, and one job that is not gated downloads *that
+ * artifact, by name* and attaches it, holding `contents: write` to do so. A rule that only looked
+ * for `gh release upload` would pass on a pipeline whose two halves were connected to nothing —
+ * which is close to the shape the bug actually had.
+ *
+ * What it does not check is that an asset ends up on a release. That is a fact about GitHub rather
+ * than about anything in a clone, and it is checked where it can be: `release.yml` reads the
+ * release's assets back on the run, immediately after the upload.
+ */
+val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarriesTheSignedZip") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if release.yml does not attach the signed distribution to the release."
+
+    val workflows = layout.projectDirectory.dir(".github/workflows")
+    val report = layout.buildDirectory.file("reports/trust/release-carries-the-zip.txt")
+
+    // The workflow that publishes, and the environment its gated job declares — spelled here and
+    // read from the file under these names, exactly as [assertOnlyTheGatedJobCanReachTheSigningKey]
+    // spells them. The two rules are halves of one arrangement: that one says the key stays in the
+    // gated job, this one says the signed bytes still get out of it.
+    val publishingWorkflow = "release.yml"
+    val environment = "marketplace"
+
+    // What `signPlugin` writes beside the unsigned archive. The suffix rather than the whole name,
+    // because the name carries a version this file does not get to know — that is gradle.properties'
+    // business, and a rule naming a version would be a rule that expires.
+    val signedSuffix = "-signed.zip"
+
+    // The two halves of the handoff. Named as actions rather than as steps because what matters is
+    // that the artifact store is what crosses the job boundary: it is the one channel that needs no
+    // write to the repository.
+    val uploadAction = "actions/upload-artifact"
+    val downloadAction = "actions/download-artifact"
+
+    inputs.dir(workflows).withPropertyName("workflows")
+    inputs.property("environment", environment)
+    inputs.property("signedSuffix", signedSuffix)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        // Whole-line comments, dropped before anything below reads the file. Every job in this
+        // workflow is introduced by a paragraph saying why it exists, and those paragraphs quote
+        // the very strings these rules match on — `contents: write` and the environment among them.
+        // Reading them as configuration would have the rules find their own documentation and
+        // report a pipeline that is correct in prose.
+        val commentLine = Regex("""^\s*#""")
+
+        // A job key: two spaces, a name, and nothing after the colon.
+        val jobHeader = Regex("""^ {2}([A-Za-z0-9_-]+):\s*$""")
+
+        /** Each job in a workflow, by name, as the block of lines under its key. */
+        fun jobsOf(text: String): Map<String, String> {
+            val lines = text.lines().filterNot { commentLine.containsMatchIn(it) }
+            if (!lines.contains("jobs:")) return emptyMap()
+            val body = lines.subList(lines.indexOf("jobs:") + 1, lines.size)
+            val starts = body.indices.filter { jobHeader.matches(body[it]) }
+            return starts.mapIndexed { index, start ->
+                val end = starts.getOrElse(index + 1) { body.size }
+                jobHeader.matchEntire(body[start])!!.groupValues[1] to
+                    body.subList(start, end).joinToString("\n")
+            }.toMap()
+        }
+
+        /**
+         * The `with:` mapping of the first step in [job] that uses [action], as key to value.
+         *
+         * Read positionally — the lines after the `uses:` up to the next step — rather than by
+         * indentation, because the indentation a step's `with:` sits at is a property of how the
+         * file was written and not of what it means.
+         */
+        fun withBlockOf(job: String, action: String): Map<String, String> {
+            val uses = Regex("""^\s*-?\s*uses:\s*${Regex.escape(action)}@""")
+            val nextStep = Regex("""^\s*-\s""")
+            val entry = Regex("""^\s*([a-z][a-z-]*):\s*(\S.*?)\s*$""")
+
+            val lines = job.lines()
+            val at = lines.indexOfFirst { uses.containsMatchIn(it) }
+            if (at < 0) return emptyMap()
+
+            return lines.drop(at + 1)
+                .takeWhile { !nextStep.containsMatchIn(it) }
+                .mapNotNull { line -> entry.matchEntire(line)?.destructured?.let { (k, v) -> k to v } }
+                .toMap()
+        }
+
+        // `environment: marketplace`, as a scalar or as the `name:` of a mapping — the same
+        // declaration to GitHub, and read both ways here for the reason
+        // [assertOnlyTheGatedJobCanReachTheSigningKey] reads both: a rule that saw only one of them
+        // is a rule a rewrite turns off silently.
+        val declaresEnvironment = Regex(
+            """(?m)^\s*environment:\s*(?:$environment\s*$|\s*$\s*^\s*name:\s*$environment\s*$)"""
+        )
+        val writesToTheRepository = Regex("""(?m)^\s*contents:\s*write\s*$""")
+        val attaches = Regex("""\bgh release upload\b""")
+
+        /**
+         * Every way the arrangement can be broken, over one workflow's text, and the number of jobs
+         * the rules read — the check's own coverage, asserted below rather than assumed.
+         */
+        fun inspect(name: String, text: String): Pair<List<String>, Int> {
+            val violations = mutableListOf<String>()
+            val jobs = jobsOf(text)
+
+            val gated = jobs.filterKeys { declaresEnvironment.containsMatchIn(jobs.getValue(it)) }
+            val attaching = jobs.filterKeys { attaches.containsMatchIn(jobs.getValue(it)) }
+            val handingOff = jobs.filterKeys {
+                withBlockOf(jobs.getValue(it), uploadAction)["path"]?.endsWith(signedSuffix) == true
+            }
+
+            gated.keys.sorted().forEach { job ->
+                if (writesToTheRepository.containsMatchIn(jobs.getValue(job))) {
+                    violations += "$name's `$job` job declares `contents: write` inside " +
+                        "`environment: $environment`: a job that writes to the repository does not " +
+                        "belong in the environment that holds the signing key"
+                }
+            }
+
+            when (attaching.size) {
+                0 -> violations += "$name attaches nothing to the release, and the README, " +
+                    "CONTRIBUTING and the site all tell a reader the distribution zip is there"
+                1 -> Unit
+                else -> violations += "$name attaches an asset from ${attaching.size} jobs " +
+                    "(${attaching.keys.sorted().joinToString(", ")}), so which bytes a reader " +
+                    "downloads is decided by whichever finished last"
+            }
+
+            when (handingOff.size) {
+                0 -> violations += "$name uploads no artifact whose path ends `$signedSuffix`. The " +
+                    "signed archive exists only inside the job that holds the key, so nothing " +
+                    "carries it out — and the unsigned one is not the bytes the README offers"
+                1 -> Unit
+                else -> violations += "$name hands a `$signedSuffix` artifact out of " +
+                    "${handingOff.size} jobs (${handingOff.keys.sorted().joinToString(", ")}), and " +
+                    "only one of them can be the one that signed"
+            }
+
+            val signer = handingOff.keys.singleOrNull()
+            if (signer != null && signer !in gated.keys) {
+                violations += "$name's `$signer` job hands out a `$signedSuffix` artifact but " +
+                    "declares no `environment: $environment`, so it is not the job that can sign: " +
+                    "whatever it is uploading, it is not the archive the Marketplace received"
+            }
+
+            val attacher = attaching.keys.singleOrNull()
+            if (attacher != null) {
+                val block = jobs.getValue(attacher)
+
+                if (!writesToTheRepository.containsMatchIn(block)) {
+                    violations += "$name's `$attacher` job attaches an asset but declares no " +
+                        "`contents: write`, so it runs with the read-only token this workflow " +
+                        "declares at the top and the upload cannot succeed"
+                }
+
+                if (declaresEnvironment.containsMatchIn(block)) {
+                    violations += "$name's `$attacher` job attaches an asset from inside " +
+                        "`environment: $environment`. The write belongs in a job with no path to " +
+                        "the signing key, which is why the artifact store is what crosses between them"
+                }
+
+                if (signer != null) {
+                    val handedOut = withBlockOf(jobs.getValue(signer), uploadAction)["name"]
+                    val takenUp = withBlockOf(block, downloadAction)["name"]
+                    if (handedOut == null || handedOut != takenUp) {
+                        violations += "$name's `$signer` job uploads the artifact " +
+                            "`$handedOut` and its `$attacher` job downloads `$takenUp`. The two " +
+                            "halves of the handoff are not connected, and a release would be cut " +
+                            "carrying nothing while every job went green"
+                    }
+                }
+            }
+
+            return violations to jobs.size
+        }
+
+        fun violationsIn(name: String, text: String) = inspect(name, text).first
+
+        // The rules prove they can fail before they report that nothing failed. A red path that is
+        // never exercised decays into a check that always passes — which is exactly what the three
+        // sentences this task defends had become.
+        val wired = """
+            permissions:
+              contents: read
+            jobs:
+              release:
+                environment: $environment
+                steps:
+                  - name: publishPlugin
+                    run: ./gradlew publishPlugin
+                  - uses: $uploadAction@0123456789abcdef0123456789abcdef01234567 # v7.0.1
+                    with:
+                      name: signed-distribution
+                      path: plugin/build/distributions/*$signedSuffix
+              attach:
+                needs: release
+                permissions:
+                  contents: write
+                steps:
+                  - uses: $downloadAction@0123456789abcdef0123456789abcdef01234567 # v7.0.0
+                    with:
+                      name: signed-distribution
+                  - name: Attach
+                    run: gh release upload "v0.0.0" signed/*.zip
+        """.trimIndent()
+
+        check(violationsIn(publishingWorkflow, wired).isEmpty()) {
+            "The rules flagged a pipeline that breaks none of them: " +
+                violationsIn(publishingWorkflow, wired)
+        }
+        check(violationsIn(publishingWorkflow, wired.replace("gh release upload", "echo")).size == 1) {
+            "The rules failed to flag a workflow that attaches nothing, which is the state every " +
+                "release from v1.0.0 to v1.2.0 shipped in."
+        }
+        check(
+            violationsIn(
+                publishingWorkflow,
+                wired.replace("      - name: Attach", "      - name: Attach it twice")
+                    .replace("  attach:\n", "      - run: gh release upload \"v0.0.0\" x.zip\n  attach:\n")
+            ).size == 1
+        ) {
+            "The rules failed to flag two jobs racing to attach an asset to the same release."
+        }
+        check(violationsIn(publishingWorkflow, wired.replace("*$signedSuffix", "*.zip")).size == 1) {
+            "The rules failed to flag a handoff of an archive that is not the signed one, which is " +
+                "the subtler false claim the README's `every release is signed` would then carry."
+        }
+        check(violationsIn(publishingWorkflow, wired.replace("    environment: $environment\n", "")).size == 1) {
+            "The rules failed to flag a signed-archive handoff out of a job that cannot sign."
+        }
+        check(
+            violationsIn(publishingWorkflow, wired.replace("    permissions:\n      contents: write\n", "")).size == 1
+        ) {
+            "The rules failed to flag an attaching job running on the workflow's read-only token."
+        }
+        check(
+            violationsIn(publishingWorkflow, wired.replace("  attach:\n", "  attach:\n    environment: $environment\n")).size == 2
+        ) {
+            "The rules failed to flag an attaching job inside the gate. Both halves must fire: the " +
+                "gated job now writes to the repository, and the write now sits beside the key."
+        }
+        check(
+            violationsIn(
+                publishingWorkflow,
+                wired.replace("name: signed-distribution\n          path:", "name: something-else\n          path:")
+            ).size == 1
+        ) {
+            "The rules failed to flag a handoff whose two halves name different artifacts."
+        }
+        check(inspect(publishingWorkflow, wired).second == 2) {
+            "The rules read ${inspect(publishingWorkflow, wired).second} jobs out of a fixture that " +
+                "has two. They are not counting coverage."
+        }
+
+        val files = workflows.asFile.listFiles().orEmpty()
+            .filter { it.isFile && (it.name.endsWith(".yml") || it.name.endsWith(".yaml")) }
+            .sortedBy { it.name }
+
+        check(files.isNotEmpty()) { "No workflows were found in ${workflows.asFile}. Nothing was checked." }
+
+        // The workflow has to be one of the files actually there. Renaming it without renaming it
+        // here would leave every rule pointed at a file that does not exist, and the check would
+        // pass by finding nothing — the one failure a green build hides completely.
+        val publishing = files.singleOrNull { it.name == publishingWorkflow }
+        checkNotNull(publishing) {
+            "$publishingWorkflow is not in ${workflows.asFile}. These rules are named after a file that is not there."
+        }
+
+        val (violations, jobsRead) = inspect(publishingWorkflow, publishing.readText())
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Workflow checked: $publishingWorkflow; jobs read: $jobsRead")
+                appendLine()
+                appendLine("A job declaring `environment: $environment` uploads an artifact whose path ends")
+                appendLine("`$signedSuffix`, and one job outside the environment downloads that artifact by name")
+                appendLine("and attaches it, holding `contents: write` to do so. No gated job holds that write.")
+                appendLine()
+                appendLine("Not checked here: that an asset is on the release afterwards. That is a fact")
+                appendLine("about GitHub, and $publishingWorkflow reads it back on the run instead.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "A plugin whose pitch is \"audit me\" offers two ways to get the bytes, and the one " +
+                    "a reader can check first is the zip on the release:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+
+        check(jobsRead > 0) {
+            "No job was read out of $publishingWorkflow, which has several. The rules stopped " +
+                "matching the shape the file is written in."
+        }
+    }
+}
+
 tasks.named("check") {
     dependsOn(assertWorkflowsAreHardened)
     dependsOn(assertTheSweepIsNeverRunInCi)
     dependsOn(assertNoBannedPhraseAppearsOnAnySurface)
     dependsOn(assertEveryIssueFormLinkIsHttps)
     dependsOn(assertOnlyTheGatedJobCanReachTheSigningKey)
+    dependsOn(assertTheReleaseCarriesTheSignedZip)
 }
