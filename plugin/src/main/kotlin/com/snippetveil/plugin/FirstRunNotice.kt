@@ -14,10 +14,10 @@ import com.intellij.openapi.startup.ProjectActivity
  * **The one time SnippetVeil speaks without being asked** — and the record that keeps it to once.
  *
  * The surface is deliberately invisible: no toolbar button, no tool window, no default keyboard
- * shortcut, and no menu entry outside a Java editor. Each of those is right on its own, and together
- * they make **install-and-never-notice** the realistic failure mode — a plugin that is present,
- * working, and never found. This is the whole of the mitigation: one balloon, on the first project
- * opened after installing, dismissible like any other.
+ * shortcut, and no menu entry outside a source file this plugin anonymizes. Each of those is right on
+ * its own, and together they make **install-and-never-notice** the realistic failure mode — a plugin
+ * that is present, working, and never found. This is the whole of the mitigation: one balloon, on the
+ * first project opened after installing, dismissible like any other.
  *
  * ### What was refused, and why it is a release constraint rather than a preference
  *

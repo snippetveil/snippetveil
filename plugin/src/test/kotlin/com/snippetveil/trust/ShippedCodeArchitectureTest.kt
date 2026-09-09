@@ -99,10 +99,13 @@ class ShippedCodeArchitectureTest {
      * rule is *the main package may not reach Kotlin*, with the sub-package deliberately outside it —
      * which is why the exclusion is written into the predicate rather than left as an exception list.
      *
-     * **Static, and deliberately the only half.** Booting an IDE with the Kotlin plugin switched
-     * off is an environment this build cannot construct — every fixture here runs with it enabled —
-     * so the rule over bytecode is the enforcement rather than a first line of it, which is why it
-     * is demonstrated red below rather than trusted.
+     * **Static, and the half that runs on every pull request.** No fixture here can construct an IDE
+     * with the Kotlin plugin switched off — every one of them runs with it enabled — so this rule
+     * over bytecode is the enforcement at merge speed rather than a first line of it, which is why
+     * it is demonstrated red below rather than trusted. The dynamic half exists and is a release
+     * gate: `com.snippetveil.boot.KotlinDisabledBootTest` boots an IDE that really does not have the
+     * plugin, and catches what a rule over packages cannot see — reflection, a service registration,
+     * an extension point wired from the wrong descriptor. It costs an IDE boot, so it is not here.
      */
     @Test
     fun `the main descriptor's packages do not reach for Kotlin plugin classes`() {

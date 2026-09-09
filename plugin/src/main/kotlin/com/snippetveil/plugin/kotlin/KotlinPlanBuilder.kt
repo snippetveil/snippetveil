@@ -95,9 +95,11 @@ import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
  *
  * **Kotlin's comments are still not walked**, and that is a limit rather than a decision made here:
  * a comment's verdict is *what a parser makes of its body*, and the parser this product asks is
- * Java's. Nothing is registered against this builder either way, so no `.kt` file reaches it from a
- * user's IDE: `com.snippetveil-withKotlin.xml` declares no `languageSupport`, and the source file
- * gate keeps returning its stated refusal on every `.kt` file.
+ * Java's.
+ *
+ * **A `.kt` file reaches this walk through [KotlinSupport]**, which `com.snippetveil-withKotlin.xml`
+ * registers for `kt` — so this runs exactly where that descriptor loaded, and nowhere else. On an IDE
+ * without it the gate states its refusal instead, and no class named here is ever loaded.
  *
  * ### Threading
  *

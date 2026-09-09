@@ -287,6 +287,22 @@ intellijPlatform {
     // The distribution is SnippetVeil, not "plugin" — the subproject name must not name the product.
     projectName = "SnippetVeil"
 
+    // **Off, and it changes nothing about what ships.** Instrumentation compiles GUI Designer forms
+    // and weaves `@NotNull` assertions into Java bytecode; this plugin has no forms and no Java
+    // sources at all, so the instrumented jar it produces is byte-identical to the plain one — the
+    // task is a no-op standing between the compiler and the sandbox. It is off because the
+    // Kotlin-disabled boot below boots an IDE against what this build produced, and a step that can
+    // differ from what ships is one more thing that can differ from what ships.
+    //
+    // **One consequence, and it is a local one.** The platform plugin puts `instrumentTestCode`'s
+    // output directory first on every test task's classpath. With instrumentation off that task is
+    // skipped, so a clone that once built with it on still has whatever it left in
+    // `build/instrumented` — and the runner loads those stale classes ahead of the fresh ones, which
+    // fails in the most confusing way there is: a test that no longer exists, failing. `./gradlew
+    // clean` once is the whole of the fix, and a fresh checkout never sees it. CONTRIBUTING.md says
+    // so where a contributor would meet it.
+    instrumentCode = false
+
     pluginConfiguration {
         // Generated from README.md; see the listing-copy section above. Assigning it here is what
         // makes `plugin.xml` free to carry no `<description>` of its own.
@@ -1960,4 +1976,123 @@ val assertTheFloorStillHasNoExtensionFilterBuilder =
 
 tasks.named("check") {
     dependsOn(assertTheFloorStillHasNoExtensionFilterBuilder)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The Kotlin-disabled boot
+//
+// The dynamic half of the isolation guarantee. `ShippedCodeArchitectureTest` reads bytecode and
+// asserts that nothing the main descriptor reaches names an `org.jetbrains.kotlin.*` type — the
+// right instrument for a class that will not link, and blind to every other way isolation breaks:
+// reflection, a service registration, an extension point wired from the wrong descriptor. So this
+// cell boots an IDE that really does not have the Kotlin plugin and runs the product in it.
+//
+// **A release gate, not a merge gate.** It boots an IDE against the built distribution — the same
+// subject the bytecode scan and `verifyPlugin` have — and the architecture rule already catches the
+// ordinary way isolation breaks at pull-request speed. `release.yml` runs it before anything is
+// uploaded.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * **The boot's test class, spelled once**, for the reason `corpusSweepClass` is: two filters read it
+ * and they mean opposite things — this cell includes it, and `test` excludes it so that the merge
+ * gate never runs it against an IDE that *has* the Kotlin plugin, where its precondition would fail
+ * and its refusal assertions would be measuring the wrong configuration.
+ */
+val kotlinDisabledBootClass = "com.snippetveil.boot.KotlinDisabledBootTest"
+
+/** The plugin this cell takes away, by the id the platform knows it under. */
+val kotlinPluginId = "org.jetbrains.kotlin"
+
+/**
+ * The name the cell is registered under. It comes from the root build, the way the corpus sweep's
+ * does: `assertTheReleaseGateRunsTheKotlinDisabledBoot` there reads `release.yml` for an invocation
+ * of this task, and one spelling is what keeps that check from guarding a task nobody registers.
+ */
+val kotlinDisabledBootTask = rootProject.extra["kotlinDisabledBootTask"] as String
+
+intellijPlatformTesting {
+    testIde.register(kotlinDisabledBootTask) {
+        // **The platform plugin's own disabling, and this is the whole trap.** `prepareSandbox`
+        // writes `config/disabled_plugins.txt` from this set — so a hand-written file in the sandbox
+        // is overwritten, the cell runs with Kotlin enabled, and it looks exactly like a pass. The
+        // boot asserts the plugin is absent before it asserts anything else for the same reason.
+        plugins {
+            disablePlugin(kotlinPluginId)
+        }
+
+        // Declared again rather than inherited: test-framework dependencies are added to the `test`
+        // task's own configuration, and a custom test task gets its own.
+        testFramework(TestFrameworkType.Platform)
+        testFramework(TestFrameworkType.Plugin.Java)
+
+        task {
+            group = LifecycleBasePlugin.VERIFICATION_GROUP
+            description = "Boots an IDE with the Kotlin plugin disabled and runs the isolation boot against it."
+
+            // Appended rather than assigned: the classpath the platform plugin built puts the IDE
+            // and this plugin's own jars in a deliberate order, and this adds the test-scope
+            // libraries — the test engines — that a custom test task is not given.
+            testClassesDirs += sourceSets["test"].output.classesDirs
+            classpath += sourceSets["test"].runtimeClasspath
+            useJUnitPlatform()
+            filter { includeTestsMatching(kotlinDisabledBootClass) }
+
+            // A gate is run to be believed. A cached "up-to-date" would report yesterday's result
+            // about today's distribution.
+            outputs.upToDateWhen(Specs.satisfyNone())
+            testLogging { showStandardStreams = true }
+        }
+    }
+}
+
+tasks.test {
+    // **The boot is not part of the merge gate**, and this is the line that says so: it lives in the
+    // test source set, so without an exclusion `check` would run it — against an IDE that has the
+    // Kotlin plugin, where its own precondition fails. `assertTheKotlinDisabledBootIsExcludedFromTheMergeGate`
+    // below is what keeps this filter from quietly matching nothing.
+    filter { excludeTestsMatching(kotlinDisabledBootClass) }
+}
+
+/**
+ * Fails if the class both filters above name is not the class that is actually there.
+ *
+ * The hazard `assertTheSweepIsExcludedFromTheMergeGate` guards, in both directions at once: a filter
+ * that matches nothing excludes nothing and includes nothing, and Gradle reports neither — so a
+ * renamed boot would rejoin `check` (where it fails) and leave the release gate running an empty
+ * test task (where it passes) with every build still green.
+ */
+val assertTheKotlinDisabledBootIsExcludedFromTheMergeGate =
+    tasks.register("assertTheKotlinDisabledBootIsExcludedFromTheMergeGate") {
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        description = "Fails if the Kotlin-disabled boot's class is not the one in the source tree."
+
+        // Read out of the script here, so that the action below closes over plain values: an action
+        // that reached back to a script-level property would carry a reference to the build script
+        // itself, which the configuration cache cannot serialize.
+        val named = kotlinDisabledBootClass
+        val cell = kotlinDisabledBootTask
+        val simpleName = named.substringAfterLast('.')
+        val source = layout.projectDirectory.file("src/test/kotlin/${named.replace('.', '/')}.kt")
+        val declaration = Regex("""(?m)^\s*(internal\s+)?class\s+$simpleName\b""")
+
+        inputs.file(source).withPropertyName("source")
+        inputs.property("kotlinDisabledBootClass", named)
+
+        doLast {
+            val file = source.asFile
+            check(file.isFile) {
+                "`$named` is what `test` excludes and `$cell` includes, but $file does " +
+                    "not exist. A filter that matches nothing excludes nothing, so the boot would be back " +
+                    "in the merge gate and the release gate would be running no test at all."
+            }
+            check(declaration.containsMatchIn(file.readText())) {
+                "$file exists but declares no `class $simpleName`, so the filters naming `$named` match " +
+                    "nothing and the release gate runs an empty test task."
+            }
+        }
+    }
+
+tasks.named("check") {
+    dependsOn(assertTheKotlinDisabledBootIsExcludedFromTheMergeGate)
 }

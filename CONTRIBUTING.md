@@ -9,9 +9,18 @@
 
 ./gradlew check -PplatformProfile=k2       # the same checks where the Kotlin fixtures can run
 ./gradlew check -PplatformProfile=latest   # the same checks against the newest stable IDE
+
+./gradlew kotlinDisabledBoot -PplatformProfile=latest   # the release gate: an IDE with no Kotlin plugin
 ```
 
 JDK 17. Everything else the build needs, it downloads.
+
+**Run `./gradlew clean` once if you built this repository before code instrumentation was turned
+off.** Instrumentation is a no-op here — no GUI Designer forms, no Java sources — but the platform
+plugin puts its output directory first on every test task's classpath, and a skipped task does not
+empty the directory it once filled. Stale test classes loaded ahead of fresh ones fail in the most
+confusing way available, so the one-time clean is worth the sentence. A fresh checkout never sees
+it.
 
 `platformProfile` picks which IntelliJ Platform the build compiles and tests against. It defaults to
 `floor` — the version the plugin descriptor names in `sinceBuild` — so a plain `./gradlew build`
@@ -346,8 +355,8 @@ that nothing ships a shortcut.
 ### The one balloon nobody asked for
 
 The surface is deliberately invisible — no toolbar button, no tool window, no default shortcut, no
-menu entry outside a Java editor — and together those make **install-and-never-notice** the realistic
-failure mode. One dismissible notification, on the first project opened after installing, shown once
+menu entry outside a source file this plugin anonymizes — and together those make
+**install-and-never-notice** the realistic failure mode. One dismissible notification, on the first project opened after installing, shown once
 ever, is the whole mitigation; `FirstRunNotice` is the application-level record that keeps it to once
 and the fourth state holder the roaming rule covers.
 
@@ -635,6 +644,40 @@ The legs do not all name the same product: IntelliJ IDEA Community stopped being
 in gradle.properties rather than looked up, so that a run is reproducible and a bump is a reviewable
 one-line diff — `platformLatestVersion` going stale is a maintenance chore nothing automates.
 
+### The Kotlin-disabled boot, which is a release gate
+
+**`kotlinDisabledBoot` is the only thing here that boots an IDE without the Kotlin plugin**, and it
+is the dynamic half of an isolation guarantee whose static half runs on every pull request.
+`ShippedCodeArchitectureTest` reads shipped bytecode and asserts that nothing the main descriptor
+reaches names an `org.jetbrains.kotlin.*` type — the right instrument for a class that will not link,
+and blind to every other way the isolation breaks: reflection, a service registration, an extension
+point wired from the wrong descriptor. All of those produce the same symptom, which is a privacy tool
+that fails to load on an IDE with a language plugin switched off.
+
+It runs in `release.yml` before the upload rather than in `check`, because it costs an IDE boot and
+because the architecture rule already catches the ordinary way this breaks at merge speed.
+`assertTheReleaseGateRunsTheKotlinDisabledBoot`, in the root `build.gradle.kts` and wired into
+`check`, fails if the release stops running it or starts running it after `publishPlugin` — a gate
+that reports a failure about bytes users are already installing is not a gate.
+`assertTheKotlinDisabledBootIsExcludedFromTheMergeGate` holds the other end: the boot's class is
+named by two filters that mean opposite things, and a filter matching nothing would put it back in
+`check` — where it fails — while leaving the release gate running an empty test task.
+
+**Three assertions, and the order is the point.** It asserts the Kotlin plugin is *absent* before it
+asserts anything about behaviour: with the plugin enabled the Java assertions pass for ordinary
+reasons and the refusal never fires, so a cell whose disabling had come apart would be green and
+would mean nothing. The disabling goes through the Gradle plugin's own `disablePlugin(...)`, because
+a hand-written `disabled_plugins.txt` in the sandbox is **overwritten by `prepareSandbox`**. Then:
+the Java actions work, a `.kt` file is refused with the exact sentence and an untouched clipboard, and
+the gate reports `PLUGIN_NOT_RUNNING` — the one availability cause no fixture can produce, because
+every fixture in this repository runs with the Kotlin plugin loaded. That precondition is shown red
+in `KotlinDisabledBootDemonstrationTest`, which runs in the merge gate, in the one configuration where
+it must fail.
+
+It runs on `latest`, where the Kotlin plugin is fully active and taking it away is doing the whole of
+the work. On the floor its default mode is K1, where this plugin's optional descriptor is skipped
+anyway, and the cell would be measuring a configuration it did not create.
+
 ### Hardening
 
 - **Both workflows declare `permissions:` explicitly and minimally.** A repository whose pitch is
@@ -860,6 +903,8 @@ exists, holds these four and no others, and carries the reviewer. None of that i
    explicit Marketplace approval criteria and both are in the task's default failure levels.
 4. `assertNothingThirdPartyIsShipped` is green.
 4b. `assertThePluginWasSigned` is green — it gates `publishPlugin` and needs no remembering.
+4c. `kotlinDisabledBoot` is green — automatic, `release.yml` runs it before the upload and
+   `assertTheReleaseGateRunsTheKotlinDisabledBoot` fails `check` if it ever stops.
 5. Screenshots re-shot from `demo/` if the dialog changed.
 6. `demo/` is excluded from the distribution — `assertTheDemoIsNotShipped`.
 7. **The Marketplace listing has no post-install page.** A plugin selling *no network connections*
@@ -867,8 +912,9 @@ exists, holds these four and no others, and carries the reviewer. None of that i
 8. The licence field declares **Apache-2.0 with a resolving source URL**. An OSS licence with no
    source link is a documented rejection reason.
 
-Steps 1-4 and 6 are `./gradlew check verifyPlugin` on any machine. 5, 7 and 8 are judgement and a
-Marketplace form.
+Steps 1-4 and 6 are `./gradlew check verifyPlugin` on any machine; 4c is one more command,
+`./gradlew kotlinDisabledBoot -PplatformProfile=latest`. 5, 7 and 8 are judgement and a Marketplace
+form.
 
 **The first submission cannot go through `publishPlugin`.** A new plugin has to be uploaded once by
 hand, through the Marketplace form, because that upload is what creates the listing and sets the

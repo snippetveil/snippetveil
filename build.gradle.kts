@@ -57,6 +57,18 @@ val corpusSweepTask = "corpusSweep"
 extra.set("corpusSweepTask", corpusSweepTask)
 
 /**
+ * **The Kotlin-disabled boot's task name, spelled once**, for the reason above it.
+ *
+ * `assertTheReleaseGateRunsTheKotlinDisabledBoot` below reads this `val` to find the invocation in
+ * `release.yml`, and `plugin/build.gradle.kts` registers the cell under the same string, read out of
+ * the `extra`. The two are guarding opposite things — that the release runs it, and that it exists
+ * to be run — and a rename that reached only one of them would leave a release gate that nothing
+ * runs and a check that says otherwise.
+ */
+val kotlinDisabledBootTask = "kotlinDisabledBoot"
+extra.set("kotlinDisabledBootTask", kotlinDisabledBootTask)
+
+/**
  * Fails if a GitHub Actions workflow uses an action it has not pinned to a commit SHA, pins one
  * without naming the version the SHA is, or does not say what token it runs with.
  *
@@ -1442,6 +1454,121 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
     }
 }
 
+/**
+ * Fails if the release workflow does not run the Kotlin-disabled boot before it uploads.
+ *
+ * **A release gate is a gate because a release runs it.** The boot is the only thing in this
+ * repository that starts an IDE which really does not have the Kotlin plugin — the half of the
+ * isolation guarantee that reflection, a service registration or an extension point wired from the
+ * wrong descriptor can break without the architecture rule over packages seeing anything. It costs an
+ * IDE boot, so it is not in `check`; and a check that is in no `check` is held up by a line in a YAML
+ * file, which is exactly the kind of thing that goes missing in a hurry and takes nothing red with
+ * it.
+ *
+ * **Order is half the rule.** A boot that ran after `publishPlugin` would be a gate on nothing: the
+ * bytes are at the Marketplace by then, and the failure it reports is a failure about a version
+ * users are already installing. Steps run in order, so the invocation's position in the file is the
+ * claim, and it is read rather than assumed.
+ *
+ * It reads `./gradlew` lines for the reason [assertTheSweepIsNeverRunInCi] does: **thin CI over thick
+ * Gradle** means *what CI runs* is a list this task can extract, and a comment is prose rather than
+ * an invocation — the workflow explains this rule in its own words two lines above the step.
+ */
+val assertTheReleaseGateRunsTheKotlinDisabledBoot = tasks.register("assertTheReleaseGateRunsTheKotlinDisabledBoot") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the release workflow does not run the Kotlin-disabled boot before it uploads."
+
+    val workflow = layout.projectDirectory.file(".github/workflows/$publishingWorkflowName")
+    val report = layout.buildDirectory.file("reports/trust/kotlin-disabled-boot-is-a-release-gate.txt")
+    val boot = kotlinDisabledBootTask
+    val workflowName = publishingWorkflowName
+
+    inputs.file(workflow).withPropertyName("workflow")
+    inputs.property("kotlinDisabledBootTask", boot)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        /** Every line that hands work to the Gradle wrapper, in order, comments excluded. */
+        val gradleInvocation = Regex("""^(?!\s*#).*\./gradlew\b.*$""", RegexOption.MULTILINE)
+
+        fun invocationsIn(text: String) = gradleInvocation.findAll(text).map { it.value.trim() }.toList()
+
+        /**
+         * What is wrong with a workflow that is supposed to boot the isolation cell before it
+         * uploads, and the number of Gradle invocations the rule read — this check's own coverage,
+         * asserted below rather than assumed.
+         */
+        fun inspect(name: String, text: String): Pair<List<String>, Int> {
+            val invocations = invocationsIn(text)
+            val bootAt = invocations.indexOfFirst { boot in it }
+            val uploadAt = invocations.indexOfFirst { "publishPlugin" in it }
+            val violations = mutableListOf<String>()
+
+            if (bootAt < 0) {
+                violations += "$name never runs `$boot`, so the one check that boots an IDE without " +
+                    "the Kotlin plugin is a check nothing runs"
+            }
+            if (uploadAt < 0) {
+                violations += "$name never runs `publishPlugin`, so this rule cannot tell whether the " +
+                    "boot happens before the upload — and it is the ordering that makes it a gate"
+            }
+            if (bootAt >= 0 && uploadAt >= 0 && bootAt > uploadAt) {
+                violations += "$name runs `$boot` after `publishPlugin`, which reports an isolation " +
+                    "failure about a version users are already installing"
+            }
+
+            return violations to invocations.size
+        }
+
+        fun violationsIn(name: String, text: String) = inspect(name, text).first
+
+        // The rule proves it can fail before it reports that nothing failed, and proves it read
+        // anything at all. A red path nobody exercises decays into a check that always passes.
+        val gated = "      - run: ./gradlew $boot -PplatformProfile=latest\n      - run: ./gradlew publishPlugin\n"
+
+        check(violationsIn("fixture", gated).isEmpty()) {
+            "The rule flagged a workflow that boots before it uploads: ${violationsIn("fixture", gated)}"
+        }
+        check(inspect("fixture", gated).second == 2) {
+            "The rule read ${inspect("fixture", gated).second} Gradle invocations out of a fixture with two."
+        }
+        check(violationsIn("fixture", gated.lines().reversed().joinToString("\n")).size == 1) {
+            "The rule accepted a boot that runs after the upload, which gates nothing."
+        }
+        check(violationsIn("fixture", "      - run: ./gradlew publishPlugin\n").size == 1) {
+            "The rule accepted a release that never boots the isolation cell at all."
+        }
+        check(violationsIn("fixture", "      # run: ./gradlew $boot\n").size == 2) {
+            "The rule read a comment as an invocation. The workflow's own prose about this step " +
+                "would satisfy the rule the step exists to satisfy."
+        }
+
+        val text = workflow.asFile.readText()
+        val (violations, invocations) = inspect(workflowName, text)
+
+        // A check that read no Gradle invocation is not a pass, whatever else it found.
+        check(invocations > 0) {
+            "No `./gradlew` line was read out of $workflowName. The rule is checking nothing."
+        }
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("$workflowName — Gradle invocations read: $invocations")
+                appendLine("`$boot` runs, and runs before `publishPlugin`.")
+                appendLine()
+                invocationsIn(text).forEach { appendLine("  $it") }
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "The Kotlin-disabled boot is a release gate, and a gate is a gate because a release " +
+                    "runs it:\n" + violations.joinToString("\n") { "  $it" }
+            )
+        }
+    }
+}
+
 tasks.named("check") {
     dependsOn(assertWorkflowsAreHardened)
     dependsOn(assertTheSweepIsNeverRunInCi)
@@ -1449,4 +1576,5 @@ tasks.named("check") {
     dependsOn(assertEveryIssueFormLinkIsHttps)
     dependsOn(assertOnlyTheGatedJobCanReachTheSigningKey)
     dependsOn(assertTheReleaseCarriesTheSignedZip)
+    dependsOn(assertTheReleaseGateRunsTheKotlinDisabledBoot)
 }

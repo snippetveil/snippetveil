@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Kotlin files can be anonymized. Copy Anonymized and Anonymize with Preview are offered on `.kt`
+  files, and a Kotlin declaration and a Java reference to it share one placeholder, so a snippet that
+  crosses the two languages stays coherent. Gradle scripts are not included: `.kts` carries its
+  secrets in strings rather than in names, and no menu item appears there. Where the IDE's Kotlin
+  plugin is switched off, or is running in K1 mode, a `.kt` file says that Kotlin support is
+  unavailable and leaves the clipboard alone rather than offering nothing — Java anonymization keeps
+  working either way.
 - Requires 2024.2 or later. Kotlin support uses the Kotlin Analysis API, which is not available in
   earlier builds. On 2024.1, the previous version remains available and continues to work.
 

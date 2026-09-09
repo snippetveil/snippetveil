@@ -39,9 +39,9 @@ import kotlin.reflect.KClass
  * under it that key one declaration twice — natively and through its light element, or from Kotlin
  * and from a Java file naming the same thing — and require the two to agree.
  *
- * **Nothing here walks a `.kt` file.** `com.snippetveil-withKotlin.xml` still registers nothing, so
- * every `.kt` file keeps taking the stated refusal `KotlinUnavailableTest` asserts; the keys are
- * exercised against declarations the fixture resolves directly.
+ * **Nothing here walks a `.kt` file**, and nothing here goes through the registration that makes
+ * one reachable: the keys are exercised against declarations the fixture resolves directly. The
+ * invocation a user makes is asserted in [KotlinSupportTest].
  */
 internal class KotlinSymbolKeyingTest : KotlinSnippetTestCase() {
 

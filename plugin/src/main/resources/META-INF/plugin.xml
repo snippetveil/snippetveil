@@ -100,10 +100,10 @@
 
         <!-- The one time the plugin speaks without being asked. The surface is deliberately
              invisible — no toolbar button, no tool window, no default shortcut, no menu entry
-             outside a Java editor — and together those make install-and-never-notice the realistic
-             failure mode. One balloon, on the first project opened after installing, shown once
-             ever; a post-install web page is refused outright, since a plugin selling "no network
-             connections" cannot open one on day one. -->
+             outside a source file this plugin anonymizes — and together those make
+             install-and-never-notice the realistic failure mode. One balloon, on the first project
+             opened after installing, shown once ever; a post-install web page is refused outright,
+             since a plugin selling "no network connections" cannot open one on day one. -->
         <postStartupActivity implementation="com.snippetveil.plugin.FirstRunAnnouncement"/>
     </extensions>
 
@@ -164,7 +164,8 @@
              **A submenu in the editor popup rather than flat items.** The earlier arrangement put
              the two anonymizing actions directly in the popup, on the reasoning that a copy belongs
              where the other copies are. That reasoning does not survive a third item: `Copy
-             Anonymized` and `Anonymize with Preview…` are gated to Java files and this one is not,
+             Anonymized` and `Anonymize with Preview…` are gated to the source files this plugin
+             anonymizes and this one is not,
              so flat placement would put a SnippetVeil item in every editor popup in the IDE —
              Markdown, JSON, scratch buffers, everything. One named submenu costs the anonymizing
              actions a hover and keeps the global context menu the size it was.

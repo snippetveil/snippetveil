@@ -260,8 +260,11 @@ Worth knowing before relying on it:
   SnippetVeil does nothing for you.
 - **The prompt you type around the snippet** is yours to write. SnippetVeil anonymizes the code, not
   the sentence above it.
-- **Java files only** for the two anonymizing actions. The two reversals work anywhere —
-  De-anonymize Clipboard needs only a project, De-anonymize Clipboard and Paste a writable editor.
+- **Java and Kotlin source files only** for the two anonymizing actions — and `.kts` scripts are
+  not in that set. Kotlin also needs the IDE's Kotlin plugin to be running in K2 mode, which is
+  its default from 2025.1; where it is not, a `.kt` file says so rather than offering nothing. The
+  two reversals work anywhere — De-anonymize Clipboard needs only a project, De-anonymize
+  Clipboard and Paste a writable editor.
 - **It is not a secret scanner.** It replaces names your project owns; it does not look for
   credentials.
 

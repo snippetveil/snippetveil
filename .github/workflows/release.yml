@@ -83,6 +83,23 @@ jobs:
       - name: verifyPlugin
         run: ./gradlew verifyPlugin
 
+      # The dynamic half of the Kotlin isolation guarantee, and the one check in this repository that
+      # boots an IDE which really does not have the Kotlin plugin. The architecture rule over shipped
+      # bytecode catches the ordinary way isolation breaks and runs on every pull request; this
+      # catches the ways a package rule cannot see — reflection, a service registration, an extension
+      # point wired from the wrong descriptor — and it costs an IDE boot, so it is here rather than in
+      # `check`.
+      #
+      # On `latest`, deliberately: the Kotlin plugin is fully active on a recent IDE, so taking it
+      # away is doing the whole of the work. On the compatibility floor its default mode is K1, where
+      # this plugin's optional descriptor is skipped anyway, and the cell would be measuring a
+      # configuration it did not create.
+      #
+      # `:assertTheReleaseGateRunsTheKotlinDisabledBoot` in the root build fails `check` if this step
+      # goes missing.
+      - name: kotlinDisabledBoot (latest)
+        run: ./gradlew kotlinDisabledBoot -PplatformProfile=latest
+
       - name: publishPlugin
         env:
           PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}

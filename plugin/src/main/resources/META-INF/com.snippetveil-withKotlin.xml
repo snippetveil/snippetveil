@@ -17,4 +17,23 @@
      would be absent in exactly the case it exists for, and `.kt` would fall into silent absence —
      the false reassurance the stated refusal exists to prevent. -->
 <idea-plugin>
+    <!-- **The line that turns `.kt` from a stated refusal into an offer**, and the only thing in
+         this plugin that a user's IDE has to be configured a particular way to have.
+
+         **Presence is the availability signal.** The gate asks whether a support is registered *for
+         `kt`* — an attribute in this file, read without instantiating the class it names — so this
+         registration is what makes the third outcome unreachable on an IDE where the Kotlin plugin
+         is running and this plugin's K2 declaration was accepted, and what leaves it exactly as
+         reachable on one where it is not. The refusal did not stop being real when this line
+         landed; it moved to the configurations where it is true, which are an IDE with the Kotlin
+         plugin switched off and one in K1 mode, where the platform skips this file on the strength
+         of `supportsK1="false"` in the main descriptor.
+
+         The class named here is the only class in this plugin whose absence is a configuration
+         rather than a defect. It links against `org.jetbrains.kotlin.*`, which is why it is
+         registered from here rather than from `plugin.xml`, and why the gate reads this attribute
+         instead of asking the class. -->
+    <extensions defaultExtensionNs="com.snippetveil">
+        <languageSupport extension="kt" implementationClass="com.snippetveil.plugin.kotlin.KotlinSupport"/>
+    </extensions>
 </idea-plugin>

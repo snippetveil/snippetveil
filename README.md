@@ -11,7 +11,7 @@
 
 <!-- listing copy -->
 
-**Anonymize a Java snippet before you paste it into an AI chat.**
+**Anonymize a Java or Kotlin snippet before you paste it into an AI chat.**
 
 Every name your project owns — classes, methods, fields, packages, string literals — is
 replaced with a placeholder before the snippet leaves the editor. The structure, the
@@ -19,7 +19,7 @@ control flow, and the libraries you call go as-is.
 
 ### How it works
 
-- Select Java code, right-click, **Copy Anonymized**. The anonymized text is on your clipboard.
+- Select Java or Kotlin code, right-click, **Copy Anonymized**. The anonymized text is on your clipboard.
 - **Anonymize with Preview…** shows the code that will be copied beside its mapping table,
   with counts: `14 renamed · 3 unknown · 22 preserved · 2 comments stripped`. It is the only
   place you can anonymize *less* — keep comments for this snippet, or preserve a name and send it
@@ -60,7 +60,8 @@ scanned in every release build, and public from the first commit.
 
 ### Non-goals
 
-Not a secret scanner. Java files only — the action does not appear anywhere else.
+Not a secret scanner. Anonymization is unavailable outside supported source files. The
+reversal actions are not gated by language.
 
 ### Source
 
