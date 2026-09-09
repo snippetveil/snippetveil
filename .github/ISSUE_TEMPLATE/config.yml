@@ -13,7 +13,12 @@ blank_issues_enabled: false
 # A contact link's `url` has to be http(s). A `mailto:` is dropped from the
 # rendered chooser silently — no build error, no banner on this file, just a
 # row that is not there — which is why this one points at the security policy
-# and the policy carries the address.
+# and the policy carries the address. `assertEveryIssueFormLinkIsHttps` in the
+# root build.gradle.kts holds that rule over every file in this directory.
+#
+# What no rule here can hold is how this page renders: there is no build-time
+# and no API verification of an issue form, so open issues/new/choose signed
+# in and read it after changing anything under this directory.
 contact_links:
   - name: Report a security vulnerability
     url: https://github.com/snippetveil/snippetveil/security/policy

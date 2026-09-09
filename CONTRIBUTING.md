@@ -838,7 +838,7 @@ auto-approval, and approval can be withdrawn.
 ## The publication checks
 
 Everything the Marketplace listing needs, other than the plugin itself, is in this repository — and
-five more Gradle tasks decide whether it still says what it is supposed to.
+six more Gradle tasks decide whether it still says what it is supposed to.
 
 **The Marketplace `<description>` and the README opening are the same strings**, not two texts
 saying the same thing. Two differently-worded statements of one claim invite *which one is true*,
@@ -856,11 +856,12 @@ The strictest surface wins automatically, by construction rather than by discipl
 |---|---|---|
 | `assertTheListingCopyIsTheReadme` | `plugin/build.gradle.kts` | The description in the built distribution, word for word against README.md — plus the heading order, the 40-character floor, HTTPS-only links, the phrase ban and third-party brand names |
 | `assertNoBannedPhraseAppearsOnAnySurface` | root `build.gradle.kts` | Every Markdown file in the repository, the issue forms under `.github/ISSUE_TEMPLATE/`, every string literal in `:core` and `:plugin` main sources, and the descriptor's own menu strings |
+| `assertEveryIssueFormLinkIsHttps` | root `build.gradle.kts` | Every file under `.github/ISSUE_TEMPLATE/`: each `url:` starts `https://`, and no line anywhere carries a plaintext link |
 | `assertNoRoadmapIsPublished` | `plugin/build.gradle.kts` | README.md, CHANGELOG.md the day there is one, and the change notes in the built distribution |
 | `assertTheDemoIsNotShipped` | `plugin/build.gradle.kts` | `settings.gradle.kts`, and every path in the zip at both levels |
 | `assertBothPluginIconsShip` | `plugin/build.gradle.kts` | Both icons in the distribution: 40 × 40, no text, and a dark variant that is not a copy of the light one |
 
-All five run in `check`, and the listing one also gates `publishPlugin` directly — `publishPlugin`
+All six run in `check`, and the listing one also gates `publishPlugin` directly — `publishPlugin`
 reaches `buildPlugin` without passing through `check`, so an upload could otherwise start on
 unverified copy.
 
@@ -1046,8 +1047,18 @@ The chooser page is where that sentence is rendered, which is why the in-IDE lin
 `issues/new/choose` and not at `issues/new`, and why the URL is a single constant with a test on the
 `/choose`.
 
-The forms are read by `assertNoBannedPhraseAppearsOnAnySurface` like any other document. A
-vulnerability is the exception and goes to `security@snippetveil.com`, which the chooser says before
-it offers a form — as a link to [`SECURITY.md`](SECURITY.md), because **a contact link's `url` has
-to be http(s)**. A `mailto:` is dropped from the rendered chooser with no build error and no banner
-on the file, so the first version of that row was simply absent from the page and nothing said so.
+The forms are read by `assertNoBannedPhraseAppearsOnAnySurface` like any other document, and by
+`assertEveryIssueFormLinkIsHttps` for their links. A vulnerability is the exception and goes to
+`security@snippetveil.com`, which the chooser says before it offers a form — as a link to
+[`SECURITY.md`](SECURITY.md), because **a contact link's `url` has to be http(s)**. A `mailto:` is
+dropped from the rendered chooser with no build error and no banner on the file, so the first
+version of that row was simply absent from the page and nothing said so. That is the mistake the
+link check now catches, on every file in the directory rather than on the one it happened to.
+
+**It does not make the chooser verified, and nothing in this repository can.** A GitHub issue form
+has no build-time and no API verification of how it renders: GraphQL's `issueTemplates` returns
+Markdown templates only and comes back empty for YAML forms, so it proves nothing either way, and an
+anonymous fetch of `issues/new/choose` gets the sign-in wall. **The only evidence that a form renders
+as intended is a signed-in page load.** Anyone changing a file under `.github/ISSUE_TEMPLATE/` should
+open the chooser signed in and read what is on it — the rules above catch the one mistake with a
+machine-checkable shape, and a row that is silently missing is not always that mistake.
