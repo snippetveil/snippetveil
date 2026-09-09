@@ -782,10 +782,10 @@ found by somebody publishing a release rather than by anything that checks.
 
 **What made it more than a one-line fix is that the bytes a reader wants are the signed ones, and
 they exist only inside the gated job.** Attaching them from there means handing `contents: write` to
-the job that holds the key, which is the arrangement ruled out just below for the changelog job and
-ruled out here for the same reason. Attaching `build.yml`'s archive instead would put *unsigned*
-bytes under a sentence saying every release is signed, which replaces a plain false claim with a
-subtler one.
+the job that holds the key, which is the arrangement `release.yml` already rules out for the
+changelog job, in its own words, and rules out here for the same reason. Attaching `build.yml`'s
+archive instead would put *unsigned* bytes under a sentence saying every release is signed, which
+replaces a plain false claim with a subtler one.
 
 So the zip crosses a job boundary instead. The `release` job's last step uploads `*-signed.zip` to
 the run's own artifact store — authenticated by the run rather than by the GitHub token, so that job
