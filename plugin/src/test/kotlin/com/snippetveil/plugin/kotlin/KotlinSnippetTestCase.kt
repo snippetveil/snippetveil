@@ -49,11 +49,10 @@ import java.io.File
  * fixture can produce the failure, and over the complaint itself in [KotlinHarnessComplaintTest]
  * where only the platform can. An assertion nobody has seen fail is a comment.
  *
- * **Nothing here is reachable from a user's IDE.** `com.snippetveil-withKotlin.xml` still registers
- * no `languageSupport`, so every `.kt` file keeps taking the stated refusal that
- * `KotlinUnavailableTest` asserts, and [kotlinPlanFor] constructs the walk directly. These are the
- * assertions that have to be in place *before* the first Kotlin fixture whose result anyone
- * believes.
+ * **These preconditions come before the product, not after it.** [kotlinPlanFor] constructs the walk
+ * directly rather than reaching it through the registration in `com.snippetveil-withKotlin.xml` —
+ * what a user's invocation reaches is [KotlinSupportTest]'s subject, and these are the assertions
+ * that have to be in place before any Kotlin fixture's result is worth believing.
  */
 internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
 
@@ -63,9 +62,10 @@ internal abstract class KotlinSnippetTestCase : JavaSnippetTestCase() {
      * The plan the Kotlin walk builds for [text], whose `<selection>` markers say what is selected —
      * **the production walk, constructed directly.**
      *
-     * Directly, because there is nothing to reach it through: `com.snippetveil-withKotlin.xml`
-     * registers no `languageSupport`, so no dispatch finds this builder and every `.kt` file still
-     * takes the gate's stated refusal. That is the shape of this change rather than a gap in it.
+     * Directly rather than through dispatch, because what these fixtures are about is the walk: a
+     * plan built here is one nothing else decided anything about. That the registration reaches the
+     * same builder — and that a user's `Copy Anonymized` on a `.kt` file therefore arrives at it — is
+     * asserted once, in [KotlinSupportTest], rather than assumed by every fixture that wants a plan.
      */
     protected fun kotlinPlanFor(path: String, text: String): SnippetPlan {
         val file = myFixture.configureByText(path.substringAfterLast('/'), text)

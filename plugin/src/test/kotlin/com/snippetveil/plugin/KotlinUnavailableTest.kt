@@ -11,18 +11,20 @@ import com.intellij.notification.NotificationType
  * when used; the assertions below are that sentence, its level, its links, and the clipboard it did
  * not touch.
  *
- * **Why this fires in this build at all.** The optional descriptor is empty on purpose — no Kotlin
- * plan builder exists yet — so nothing registers a support for `kt`, and every `.kt` file takes the
- * refusal. That is the structure being built here rather than a temporary state to work around: when
- * the Kotlin builder lands it registers, the same gate returns `Offer`, and these tests move to a
- * fixture that unregisters it. Until then this is the product's real behaviour on a `.kt` file, and
- * it is the behaviour a user on an IDE with Kotlin switched off will keep seeing afterwards.
+ * **Why this fires here, now that the registration exists.** `com.snippetveil-withKotlin.xml`
+ * registers a support for `kt`, so on an ordinary IDE with the Kotlin plugin running in K2 a `.kt`
+ * file is offered and nothing below would happen at all. The refusal did not stop being real when
+ * that line landed — it is what a user gets on an IDE with the Kotlin plugin switched off, and on one
+ * running K1, where the platform skips that descriptor on the strength of this plugin's own
+ * `supportsK1="false"` — so these tests moved onto [KotlinUnregisteredTestCase], which reproduces the
+ * one fact the gate reads: no support is registered for `kt`.
  *
- * The fixture runs with the Kotlin plugin present and enabled, so the cause here is always
- * [Unavailable.PATH_NOT_ACTIVATED]. The other cause is asserted directly against the notification,
- * because an IDE with the Kotlin plugin switched off is an environment rather than an input.
+ * The fixture runs with the Kotlin plugin itself present and enabled, so the cause here is always
+ * [Unavailable.PATH_NOT_ACTIVATED] — which is exactly the K1 user's cause. The other cause is
+ * asserted directly against the notification, because an IDE with the Kotlin plugin switched off is
+ * an environment rather than an input.
  */
-class KotlinUnavailableTest : JavaSnippetTestCase() {
+class KotlinUnavailableTest : KotlinUnregisteredTestCase() {
 
     /**
      * **Present and enabled, which is what makes the refusal reachable.**
@@ -138,6 +140,47 @@ class KotlinUnavailableTest : JavaSnippetTestCase() {
         assertEquals(
             "Kotlin support is not available in this IDE — your clipboard was not changed.",
             notifications.single().content,
+        )
+    }
+
+    /**
+     * **The gate's own verdict in this configuration**, rather than what the user was told about it.
+     *
+     * Everything above asserts the sentence and the clipboard; this asserts the decision they follow
+     * from, and it is the one row of the table that moves between configurations — offered where
+     * SnippetVeil's Kotlin path loaded, refused with a stated cause where it did not, and **never
+     * silently absent** in either.
+     */
+    fun `test the gate refuses a kt file where no support is registered for it`() {
+        val file = myFixture.configureByText("Payment.kt", "class Payment")
+
+        assertEquals(GateVerdict.Refuse(Unavailable.PATH_NOT_ACTIVATED), gate(file))
+    }
+
+    /**
+     * **The availability signal is asked per language, and asking it in aggregate is the way to get
+     * this wrong without noticing.**
+     *
+     * Java's support is registered from the main descriptor on every IDE there is, so *is anything
+     * registered?* comes back `yes` in exactly this configuration — the gate would offer every `.kt`
+     * file, dispatch would find nothing that claims it, and the user would get a thrown error with a
+     * report link instead of the sentence describing their configuration. That is the third outcome
+     * quietly deleted, and every other assertion in this file still passes.
+     *
+     * The registration is read off [LanguageSupportBean.extension], which is a string in the
+     * descriptor: reading it instantiates no implementation and therefore links no Kotlin class.
+     */
+    fun `test the availability signal is asked per language rather than in aggregate`() {
+        assertTrue(
+            "Nothing at all is registered here, so this fixture cannot tell an aggregate signal from a " +
+                "per-language one and the assertion below holds for the wrong reason.",
+            LANGUAGE_SUPPORT.extensionList.isNotEmpty(),
+        )
+
+        assertEquals(
+            "A .kt file was offered while nothing was registered to build a plan for it.",
+            GateVerdict.Refuse(Unavailable.PATH_NOT_ACTIVATED),
+            gate(myFixture.configureByText("Payment.kt", "class Payment")),
         )
     }
 

@@ -128,7 +128,7 @@ internal object SnippetVeilNotifications {
     fun installed(project: Project) {
         group().createNotification(
             "SnippetVeil is installed",
-            "Select Java code, then right-click \u2192 <b>Copy Anonymized</b>.",
+            "Select Java or Kotlin code, then right-click \u2192 <b>Copy Anonymized</b>.",
             NotificationType.INFORMATION,
         ).addAction(openSettings(project)).notify(project)
     }

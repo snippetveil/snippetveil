@@ -2,6 +2,8 @@ package com.snippetveil.plugin
 
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode
+import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider
 import org.junit.Assert.assertThrows
 
 /**
@@ -13,28 +15,49 @@ import org.junit.Assert.assertThrows
  * merely switched off — the false reassurance the third outcome exists to prevent — and every
  * assertion written only about `.java` would still pass.
  *
- * **What this cannot assert, and what stands in for it.** The fixture runs with the Kotlin plugin
- * present and enabled, so the cause a refusal carries here is always
- * [Unavailable.PATH_NOT_ACTIVATED]. The other configuration — an IDE with the Kotlin plugin genuinely
- * switched off — is an environment rather than an input and cannot be built from inside a running
- * fixture; what covers it instead is the arch rule in `ShippedCodeArchitectureTest`, which asserts
- * over bytecode that nothing the main descriptor reaches could fail to link there.
+ * **What this cannot assert, and what stands in for it.** An IDE with the Kotlin plugin genuinely
+ * switched off is an environment rather than an input, and cannot be built from inside a running
+ * fixture. Two things cover it instead: the arch rule in `ShippedCodeArchitectureTest`, which asserts
+ * over bytecode that nothing the main descriptor reaches could fail to link there, and the
+ * Kotlin-disabled boot in `com.snippetveil.boot`, which is a release gate rather than a merge one and
+ * boots an IDE that really does not have the plugin.
  */
 class SourceFileGateTest : BasePlatformTestCase() {
 
-    /** The whole accepted set, and it is exactly two extensions. */
-    fun `test a java file is offered`() {
-        assertEquals(GateVerdict.Offer, gate(fileNamed("Payment.java", "class Payment {}")))
+    /**
+     * **Every row of the table in one assertion**, because the failure this guards is a row going
+     * missing rather than a row coming back wrong.
+     *
+     * A method per outcome passes as happily over five rows as over six, and the row a change is
+     * most likely to drop is the one it was not thinking about. Asserted as a list against a list so
+     * that the report names the file whose verdict moved, rather than the first `assertEquals` to
+     * disagree.
+     */
+    fun `test the gate table, every row`() {
+        val table = listOf(
+            Row("Payment.java", "class Payment {}", GateVerdict.Offer),
+            Row("Payment.kt", "class Payment", kotlinVerdictInThisCell()),
+            Row("build.gradle.kts", "plugins {}", GateVerdict.Absent),
+            Row("application.properties", "db.password=hunter2", GateVerdict.Absent),
+            Row("README.md", "# hello", GateVerdict.Absent),
+            Row("Payment.class", "", GateVerdict.Absent),
+        )
+
+        assertEquals(
+            table.map { it.name to it.verdict },
+            table.map { it.name to gate(fileNamed(it.name, it.text)) },
+        )
     }
 
     /**
      * **A kt file is never silently absent**, whatever the outcome — which is the assertion that
      * separates *unsupported* from *unavailable*.
      *
-     * It is written as *not [GateVerdict.Absent]* rather than as an equality, deliberately: which of
-     * the two remaining outcomes it takes depends on whether a Kotlin `LanguageSupport` is registered
-     * in this fixture, and that is a fact about the build rather than about the gate. The rule under
-     * test holds either way and is the one a regression would break.
+     * It is written as *not [GateVerdict.Absent]* rather than as an equality deliberately, and it is
+     * kept beside the table above rather than folded into it: which of the two remaining outcomes a
+     * `.kt` file takes is a fact about the configuration, and this is the part of the rule that holds
+     * in **every** configuration there is. A change that got the row wrong would fail the table; a
+     * change that got the whole idea wrong fails here.
      */
     fun `test a kt file is either offered or refused, and never silently absent`() {
         val verdict = gate(fileNamed("Payment.kt", "class Payment"))
@@ -52,15 +75,17 @@ class SourceFileGateTest : BasePlatformTestCase() {
      * file name; and under the distinguishing test a `.kts` would not be anonymized on a
      * correctly-configured IDE either, so a stated refusal here would rebuild the dead menu item the
      * silent outcome exists to avoid.
+     *
+     * In the table above as a row, and here as a sentence: the row keeps it from disappearing, and
+     * this keeps the reason from having to be inferred from a list.
      */
     fun `test a kts script is silently absent rather than refused`() {
         assertEquals(GateVerdict.Absent, gate(fileNamed("build.gradle.kts", "plugins {}")))
     }
 
-    /** Anything outside the set at all — the case the gate was originally written for. */
-    fun `test an unsupported file is silently absent`() {
-        assertEquals(GateVerdict.Absent, gate(fileNamed("application.properties", "db.password=hunter2")))
-        assertEquals(GateVerdict.Absent, gate(fileNamed("README.md", "# hello")))
+    /** No file at all — a Tools-menu invocation with nothing open. */
+    fun `test no file is silently absent`() {
+        assertEquals(GateVerdict.Absent, gate(null))
     }
 
     /**
@@ -69,21 +94,17 @@ class SourceFileGateTest : BasePlatformTestCase() {
      * A decompiled class is backed by a `.class` virtual file, which is not in the accepted set — so
      * no menu item appears, decided with no `isCompiled` check and no Kotlin type reference. The
      * previous PSI-typed gate *did* offer the action in a decompiled Java editor, because a
-     * decompiled Java file is a `PsiJavaFile`. Asserted here deliberately, so that the change is a
-     * decision on the record rather than something a later reader discovers as a regression.
+     * decompiled Java file is a `PsiJavaFile`. Kept as its own test beside the row in the table, so
+     * that the change stays a decision on the record rather than something a later reader discovers
+     * as a regression.
      *
      * The extension is what the gate reads, so a `.class` file is the whole of what it sees; opening
      * a real decompiled editor would exercise the platform's decompiler rather than this predicate.
      * **Library sources attached are the opposite case and stay offered** — navigation lands in a
-     * real `.java` inside a jar, which the row above covers.
+     * real `.java` or `.kt` inside a jar, which the first row of the table covers.
      */
     fun `test a decompiled class file is silently absent`() {
         assertEquals(GateVerdict.Absent, gate(fileNamed("Payment.class", "")))
-    }
-
-    /** No file at all — a Tools-menu invocation with nothing open. */
-    fun `test no file is silently absent`() {
-        assertEquals(GateVerdict.Absent, gate(null))
     }
 
     /**
@@ -105,8 +126,8 @@ class SourceFileGateTest : BasePlatformTestCase() {
      * gate offered would collapse them into one, and the failure would be silent — the accepted cost
      * of an extension predicate is precisely that a file whose extension lies gets through layer one.
      *
-     * Asserted in the direction that is constructible: Java support refuses files it does not own,
-     * on PSI rather than on their names.
+     * Asserted here of Java support, which is registered in every cell; Kotlin's own half of this is
+     * asserted where its classes are safe to run, in `KotlinSupportTest`.
      */
     fun `test java support reaches its own verdict rather than inheriting the gate's`() {
         val java = JavaSupport()
@@ -142,54 +163,68 @@ class SourceFileGateTest : BasePlatformTestCase() {
             "No LanguageSupport claims an ordinary Java file; the main descriptor's registration is missing.",
             LANGUAGE_SUPPORT.extensionList.any { it.instance.claims(java) },
         )
-    }
-
-    /**
-     * **The availability signal is asked per language, and asking it in aggregate is the way to get
-     * this wrong without noticing.**
-     *
-     * Java's support is registered from the main descriptor on every IDE there is, so *is anything
-     * registered?* comes back `yes` on a build with no Kotlin support at all — the gate would offer
-     * every `.kt` file, dispatch would find nothing that claims it, and the user would get a thrown
-     * error with a report link instead of the sentence describing their configuration. That is the
-     * third outcome quietly deleted, and every assertion above still passes.
-     *
-     * The registration is read off [LanguageSupportBean.extension], which is a string in the
-     * descriptor: reading it instantiates no implementation and therefore links no Kotlin class.
-     *
-     * **This test moves when a Kotlin support is registered.** Nothing registers `kt` today — the
-     * optional descriptor is empty on purpose, and it stays empty even now that `KotlinPlanBuilder`
-     * exists — so the refusal is what a `.kt` file gets, and that being asserted here is what makes
-     * the arrival of a Kotlin support visible rather than silent.
-     */
-    fun `test the availability signal is asked per language rather than in aggregate`() {
         assertTrue(
             "No support is registered for java; the main descriptor's registration is missing.",
-            LANGUAGE_SUPPORT.extensionList.any { it.extension == JAVA_EXTENSION },
-        )
-        assertFalse(
-            "A support is registered for kt. The Kotlin half has landed, so this test and the " +
-                "refusal assertions in KotlinUnavailableTest belong on a fixture that unregisters it.",
-            LANGUAGE_SUPPORT.extensionList.any { it.extension == KOTLIN_EXTENSION },
-        )
-
-        assertEquals(
-            "A .kt file was offered while nothing was registered to build a plan for it.",
-            GateVerdict.Refuse(Unavailable.PATH_NOT_ACTIVATED),
-            gate(fileNamed("Payment.kt", "class Payment")),
+            supportIsRegisteredFor(JAVA_EXTENSION),
         )
     }
 
     private fun fileNamed(name: String, text: String): PsiFile = myFixture.configureByText(name, text)
-
-    private companion object {
-
-        /**
-         * The two accepted extensions, spelled as the descriptor spells them. Named here rather than
-         * read from the gate's own constants: a test that took its expectations from the code under
-         * test would agree with it about a typo.
-         */
-        const val JAVA_EXTENSION = "java"
-        const val KOTLIN_EXTENSION = "kt"
-    }
 }
+
+/**
+ * One row of the table: the file, what is in it, and what the gate must say about it.
+ *
+ * A top-level class rather than a nested one, and the reason is the runner rather than taste: the
+ * fixtures here are JUnit 3 `TestCase`s, and every class *inside* one of them is offered to the test
+ * engine as a test class of its own. A data class holding three fields is not one.
+ */
+private data class Row(val name: String, val text: String, val verdict: GateVerdict)
+
+/**
+ * **What a `.kt` file gets in *this* cell, read off the Kotlin plugin's own mode.**
+ *
+ * The row is genuinely two answers, and both of them are the product working. `plugin.xml`
+ * declares `supportsK1="false" supportsK2="true"`, so in a **K1** session the platform skips
+ * `com.snippetveil-withKotlin.xml` outright — nothing registers a support for `kt` and the gate
+ * states its refusal, which is exactly what a user on such an IDE sees. In a **K2** session the
+ * descriptor loads, the registration is there, and the file is offered.
+ *
+ * That is why this is not the conditional assertion this codebase otherwise refuses. The
+ * expectation is taken from the platform — a fact about the session, decided before any of this
+ * plugin's code ran — rather than from the gate, and **both branches are exercised**: the floor
+ * cell is a K1 session and the `k2` and `latest` cells are K2 ones, so neither arm is a branch
+ * nobody takes. Asking the gate what it thinks and agreeing with it is the version that would
+ * assert nothing.
+ *
+ * It also puts one otherwise-unasserted claim under test: that the declaration in `plugin.xml`
+ * has the effect it is written for. If the platform ever stopped skipping the optional descriptor
+ * in K1, the floor cell goes red here rather than a user in K1 mode meeting the Analysis API
+ * through a path this plugin says it does not support.
+ */
+private fun kotlinVerdictInThisCell(): GateVerdict = when (KotlinPluginModeProvider.currentPluginMode) {
+    KotlinPluginMode.K2 -> GateVerdict.Offer
+    KotlinPluginMode.K1 -> GateVerdict.Refuse(Unavailable.PATH_NOT_ACTIVATED)
+}
+
+/**
+ * The two accepted extensions, spelled as the descriptors spell them.
+ *
+ * Named here rather than read from the gate's own constants: a test that took its expectations from
+ * the code under test would agree with it about a typo. Shared with the fixtures that assert the
+ * other configurations — one spelling, because three copies of a string this small drift silently.
+ */
+internal const val JAVA_EXTENSION = "java"
+
+internal const val KOTLIN_EXTENSION = "kt"
+
+/**
+ * Whether a language support is registered for [extension] — **the gate's own availability question,
+ * asked the way the gate asks it.**
+ *
+ * Off the bean's attribute and case-insensitively, because that is what the production predicate
+ * does; a fixture that instantiated the implementation to find out would link a Kotlin class in the
+ * one configuration where doing so is the failure under test.
+ */
+internal fun supportIsRegisteredFor(extension: String): Boolean =
+    LANGUAGE_SUPPORT.extensionList.any { it.extension.equals(extension, ignoreCase = true) }

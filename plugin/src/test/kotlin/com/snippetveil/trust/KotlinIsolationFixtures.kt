@@ -5,10 +5,11 @@ import org.jetbrains.kotlin.psi.KtFile
 /**
  * The red path of the Kotlin isolation rule, baked in rather than observed once.
  *
- * The rule it feeds guards a failure that cannot be reproduced by running anything this build can
- * run: the plugin's classes link against `org.jetbrains.kotlin.*` here, because the Kotlin plugin is
+ * The rule it feeds guards a failure that cannot be reproduced by running anything in the merge
+ * gate: the plugin's classes link against `org.jetbrains.kotlin.*` here, because the Kotlin plugin is
  * on every classpath this project compiles and tests against. What breaks is an IDE where it is
- * switched off, and nothing in this repository boots one. So the rule is the enforcement, and a rule
+ * switched off — `com.snippetveil.boot.KotlinDisabledBootTest` boots one, and it is a release gate
+ * rather than a per-pull-request check. So at merge speed the rule is the enforcement, and a rule
  * nothing ever violates is a rule nobody has seen work — [ReachesForKotlinFromTheMainPackage] is what
  * makes it fail on demand.
  *

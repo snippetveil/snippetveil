@@ -3,9 +3,10 @@ package com.snippetveil.plugin.kotlin
 /**
  * **The Kotlin harness asserting itself, and nothing else.**
  *
- * Every assertion here is about the fixture rather than about the product: no `.kt` file is walked,
- * no plan builder is asked for anything, and `com.snippetveil-withKotlin.xml` still registers
- * nothing — so `.kt` keeps taking the stated refusal, exactly as `KotlinUnavailableTest` says.
+ * Every assertion here is about the fixture rather than about the product: no `.kt` file is walked
+ * and no plan builder is asked for anything. What reaches a user's IDE is asserted in
+ * [KotlinSupportTest], through the registration in `com.snippetveil-withKotlin.xml`; this is the
+ * ground it stands on.
  *
  * The order they are written in is the order they fail in usefully. A fixture with no standard
  * library resolves nothing, so every assertion after the first would fail for a reason that is not
