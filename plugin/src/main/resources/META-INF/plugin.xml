@@ -165,10 +165,9 @@
              the two anonymizing actions directly in the popup, on the reasoning that a copy belongs
              where the other copies are. That reasoning does not survive a third item: `Copy
              Anonymized` and `Anonymize with Preview…` are gated to the source files this plugin
-             anonymizes and this one is not,
-             so flat placement would put a SnippetVeil item in every editor popup in the IDE —
-             Markdown, JSON, scratch buffers, everything. One named submenu costs the anonymizing
-             actions a hover and keeps the global context menu the size it was.
+             anonymizes and this one is not, so flat placement would put a SnippetVeil item in every
+             editor popup in the IDE — Markdown, JSON, scratch buffers, everything. One named submenu
+             costs the anonymizing actions a hover and keeps the global context menu the size it was.
 
              The group is never empty where it is shown: `De-anonymize Clipboard` needs only a
              project, and an editor popup implies one. That still holds now that a fourth item can be

@@ -44,23 +44,12 @@ abstract class KotlinUnregisteredTestCase : JavaSnippetTestCase() {
         assertFalse(
             "A support is still registered for kt, so this fixture is not the configuration it claims to be " +
                 "and every refusal asserted on top of it would be asserting the opposite outcome.",
-            LANGUAGE_SUPPORT.extensionList.any { it.extension.equals(KOTLIN_EXTENSION, ignoreCase = true) },
+            supportIsRegisteredFor(KOTLIN_EXTENSION),
         )
         assertTrue(
             "Java's support went with Kotlin's. This fixture is an IDE without the Kotlin plugin, not an " +
                 "IDE without SnippetVeil.",
-            LANGUAGE_SUPPORT.extensionList.any { it.extension.equals(JAVA_EXTENSION, ignoreCase = true) },
+            supportIsRegisteredFor(JAVA_EXTENSION),
         )
-    }
-
-    protected companion object {
-
-        /**
-         * The two accepted extensions, spelled as the descriptors spell them. Named here rather than
-         * read from the gate's own constants: a fixture that took its expectations from the code
-         * under test would agree with it about a typo.
-         */
-        const val JAVA_EXTENSION = "java"
-        const val KOTLIN_EXTENSION = "kt"
     }
 }

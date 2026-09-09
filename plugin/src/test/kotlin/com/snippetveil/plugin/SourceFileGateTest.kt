@@ -165,7 +165,7 @@ class SourceFileGateTest : BasePlatformTestCase() {
         )
         assertTrue(
             "No support is registered for java; the main descriptor's registration is missing.",
-            LANGUAGE_SUPPORT.extensionList.any { it.extension == JAVA_EXTENSION },
+            supportIsRegisteredFor(JAVA_EXTENSION),
         )
     }
 
@@ -208,8 +208,23 @@ private fun kotlinVerdictInThisCell(): GateVerdict = when (KotlinPluginModeProvi
 }
 
 /**
- * The accepted extension the table asserts a registration for, spelled as the descriptor spells it.
+ * The two accepted extensions, spelled as the descriptors spell them.
+ *
  * Named here rather than read from the gate's own constants: a test that took its expectations from
- * the code under test would agree with it about a typo.
+ * the code under test would agree with it about a typo. Shared with the fixtures that assert the
+ * other configurations — one spelling, because three copies of a string this small drift silently.
  */
-private const val JAVA_EXTENSION = "java"
+internal const val JAVA_EXTENSION = "java"
+
+internal const val KOTLIN_EXTENSION = "kt"
+
+/**
+ * Whether a language support is registered for [extension] — **the gate's own availability question,
+ * asked the way the gate asks it.**
+ *
+ * Off the bean's attribute and case-insensitively, because that is what the production predicate
+ * does; a fixture that instantiated the implementation to find out would link a Kotlin class in the
+ * one configuration where doing so is the failure under test.
+ */
+internal fun supportIsRegisteredFor(extension: String): Boolean =
+    LANGUAGE_SUPPORT.extensionList.any { it.extension.equals(extension, ignoreCase = true) }

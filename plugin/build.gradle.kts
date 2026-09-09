@@ -2074,7 +2074,7 @@ val assertTheKotlinDisabledBootIsExcludedFromTheMergeGate =
         val cell = kotlinDisabledBootTask
         val simpleName = named.substringAfterLast('.')
         val source = layout.projectDirectory.file("src/test/kotlin/${named.replace('.', '/')}.kt")
-        val declaration = Regex("""(?m)^\s*(internal\s+)?class\s+$simpleName\b""")
+        val declaration = Regex("""(?m)^\s*class\s+$simpleName\b""")
 
         inputs.file(source).withPropertyName("source")
         inputs.property("kotlinDisabledBootClass", named)

@@ -3,12 +3,14 @@ package com.snippetveil.boot
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.NotificationType
 import com.snippetveil.plugin.GateVerdict
+import com.snippetveil.plugin.JAVA_EXTENSION
 import com.snippetveil.plugin.JavaSnippetTestCase
-import com.snippetveil.plugin.LANGUAGE_SUPPORT
+import com.snippetveil.plugin.KOTLIN_EXTENSION
 import com.snippetveil.plugin.Unavailable
 import com.snippetveil.plugin.clipboard
 import com.snippetveil.plugin.gate
 import com.snippetveil.plugin.setClipboard
+import com.snippetveil.plugin.supportIsRegisteredFor
 
 /**
  * **SnippetVeil on an IDE that does not have the Kotlin plugin — the half of the isolation guarantee
@@ -30,6 +32,14 @@ import com.snippetveil.plugin.setClipboard
  * **A release gate, not a per-PR test.** It boots an IDE against the built distribution, which is the
  * subject the bytecode scan and `verifyPlugin` already have, and the architecture rule catches the
  * ordinary way isolation breaks at merge speed. `release.yml` runs it before anything is uploaded.
+ *
+ * **What it does not prove, stated so that nobody reads more into a green run than is there.** The
+ * Kotlin plugin's jars are still on this cell's test classpath — a test task is given the platform's
+ * classpath whatever the sandbox has disabled — so a class naming `org.jetbrains.kotlin.*` would
+ * still link here. What is genuinely absent is the *plugin*: `PluginManagerCore` does not have it,
+ * the optional descriptor was not loaded, and nothing is registered for `kt`. So this asserts the
+ * product's behaviour in that configuration, and **linkage remains the architecture rule's claim**,
+ * over bytecode, where it can be made without an IDE at all.
  *
  * **Kotlin's absence is asserted in [setUp]**, before any assertion about behaviour, because every
  * assertion below is worthless in the configuration this cell is supposed to be and is not: with the
@@ -121,12 +131,12 @@ class KotlinDisabledBootTest : JavaSnippetTestCase() {
         assertFalse(
             "A support is registered for kt on an IDE with no Kotlin plugin, so the optional descriptor " +
                 "was loaded after all and this cell is not the configuration it claims to be.",
-            LANGUAGE_SUPPORT.extensionList.any { it.extension.equals(KOTLIN_EXTENSION, ignoreCase = true) },
+            supportIsRegisteredFor(KOTLIN_EXTENSION),
         )
         assertTrue(
             "Java's support is missing too, so this is an IDE without SnippetVeil rather than one " +
                 "without the Kotlin plugin.",
-            LANGUAGE_SUPPORT.extensionList.any { it.extension.equals(JAVA_EXTENSION, ignoreCase = true) },
+            supportIsRegisteredFor(JAVA_EXTENSION),
         )
 
         myFixture.configureByText("Payment.kt", "<selection>class Payment</selection>")
@@ -144,11 +154,6 @@ class KotlinDisabledBootTest : JavaSnippetTestCase() {
         const val PREVIOUS_CLIPBOARD = "the text the user copied before reaching for SnippetVeil"
     }
 }
-
-/** The two accepted extensions, spelled as the descriptors spell them rather than read from the gate. */
-private const val JAVA_EXTENSION = "java"
-
-private const val KOTLIN_EXTENSION = "kt"
 
 /** The Kotlin plugin's id, as a plain string — naming it costs nothing and links nothing. */
 internal const val KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin"

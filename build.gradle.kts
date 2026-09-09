@@ -69,6 +69,23 @@ val kotlinDisabledBootTask = "kotlinDisabledBoot"
 extra.set("kotlinDisabledBootTask", kotlinDisabledBootTask)
 
 /**
+ * **Every line that hands work to the Gradle wrapper**, as a pattern the two workflow rules below
+ * share — a `run:` step, or a line inside a block one.
+ *
+ * Two narrowings, and both are load-bearing rather than tidiness. The wrapper rather than the word
+ * "gradle", which appears in prose throughout both workflow files. And **not a comment line**,
+ * because both of them discuss `./gradlew` invocations in their own prose and CONTRIBUTING.md prints
+ * command lines for a human to copy: a rule that read comments would fail this build over a sentence
+ * somebody quoted, and would let a coverage assertion be satisfied by prose alone.
+ *
+ * A `String` rather than a `Regex`, because each task compiles its own inside `doLast` — a task
+ * action that closed over a script-level object would carry the build script into the configuration
+ * cache. One spelling of the pattern is the point; two would let *what CI runs* mean two things in
+ * one file, with both checks green.
+ */
+val gradleInvocationPattern = """^(?!\s*#).*\./gradlew\b.*$"""
+
+/**
  * Fails if a GitHub Actions workflow uses an action it has not pinned to a commit SHA, pins one
  * without naming the version the SHA is, or does not say what token it runs with.
  *
@@ -261,22 +278,17 @@ val assertTheSweepIsNeverRunInCi = tasks.register("assertTheSweepIsNeverRunInCi"
     // names are belt and braces — the sweep cannot run without its task being named, so the task
     // name is the load-bearing half.
     val forbidden = listOf(corpusSweepTask, "sweepProject", "sweepReportDir")
+    val pattern = gradleInvocationPattern
 
     inputs.dir(workflows).withPropertyName("workflows")
     inputs.property("forbidden", forbidden)
     outputs.file(report).withPropertyName("report")
 
     doLast {
-        // Every line that hands work to the Gradle wrapper — a `run:` step, or a line inside a
-        // block one. Two narrowings, and both are load-bearing rather than tidiness:
-        //
-        // The wrapper rather than the word "gradle", which appears in prose throughout both files.
-        // And **not a comment line**, because both files discuss `./gradlew` invocations in their
-        // own prose and CONTRIBUTING.md prints the sweep's command line for a human to copy. A rule
-        // that read comments would fail this build over a sentence somebody quoted, and noise is
-        // what teaches people to suppress a check — and it would let the coverage assertion below
-        // be satisfied by prose alone, which is the worse half.
-        val gradleInvocation = Regex("""^(?!\s*#).*\./gradlew\b.*$""", RegexOption.MULTILINE)
+        // The one pattern both workflow rules read; `gradleInvocationPattern` above says what it
+        // narrows and why. Compiled here rather than shared as a `Regex`, so that this action closes
+        // over a plain string instead of the build script.
+        val gradleInvocation = Regex(pattern, RegexOption.MULTILINE)
 
         /**
          * Every Gradle invocation in one file's text that names something [forbidden], and the
@@ -1474,100 +1486,102 @@ val assertTheReleaseCarriesTheSignedZip = tasks.register("assertTheReleaseCarrie
  * Gradle** means *what CI runs* is a list this task can extract, and a comment is prose rather than
  * an invocation — the workflow explains this rule in its own words two lines above the step.
  */
-val assertTheReleaseGateRunsTheKotlinDisabledBoot = tasks.register("assertTheReleaseGateRunsTheKotlinDisabledBoot") {
-    group = LifecycleBasePlugin.VERIFICATION_GROUP
-    description = "Fails if the release workflow does not run the Kotlin-disabled boot before it uploads."
+val assertTheReleaseGateRunsTheKotlinDisabledBoot =
+    tasks.register("assertTheReleaseGateRunsTheKotlinDisabledBoot") {
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        description = "Fails if the release workflow does not run the Kotlin-disabled boot before it uploads."
 
-    val workflow = layout.projectDirectory.file(".github/workflows/$publishingWorkflowName")
-    val report = layout.buildDirectory.file("reports/trust/kotlin-disabled-boot-is-a-release-gate.txt")
-    val boot = kotlinDisabledBootTask
-    val workflowName = publishingWorkflowName
+        val workflow = layout.projectDirectory.file(".github/workflows/$publishingWorkflowName")
+        val report = layout.buildDirectory.file("reports/trust/kotlin-disabled-boot-is-a-release-gate.txt")
+        val boot = kotlinDisabledBootTask
+        val workflowName = publishingWorkflowName
+        val pattern = gradleInvocationPattern
 
-    inputs.file(workflow).withPropertyName("workflow")
-    inputs.property("kotlinDisabledBootTask", boot)
-    outputs.file(report).withPropertyName("report")
+        inputs.file(workflow).withPropertyName("workflow")
+        inputs.property("kotlinDisabledBootTask", boot)
+        outputs.file(report).withPropertyName("report")
 
-    doLast {
-        /** Every line that hands work to the Gradle wrapper, in order, comments excluded. */
-        val gradleInvocation = Regex("""^(?!\s*#).*\./gradlew\b.*$""", RegexOption.MULTILINE)
+        doLast {
+            /** The same pattern the sweep rule reads; `gradleInvocationPattern` above says why. */
+            val gradleInvocation = Regex(pattern, RegexOption.MULTILINE)
 
-        fun invocationsIn(text: String) = gradleInvocation.findAll(text).map { it.value.trim() }.toList()
+            fun invocationsIn(text: String) = gradleInvocation.findAll(text).map { it.value.trim() }.toList()
 
-        /**
-         * What is wrong with a workflow that is supposed to boot the isolation cell before it
-         * uploads, and the number of Gradle invocations the rule read — this check's own coverage,
-         * asserted below rather than assumed.
-         */
-        fun inspect(name: String, text: String): Pair<List<String>, Int> {
-            val invocations = invocationsIn(text)
-            val bootAt = invocations.indexOfFirst { boot in it }
-            val uploadAt = invocations.indexOfFirst { "publishPlugin" in it }
-            val violations = mutableListOf<String>()
+            /**
+             * What is wrong with a workflow that is supposed to boot the isolation cell before it
+             * uploads, and the number of Gradle invocations the rule read — this check's own coverage,
+             * asserted below rather than assumed.
+             */
+            fun inspect(name: String, text: String): Pair<List<String>, Int> {
+                val invocations = invocationsIn(text)
+                val bootAt = invocations.indexOfFirst { boot in it }
+                val uploadAt = invocations.indexOfFirst { "publishPlugin" in it }
+                val violations = mutableListOf<String>()
 
-            if (bootAt < 0) {
-                violations += "$name never runs `$boot`, so the one check that boots an IDE without " +
-                    "the Kotlin plugin is a check nothing runs"
+                if (bootAt < 0) {
+                    violations += "$name never runs `$boot`, so the one check that boots an IDE without " +
+                        "the Kotlin plugin is a check nothing runs"
+                }
+                if (uploadAt < 0) {
+                    violations += "$name never runs `publishPlugin`, so this rule cannot tell whether the " +
+                        "boot happens before the upload — and it is the ordering that makes it a gate"
+                }
+                if (bootAt >= 0 && uploadAt >= 0 && bootAt > uploadAt) {
+                    violations += "$name runs `$boot` after `publishPlugin`, which reports an isolation " +
+                        "failure about a version users are already installing"
+                }
+
+                return violations to invocations.size
             }
-            if (uploadAt < 0) {
-                violations += "$name never runs `publishPlugin`, so this rule cannot tell whether the " +
-                    "boot happens before the upload — and it is the ordering that makes it a gate"
+
+            fun violationsIn(name: String, text: String) = inspect(name, text).first
+
+            // The rule proves it can fail before it reports that nothing failed, and proves it read
+            // anything at all. A red path nobody exercises decays into a check that always passes.
+            val gated = "      - run: ./gradlew $boot -PplatformProfile=latest\n      - run: ./gradlew publishPlugin\n"
+
+            check(violationsIn("fixture", gated).isEmpty()) {
+                "The rule flagged a workflow that boots before it uploads: ${violationsIn("fixture", gated)}"
             }
-            if (bootAt >= 0 && uploadAt >= 0 && bootAt > uploadAt) {
-                violations += "$name runs `$boot` after `publishPlugin`, which reports an isolation " +
-                    "failure about a version users are already installing"
+            check(inspect("fixture", gated).second == 2) {
+                "The rule read ${inspect("fixture", gated).second} Gradle invocations out of a fixture with two."
+            }
+            check(violationsIn("fixture", gated.lines().reversed().joinToString("\n")).size == 1) {
+                "The rule accepted a boot that runs after the upload, which gates nothing."
+            }
+            check(violationsIn("fixture", "      - run: ./gradlew publishPlugin\n").size == 1) {
+                "The rule accepted a release that never boots the isolation cell at all."
+            }
+            check(violationsIn("fixture", "      # run: ./gradlew $boot\n").size == 2) {
+                "The rule read a comment as an invocation. The workflow's own prose about this step " +
+                    "would satisfy the rule the step exists to satisfy."
             }
 
-            return violations to invocations.size
-        }
+            val text = workflow.asFile.readText()
+            val (violations, invocations) = inspect(workflowName, text)
 
-        fun violationsIn(name: String, text: String) = inspect(name, text).first
-
-        // The rule proves it can fail before it reports that nothing failed, and proves it read
-        // anything at all. A red path nobody exercises decays into a check that always passes.
-        val gated = "      - run: ./gradlew $boot -PplatformProfile=latest\n      - run: ./gradlew publishPlugin\n"
-
-        check(violationsIn("fixture", gated).isEmpty()) {
-            "The rule flagged a workflow that boots before it uploads: ${violationsIn("fixture", gated)}"
-        }
-        check(inspect("fixture", gated).second == 2) {
-            "The rule read ${inspect("fixture", gated).second} Gradle invocations out of a fixture with two."
-        }
-        check(violationsIn("fixture", gated.lines().reversed().joinToString("\n")).size == 1) {
-            "The rule accepted a boot that runs after the upload, which gates nothing."
-        }
-        check(violationsIn("fixture", "      - run: ./gradlew publishPlugin\n").size == 1) {
-            "The rule accepted a release that never boots the isolation cell at all."
-        }
-        check(violationsIn("fixture", "      # run: ./gradlew $boot\n").size == 2) {
-            "The rule read a comment as an invocation. The workflow's own prose about this step " +
-                "would satisfy the rule the step exists to satisfy."
-        }
-
-        val text = workflow.asFile.readText()
-        val (violations, invocations) = inspect(workflowName, text)
-
-        // A check that read no Gradle invocation is not a pass, whatever else it found.
-        check(invocations > 0) {
-            "No `./gradlew` line was read out of $workflowName. The rule is checking nothing."
-        }
-
-        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
-            buildString {
-                appendLine("$workflowName — Gradle invocations read: $invocations")
-                appendLine("`$boot` runs, and runs before `publishPlugin`.")
-                appendLine()
-                invocationsIn(text).forEach { appendLine("  $it") }
+            // A check that read no Gradle invocation is not a pass, whatever else it found.
+            check(invocations > 0) {
+                "No `./gradlew` line was read out of $workflowName. The rule is checking nothing."
             }
-        )
 
-        if (violations.isNotEmpty()) {
-            throw GradleException(
-                "The Kotlin-disabled boot is a release gate, and a gate is a gate because a release " +
-                    "runs it:\n" + violations.joinToString("\n") { "  $it" }
+            report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+                buildString {
+                    appendLine("$workflowName — Gradle invocations read: $invocations")
+                    appendLine("`$boot` runs, and runs before `publishPlugin`.")
+                    appendLine()
+                    invocationsIn(text).forEach { appendLine("  $it") }
+                }
             )
+
+            if (violations.isNotEmpty()) {
+                throw GradleException(
+                    "The Kotlin-disabled boot is a release gate, and a gate is a gate because a release " +
+                        "runs it:\n" + violations.joinToString("\n") { "  $it" }
+                )
+            }
         }
     }
-}
 
 tasks.named("check") {
     dependsOn(assertWorkflowsAreHardened)

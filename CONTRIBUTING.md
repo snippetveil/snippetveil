@@ -356,9 +356,9 @@ that nothing ships a shortcut.
 
 The surface is deliberately invisible — no toolbar button, no tool window, no default shortcut, no
 menu entry outside a source file this plugin anonymizes — and together those make
-**install-and-never-notice** the realistic failure mode. One dismissible notification, on the first project opened after installing, shown once
-ever, is the whole mitigation; `FirstRunNotice` is the application-level record that keeps it to once
-and the fourth state holder the roaming rule covers.
+**install-and-never-notice** the realistic failure mode. One dismissible notification, on the first
+project opened after installing, shown once ever, is the whole mitigation; `FirstRunNotice` is the
+application-level record that keeps it to once and the fourth state holder the roaming rule covers.
 
 **A post-install web page is refused, and that is a release-configuration constraint as well as a
 code one: the Marketplace listing must not be configured with one.** A user who installs a plugin
@@ -631,7 +631,17 @@ floor cell's `test`, `assertTheKotlinFixturesAreExcludedFromTheFloor` fails the 
 exclusion ever stops matching anything, and `KotlinHarnessTest` asserts the session it got is K2
 rather than trusting the pin. Java-only is about what **runs**: the Kotlin fixtures are in the one
 test source set, so they are still compiled against the floor, which holds them to the same floor API
-surface the product is held to. Forcing K2 on the floor to obtain a Kotlin cell there was considered
+surface the product is held to.
+
+**One deliberate exception, and it is the source-file gate's table.** `SourceFileGateTest` runs in
+every cell and reads `KotlinPluginModeProvider` to decide what a `.kt` file must get there: in a K1
+session the platform skips this plugin's optional descriptor on the strength of `supportsK1="false"`,
+so the file is **refused**, and in a K2 session it is **offered**. That is the product's real
+behaviour on both sides, and reading the *mode* is not the thing the exclusion guards against —
+measuring Kotlin *analysis* in an unsupported session is. It is also the only assertion anywhere that
+the `supportsK1="false"` declaration has the effect it is written for. The floor cell therefore
+never sees `.kt` offered; `KotlinSupportTest`, in the excluded package, asserts that in the `k2` and
+`latest` cells. Forcing K2 on the floor to obtain a Kotlin cell there was considered
 and rejected: it tests a configuration the plugin declares unsupported by default, and it becomes a
 cell to defend forever.
 
@@ -662,6 +672,13 @@ that reports a failure about bytes users are already installing is not a gate.
 `assertTheKotlinDisabledBootIsExcludedFromTheMergeGate` holds the other end: the boot's class is
 named by two filters that mean opposite things, and a filter matching nothing would put it back in
 `check` — where it fails — while leaving the release gate running an empty test task.
+
+**What it proves, and what it leaves to the rule.** The Kotlin plugin's jars are still on the
+cell's test classpath — a test task gets the platform's classpath whatever the sandbox disabled — so
+this does not demonstrate that a class naming `org.jetbrains.kotlin.*` fails to link. What is
+genuinely absent is the plugin: `PluginManagerCore` does not have it, the optional descriptor did not
+load, nothing is registered for `kt`. Linkage stays the architecture rule's claim, over bytecode,
+where it can be made without booting anything.
 
 **Three assertions, and the order is the point.** It asserts the Kotlin plugin is *absent* before it
 asserts anything about behaviour: with the plugin enabled the Java assertions pass for ordinary

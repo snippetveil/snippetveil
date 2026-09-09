@@ -2,6 +2,7 @@ package com.snippetveil.plugin.kotlin
 
 import com.snippetveil.plugin.DispatchingPlanBuilder
 import com.snippetveil.plugin.GateVerdict
+import com.snippetveil.plugin.KOTLIN_EXTENSION
 import com.snippetveil.plugin.LANGUAGE_SUPPORT
 import com.snippetveil.plugin.SnippetRequest
 import com.snippetveil.plugin.clipboard
@@ -139,9 +140,6 @@ internal class KotlinSupportTest : KotlinSnippetTestCase() {
     }
 
     private companion object {
-
-        /** The extension the descriptor spells, named here rather than read from the code under test. */
-        const val KOTLIN_EXTENSION = "kt"
 
         /** Something recognisable to leave on the clipboard, so that *rewritten* is readable. */
         const val PREVIOUS_CLIPBOARD = "the text the user copied before reaching for SnippetVeil"
