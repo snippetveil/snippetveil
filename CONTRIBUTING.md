@@ -557,7 +557,7 @@ a check that exists only in YAML cannot be run by the person reading the claim.
 | Workflow | Fires on | Runs |
 |---|---|---|
 | `build.yml` | push to `main`, and every pull request | `buildPlugin`, `check` at three platform versions, `verifyPlugin`, then a draft GitHub Release |
-| `release.yml` | a GitHub Release being published or pre-released | `check`, `verifyPlugin`, `signPlugin`, `publishPlugin` — in that order — then a pull request patching `CHANGELOG.md` |
+| `release.yml` | a GitHub Release being published or pre-released | `check`, `verifyPlugin`, `signPlugin`, `publishPlugin` — in that order — then the signed zip onto the release, and a pull request patching `CHANGELOG.md` |
 
 The draft release is the manual-acceptance gate: green `main` cuts a draft, and a human publishing
 it is what fires `release.yml`.
@@ -638,8 +638,9 @@ one-line diff — `platformLatestVersion` going stale is a maintenance chore not
 ### Hardening
 
 - **Both workflows declare `permissions:` explicitly and minimally.** A repository whose pitch is
-  *audit me* has no implicit `write-all` anywhere. Both files are `contents: read`; the two jobs that
-  need more — drafting a release, and patching the changelog back — ask for it on themselves.
+  *audit me* has no implicit `write-all` anywhere. Both files are `contents: read`; the three jobs
+  that need more — drafting a release, attaching the signed zip to it, and patching the changelog
+  back — ask for it on themselves.
 - **Every action is pinned to a commit SHA, not a tag.** A tag is mutable and can be repointed by
   whoever controls the action's repository. Dependabot keeps the SHAs current, which is the other
   half of the trade, and the cost is a pull request that runs the same merge gate as any other.
@@ -718,8 +719,9 @@ repository URL the user has to add to their IDE by hand**, and **every upload is
 anyway** — beta included — so the channel shortens no latency and reaches nobody who has not already
 been told where to look.
 
-**Pre-releases are GitHub Release assets instead.** `build.yml` already uploads the distribution
-zip; a tester installs it with *Install Plugin from Disk*.
+**Pre-releases are GitHub Release assets instead.** `release.yml` attaches the signed distribution
+zip to every release it publishes, pre-releases included; a tester installs it with *Install Plugin
+from Disk*.
 
 The version-suffix → channel derivation stays wired into `publishPlugin` anyway, because the
 alternative to deriving the channel is remembering to set it, and the release that needs one is the
@@ -767,6 +769,49 @@ present.
 backed up.** A changed or revoked certificate makes every user see an install warning, so key loss
 is *recoverable but visible*: the backup is an obligation of the release process rather than a
 personal habit.
+
+### The zip on the release
+
+The README offers a second way to get the bytes: *the distribution zip is attached to the matching
+GitHub Release for anyone who would rather install it from disk and check the bytes first.* For a
+plugin whose pitch is *audit me*, that is the route that does not ask the reader to trust the
+Marketplace — and **it was untrue from v1.0.0 through v1.2.0.** `build.yml` sent its archive to
+`actions/upload-artifact`, which expires, cannot be fetched without a GitHub login, and is not on
+the page the sentence points at. Three published surfaces said otherwise, and the discrepancy was
+found by somebody publishing a release rather than by anything that checks.
+
+**What made it more than a one-line fix is that the bytes a reader wants are the signed ones, and
+they exist only inside the gated job.** Attaching them from there means handing `contents: write` to
+the job that holds the key, which is the arrangement `release.yml` already rules out for the
+changelog job, in its own words, and rules out here for the same reason. Attaching `build.yml`'s
+archive instead would put *unsigned* bytes under a sentence saying every release is signed, which
+replaces a plain false claim with a subtler one.
+
+So the zip crosses a job boundary instead. The `release` job's last step uploads `*-signed.zip` to
+the run's own artifact store — authenticated by the run rather than by the GitHub token, so that job
+keeps `contents: read` and keeps the environment to itself. A second job, `attach`, holds
+`contents: write` and no environment, downloads that artifact and attaches it. Neither job holds
+both halves, which is the whole point.
+
+Then it reads the release back: `gh release view --json assets` has to name the file just uploaded
+or the job fails. The claim is about what a reader finds on the Releases page, and an exit status is
+not that.
+
+`assertTheReleaseCarriesTheSignedZip`, in the root `build.gradle.kts` and wired into `check`, holds
+the arrangement together from a clone. A gated job uploads an artifact whose path ends `-signed.zip`;
+one job that is **not** gated downloads that artifact **by name**, waits on it through `needs:`,
+declares `contents: write` and attaches it; no gated job holds that write; and no other workflow
+attaches an asset at all.
+
+The last three rules are what make it a *wiring* check rather than a list of facts. A check that
+only looked for `gh release upload` would pass on a pipeline whose halves were joined to nothing —
+close to the shape the original problem had. One that matched only the artifact name would pass on
+two jobs running at once, where the download races an upload that has not happened. And one that
+read `release.yml` alone would let `build.yml` attach the unsigned archive, which is the claim this
+whole arrangement exists to avoid making.
+
+**`snippetveil.com` carries the same sentence, and nothing checks the site's copy.** That is a
+separate gap, in a separate repository, and this rule does not close it.
 
 ### The four secrets, and why they are not repository secrets
 

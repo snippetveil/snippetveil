@@ -11,8 +11,13 @@ on:
   release:
     types: [prereleased, released]
 
-# Nothing here writes to the repository. The upload is authenticated by PUBLISH_TOKEN against
-# JetBrains Marketplace, not by the GitHub token, so the GitHub token stays read-only.
+# The floor for every job in this file, and everything the job that signs ever needs: the Marketplace
+# upload is authenticated by PUBLISH_TOKEN against JetBrains, not by the GitHub token, so the job
+# holding the key writes to the repository not at all.
+#
+# Two jobs below do write, and both ask on themselves: `attach` puts the signed zip on the release,
+# and `changelog` opens the pull request that closes the changelog. Neither is the gated one, which
+# is the point rather than an accident of how they were written.
 permissions:
   contents: read
 
@@ -88,6 +93,79 @@ jobs:
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
         run: ./gradlew publishPlugin
+
+      # The bytes the Marketplace just received, handed to a job that can attach them to the
+      # release. This is the only channel out of this job that needs no write to the repository:
+      # `upload-artifact` authenticates against the run's own artifact store rather than against
+      # the GitHub token, so the `contents: read` at the top of this file stays true and the
+      # signing key keeps its environment to itself.
+      #
+      # `-signed.zip` rather than every archive in the directory. `buildPlugin`'s unsigned zip is
+      # sitting beside it, and the sentence this asset exists to make true says *every release is
+      # signed* — attaching the other one would replace a false claim with a subtler one.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-distribution
+          path: plugin/build/distributions/*-signed.zip
+          if-no-files-found: error
+
+  # **The install-from-disk route, which three published surfaces promise and no release has ever
+  # carried.** The README, CONTRIBUTING and the site all tell a reader the distribution zip is on
+  # the matching GitHub Release. A plugin whose pitch is *audit me* offers exactly two ways to get
+  # the bytes — the Marketplace, and the zip somebody can read before installing it — and the second
+  # is the one that does not ask the reader to trust anyone.
+  #
+  # A separate job, not a step, for the reason `changelog` below is one: it writes to the
+  # repository, and a job that writes to the repository does not belong in the environment that
+  # holds the signing key. The zip crosses between them through the run's artifact store, so the
+  # job that can sign never gets a write and the job that writes never gets the key.
+  #
+  # `:assertTheReleaseCarriesTheSignedZip` in the root build fails `check` if this comes apart —
+  # including the quiet way, where both halves are still here and no longer joined to each other.
+  attach:
+    name: Attach the signed zip to the release
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      # Attaching an asset is a write to the release, which is a write to the repository. It is the
+      # entire reason this is not a step in the job above.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: signed-distribution
+          path: signed
+
+      # No checkout: this job attaches bytes it did not build and has no use for the source. `gh`
+      # takes the repository from `GH_REPO` rather than from a clone.
+      - name: Attach it, then read the release back
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          shopt -s nullglob
+          zips=(signed/*-signed.zip)
+          if [ "${#zips[@]}" -ne 1 ]; then
+            echo "::error::Expected one signed archive in the artifact, found ${#zips[@]}."
+            exit 1
+          fi
+          zip="${zips[0]}"
+
+          # `--clobber` because this workflow is re-runnable and has to converge rather than fail on
+          # an asset it put there itself. The environment's required reviewer means a run can be
+          # approved long after the release was published, and the archive is built from the tag
+          # either way.
+          gh release upload "$TAG" "$zip" --clobber
+
+          # The claim is about what a reader finds on the Releases page, so it is read back off the
+          # release rather than inferred from an exit status. Three releases were cut believing an
+          # upload had happened somewhere, and the thing that was never true is exactly this line.
+          if ! gh release view "$TAG" --json assets --jq '.assets[].name' \
+              | grep -Fxq "$(basename "$zip")"; then
+            echo "::error::$TAG carries no $(basename "$zip") after the upload."
+            exit 1
+          fi
 
   # The changelog moves forward only once the upload happened, and it moves through review like any
   # other change to the repository.
