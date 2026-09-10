@@ -1,5 +1,6 @@
 package com.snippetveil.plugin
 
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
@@ -159,7 +160,7 @@ private val ACCEPTED = setOf(JAVA, KOTLIN)
  * The extension point each language's half registers itself through, and the reason the gate can tell
  * [Unavailable.PLUGIN_NOT_RUNNING] from [Unavailable.PATH_NOT_ACTIVATED] at all.
  *
- * `PluginManagerCore` answers whether the *Kotlin plugin* is running. It cannot answer whether
+ * The plugin manager answers whether the *Kotlin plugin* is running. It cannot answer whether
  * *SnippetVeil's* Kotlin path loaded, and those come apart in K1 mode. Presence of a registration
  * here is the second fact, and reading presence does not instantiate the implementation — so the gate
  * learns that a Kotlin builder exists without loading a class that names a Kotlin type.
@@ -209,17 +210,35 @@ private fun PsiFile.extensionOf(): String =
     (virtualFile?.extension ?: name.substringAfterLast('.', "")).lowercase()
 
 /**
- * The two causes, told apart by the one platform API that can answer without a Kotlin class.
+ * The two causes, told apart by two plugin-manager questions that need no Kotlin class to ask.
  *
- * The order matters: *not running* is the answer that makes *did not activate* impossible, so it is
- * asked first and the second is what remains.
+ * *Running* is read as **installed and not switched off**: a plugin that is not installed and one that
+ * is installed and switched off are the same problem to the user and take the same fix. Two questions
+ * rather than one, because the platform's *is it installed?* counts a switched-off plugin as
+ * installed — asked alone, it would send that user to a Kotlin settings page that does not exist.
  *
- * *Running* is read as **loaded**, which is the question with an unambiguous answer: a plugin that is
- * not installed and one that is installed and switched off are the same problem to the user and take
- * the same fix, and the loaded set is where both are absent.
+ * **Public API on every platform this plugin claims, and that is the constraint that chose it.** The
+ * loaded-plugin list this used to read is `@ApiStatus.Internal` from 2026.2, and so is
+ * `PluginManager.findEnabledPlugin`, the obvious replacement; the Marketplace rejects a plugin for
+ * either. It is `verifyPlugin` that says these two calls are public, not this comment: it fails the
+ * build on internal API against every line from the floor to the newest release.
  */
 private fun whyKotlinIsMissing(): Unavailable {
     val kotlin = PluginId.getId(KOTLIN_PLUGIN_ID)
-    return if (PluginManagerCore.loadedPlugins.none { it.pluginId == kotlin }) Unavailable.PLUGIN_NOT_RUNNING
-    else Unavailable.PATH_NOT_ACTIVATED
+    return causeOfMissingKotlin(
+        installed = PluginManager.isPluginInstalled(kotlin),
+        disabled = PluginManagerCore.isDisabled(kotlin),
+    )
 }
+
+/**
+ * Which cause the plugin manager's two answers add up to — apart from the calls that supply them, so
+ * that `UnavailableCauseTest` can assert every combination at merge speed, including the ones no
+ * fixture can produce.
+ *
+ * The order matters: *not running* is the answer that makes *did not activate* impossible, so it is
+ * decided first and the second is what remains.
+ */
+internal fun causeOfMissingKotlin(installed: Boolean, disabled: Boolean): Unavailable =
+    if (!installed || disabled) Unavailable.PLUGIN_NOT_RUNNING
+    else Unavailable.PATH_NOT_ACTIVATED

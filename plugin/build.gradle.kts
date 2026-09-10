@@ -1,8 +1,12 @@
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.specs.Specs
 import org.jetbrains.changelog.Changelog
+import org.jetbrains.intellij.platform.gradle.Constants
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.tasks.SignPluginTask
+import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask
+import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask.FailureLevel
 import org.objectweb.asm.AnnotationVisitor
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.ClassVisitor
@@ -348,8 +352,41 @@ intellijPlatform {
     }
 
     pluginVerification {
+        // **Stated rather than inherited.** Item 3 of the release checklist is a Marketplace approval
+        // criterion — no compatibility problems, no internal API — and these are the levels that make
+        // `verifyPlugin` fail on it. They are the Gradle plugin's own default today, so writing them
+        // down changes nothing on the day it is written; what it changes is that a default which moved
+        // would move this build's gate with it, unannounced. The third is kept because it is in that
+        // default too, and naming the list must not be the thing that narrows it.
+        failureLevel = listOf(
+            FailureLevel.COMPATIBILITY_PROBLEMS,
+            FailureLevel.INTERNAL_API_USAGES,
+            FailureLevel.OVERRIDE_ONLY_API_USAGES,
+        )
+
         ides {
             recommended()
+
+            // **The IDEs `recommended()` cannot see, which is how 1.3.0 reached the Marketplace with
+            // an internal call in it.** `recommended()` asks for releases of the product this build
+            // compiles against — IntelliJ IDEA Community, on the floor — and Community stops at
+            // 2025.2: from 2025.3 IntelliJ IDEA ships as one product. So the set ended at 252 and the
+            // failure level above had nothing to fail on. `PluginManagerCore.getLoadedPlugins()` is
+            // public on every build that set held and `@ApiStatus.Internal` on 2026.2, which is where
+            // the Marketplace found it.
+            //
+            // The Gradle plugin knows about the merge — its filter admits the unified product from 253
+            // when Community is asked for — but it reads only Community's release listing, so there is
+            // never a unified release there to admit. This is the query `recommended()` would have
+            // made: release, EAP and RC, the newest of each line, and no upper bound because the
+            // descriptor has none — for the unified product, from the build where it begins.
+            //
+            // `verifyPlugin` fails before verifying anything if the set stops short of the platform
+            // `latest` names. See *The verifier's IDE set*, below.
+            select {
+                types = listOf(IntelliJPlatformType.IntellijIdea)
+                sinceBuild = "${Constants.Constraints.UNIFIED_INTELLIJ_IDEA_BUILD_NUMBER.major}"
+            }
         }
     }
 
@@ -371,6 +408,95 @@ intellijPlatform {
         // already doing something unusual. `1.1.0-beta.1` routes to `beta` on the day it is wanted,
         // and no version this project has ever built routes anywhere but `default`.
         channels = listOf(marketplaceChannel)
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The verifier's IDE set
+//
+// The failure levels decide what `verifyPlugin` fails *on*; the IDE set decides what it can *see*,
+// and 1.3.0 is the proof that the second half is the one that comes apart quietly. Nothing about a
+// set that stops at an old line looks wrong: every IDE in it passes, the task is green, and the
+// Marketplace verifies against the IDEs that were not there.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * **`verifyPlugin` fails before it verifies anything when the newest IDE in its set is older than the
+ * platform `latest` names in gradle.properties.**
+ *
+ * `latest` is the bar because it is the newest platform this repository already compiles and tests
+ * against on every pull request: it is known to exist, and a verifier that has not seen it has not
+ * seen something the test matrix has. It is not a guess at what the Marketplace checks — that list is
+ * not published — but a floor under it that nobody has to keep current, because bumping
+ * `platformLatestVersion` raises it.
+ *
+ * **It reads the IDEs the task resolved, not the configuration that was meant to produce them** — the
+ * move `assertTheFloorStillHasNoExtensionFilterBuilder` makes, for the same reason. `recommended()`
+ * returned a set that looked right and was not, and a check over the `ides` block would have agreed
+ * with it.
+ *
+ * Compared by release line, `year.minor`, the way gradle.properties names platforms: a set holding
+ * 2026.2.2 has seen the 2026.2 line that `latest = 2026.2.1` names, whatever the patch.
+ */
+tasks.named<VerifyPluginTask>("verifyPlugin") {
+    // Read out of the script here so that the action closes over plain values, for the reason
+    // `assertTheFloorStillHasNoExtensionFilterBuilder` gives: the configuration cache cannot serialize
+    // an action that reaches back into the build script.
+    val latest = platformProperty("platformLatestVersion")
+    val resolvedIdes = ides
+
+    doFirst {
+        /** `2026.2.1` → `202602`: the release line, as one number that orders correctly. */
+        fun lineOf(version: String): Int? =
+            Regex("""^(\d{4})\.(\d+)""").find(version)?.destructured?.let { (year, minor) ->
+                year.toInt() * 100 + minor.toInt()
+            }
+
+        /**
+         * The version an IDE distribution states about itself, in the `product-info.json` every one
+         * carries — at the root on Linux, under `Resources` on macOS.
+         */
+        fun versionOf(ide: File): String? =
+            ide.walkTopDown().maxDepth(2).firstOrNull { it.name == "product-info.json" }
+                ?.let { Regex(""""version"\s*:\s*"([^"]+)"""").find(it.readText())?.groupValues?.get(1) }
+
+        fun complaint(versions: List<String?>, latest: String): String? {
+            val bar = checkNotNull(lineOf(latest)) {
+                "platformLatestVersion = $latest is not a year.minor version."
+            }
+            val newest = versions
+                .mapNotNull { version -> version?.let(::lineOf)?.let { line -> version to line } }
+                .maxByOrNull { (_, line) -> line }
+
+            return when {
+                newest == null ->
+                    "verifyPlugin read no IDE version out of the ${versions.size} IDEs it resolved, so " +
+                        "nothing here can say whether it sees what the Marketplace sees. It may not pass " +
+                        "without having looked."
+                newest.second < bar ->
+                    "The newest IDE verifyPlugin would check is ${newest.first}, and gradle.properties " +
+                        "already builds and tests against $latest. A set that stops at an old line passes " +
+                        "by not looking — it is how 1.3.0 reached the Marketplace with an internal API " +
+                        "call the verifier never saw. The set is the `ides` block in " +
+                        "`pluginVerification`: if `recommended()` has stopped reaching new releases " +
+                        "again, add them there rather than lowering this bar."
+                else -> null
+            }
+        }
+
+        // The rule, shown able to fail before it is trusted to pass: over the set 1.3.0 was verified
+        // against, over one that reaches the bar on a later patch, and over a set it cannot read.
+        check(complaint(listOf("2024.2.6", "2025.2.6.3"), "2026.2.1") != null) {
+            "The coverage rule passed the IDE set 1.3.0 was verified against. It is not comparing lines."
+        }
+        check(complaint(listOf("2025.2.6.3", "2026.2.2"), "2026.2.1") == null) {
+            "The coverage rule failed a set that reaches the 2026.2 line on a later patch."
+        }
+        check(complaint(listOf(null, null), "2026.2.1") != null) {
+            "The coverage rule passed a set it could read no version out of."
+        }
+
+        complaint(resolvedIdes.files.map(::versionOf), latest)?.let { error(it) }
     }
 }
 

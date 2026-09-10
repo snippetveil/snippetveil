@@ -36,8 +36,8 @@ import com.snippetveil.plugin.supportIsRegisteredFor
  * **What it does not prove, stated so that nobody reads more into a green run than is there.** The
  * Kotlin plugin's jars are still on this cell's test classpath — a test task is given the platform's
  * classpath whatever the sandbox has disabled — so a class naming `org.jetbrains.kotlin.*` would
- * still link here. What is genuinely absent is the *plugin*: `PluginManagerCore` does not have it,
- * the optional descriptor was not loaded, and nothing is registered for `kt`. So this asserts the
+ * still link here. What is genuinely absent is the *plugin*: the platform has it switched off, the
+ * optional descriptor was not loaded, and nothing is registered for `kt`. So this asserts the
  * product's behaviour in that configuration, and **linkage remains the architecture rule's claim**,
  * over bytecode, where it can be made without an IDE at all.
  *
@@ -115,13 +115,17 @@ class KotlinDisabledBootTest : JavaSnippetTestCase() {
      * **The one availability state this configuration can produce, and the only place it is
      * produced.**
      *
-     * The gate tells its two causes apart by asking `PluginManagerCore` whether the Kotlin plugin is
-     * loaded, and every fixture-based test in this repository runs with it loaded — so
-     * [Unavailable.PLUGIN_NOT_RUNNING] is a branch that no fixture reaches and that
-     * `KotlinUnavailableTest` can only assert against a notification it raises by hand. Here it is
-     * the real answer, computed from the real plugin set, and it decides which page the balloon's fix
-     * link opens: **Plugins**, because an IDE without the Kotlin plugin has no Kotlin-owned settings
-     * page to point at.
+     * The gate tells its two causes apart by asking the platform whether the Kotlin plugin is
+     * installed and whether it is switched off, and every fixture-based test in this repository runs
+     * with it installed and on — so [Unavailable.PLUGIN_NOT_RUNNING] is an answer no fixture produces.
+     * `UnavailableCauseTest` holds the mapping from those two answers to the cause, and
+     * `KotlinUnavailableTest` the notification it raises by hand. Here the answers are real, computed
+     * from the real plugin set, and the outcome decides which page the balloon's fix link opens:
+     * **Plugins**, because an IDE without the Kotlin plugin has no Kotlin-owned settings page to point
+     * at.
+     *
+     * Asserted as the verdict, not as the API behind it: which [Unavailable] a switched-off Kotlin
+     * plugin produces is the subject, and it must not move when the probe does.
      */
     fun `test the missing plugin is reported as the plugin not running`() {
         val file = myFixture.configureByText("Payment.kt", "class Payment")
@@ -158,7 +162,14 @@ class KotlinDisabledBootTest : JavaSnippetTestCase() {
 /** The Kotlin plugin's id, as a plain string — naming it costs nothing and links nothing. */
 internal const val KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin"
 
-/** Every plugin this IDE actually loaded, by id. */
+/**
+ * Every plugin this IDE actually loaded, by id.
+ *
+ * Read from the loaded set rather than through the gate's own probe, and deliberately: a precondition
+ * and the assertion it guards must not share an instrument, or a probe that went wrong would agree
+ * with itself. `getLoadedPlugins` is internal API on newer platforms, which costs nothing here — test
+ * classes are not shipped, so `verifyPlugin` never sees them.
+ */
 internal fun loadedPluginIds(): List<String> = PluginManagerCore.loadedPlugins.map { it.pluginId.idString }
 
 /**

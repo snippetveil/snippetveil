@@ -63,8 +63,8 @@
 
          The point is not extensibility — the accepted language set is closed and lives in the gate.
          It is that *whether a support is registered for a language* is the one signal that answers
-         "did SnippetVeil's Kotlin path load?", which `PluginManagerCore` cannot: that API knows
-         whether the Kotlin *plugin* is running, and the two come apart in K1 mode. Reading presence
+         "did SnippetVeil's Kotlin path load?", which the plugin manager cannot: it knows whether
+         the Kotlin *plugin* is running, and the two come apart in K1 mode. Reading presence
          does not instantiate the implementation, so asking costs no linkage. -->
     <extensionPoints>
         <!-- A bean rather than a bare `interface`, because the attribute is the signal: *is any

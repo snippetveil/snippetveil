@@ -127,9 +127,10 @@ jobs:
           validate-wrappers: true
           cache-provider: basic
 
-      # `ides { recommended() }` is several IDE downloads, and which IDEs it recommends changes
-      # whenever JetBrains ships one. Restore-then-save rather than one cache step, because a
-      # fixed key would hit forever and never take a newly recommended IDE with it.
+      # The verifier's IDE set is several IDE downloads — `recommended()` plus the unified IntelliJ
+      # IDEA builds from 2025.3, see `pluginVerification` in plugin/build.gradle.kts — and which IDEs
+      # it resolves to changes whenever JetBrains ships one. Restore-then-save rather than one cache
+      # step, because a fixed key would hit forever and never take a newly recommended IDE with it.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.pluginVerifier/ides
