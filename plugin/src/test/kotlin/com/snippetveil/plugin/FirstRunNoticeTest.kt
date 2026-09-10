@@ -24,10 +24,10 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
      * The balloon, and what it says: an instruction, not a description.
      *
      * **The sentence is asserted whole**, character for character. It is the only thing this plugin
-     * ever says unprompted and it names two languages, a gesture and a menu item — each of which is a
-     * claim that can quietly stop being true — so a check for a word it happens to contain is not a
-     * check on the sentence. The one that shipped matched `"Copy Anonymized"`, which the half that
-     * never changes satisfies on its own.
+     * ever says unprompted and it names two languages, a gesture and two steps of a menu — each of
+     * which is a claim that can quietly stop being true — so a check for a word it happens to contain
+     * is not a check on the sentence. The one that shipped matched `"Copy Anonymized"`, which the half
+     * that never changes satisfies on its own.
      */
     fun `test the first run says what to do and offers the settings page`() {
         announceInstallation(project)
@@ -35,7 +35,7 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
         val balloon = notifications.single()
         assertEquals("SnippetVeil is installed", balloon.title)
         assertEquals(
-            "Select Java or Kotlin code, then right-click \u2192 <b>Copy Anonymized</b>.",
+            "Select Java or Kotlin code, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Copy Anonymized</b>.",
             balloon.content,
         )
         assertEquals(NotificationType.INFORMATION, balloon.type)
@@ -50,24 +50,24 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
      * sentence that sends the user to the right item and in one that sends them to the wrong menu,
      * and the sentence's own words are the only evidence either way. So the ancestry is derived —
      * from the editor popup down to the action, through the groups `plugin.xml` registers — and the
-     * balloon's claim is checked against it.
+     * balloon's claim is checked against it. The editor popup because that is the menu the sentence's
+     * gesture opens; the same group is also the Tools menu's, and one group is what makes the steps
+     * below either gesture the same two.
      *
-     * **The claim is currently a strict subset of the truth, and that is a known defect this test
-     * pins rather than fixes.** The four items live in a `SnippetVeil` submenu, so the real gesture is
-     * right-click → **SnippetVeil** → **Copy Anonymized**, and the balloon names only the last step.
-     * It is a false statement the product makes about its own menu; it is false in pure Java, has
-     * nothing to do with which languages are supported, and correcting it is a change with its own
-     * reasoning rather than a rider on a language edit — snippetveil/snippetveil#101, which is where
-     * *what the sentence should say* gets decided.
+     * **The sentence has failed the second assertion before.** The four items moved into a
+     * `SnippetVeil` submenu and the balloon went on saying right-click → **Copy Anonymized**, one step
+     * short, so a user who followed it looked at a context menu without the item they had just been
+     * told to click. The first assertion passes on that sentence — every step it does name is real —
+     * which is why it is not enough on its own. snippetveil/snippetveil#101 corrected the sentence
+     * here, where the old one was pinned, rather than beside it.
      *
-     * Two assertions, and the second is the one that will go red when it is fixed — deliberately, so
-     * that the fix arrives here and updates the sentence this test pins, instead of leaving a second
-     * copy of the old claim behind:
+     * Two assertions, which together say the stated path *is* the registered one. They are kept apart
+     * because they fail for different reasons and should say different things when they do:
      *
      *  1. **Every step the balloon names is real, and in order.** A sentence naming a menu item that
      *     does not exist, or naming them the wrong way round, fails here.
-     *  2. **Exactly one step is missing, and it is the submenu.** A balloon that dropped a second
-     *     step, or that lost the item itself, is a different sentence from the one on record.
+     *  2. **No step is missing.** A sentence that skips a level of the menu — the submenu, or one
+     *     added above it later — fails here, naming the step it skipped.
      */
     fun `test the balloon's menu path is a real path to the action`() {
         announceInstallation(project)
@@ -82,9 +82,9 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
             ancestry.filter { it in stated },
         )
         assertEquals(
-            "The balloon's menu path is no longer the known-incomplete one on record. If the submenu " +
-                "step has been added, this test and the sentence it pins above are what say so.",
-            listOf(SUBMENU),
+            "The balloon's menu path skips a level: it names $stated, and the item's own ancestry under " +
+                "the editor popup is $ancestry. A user following it opens a menu without its next step in it.",
+            emptyList<String>(),
             ancestry - stated.toSet(),
         )
     }
@@ -245,6 +245,3 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
 
 /** The item the balloon names, by the id `plugin.xml` registers it under. */
 private const val COPY_ANONYMIZED = "SnippetVeil.CopyAnonymized"
-
-/** The submenu the balloon does not name, by the text a user reads on it. */
-private const val SUBMENU = "SnippetVeil"
