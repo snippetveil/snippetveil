@@ -752,7 +752,7 @@ named by two filters that mean opposite things, and a filter matching nothing wo
 **What it proves, and what it leaves to the rule.** The Kotlin plugin's jars are still on the
 cell's test classpath — a test task gets the platform's classpath whatever the sandbox disabled — so
 this does not demonstrate that a class naming `org.jetbrains.kotlin.*` fails to link. What is
-genuinely absent is the plugin: `PluginManagerCore` does not have it, the optional descriptor did not
+genuinely absent is the plugin: the platform has it switched off, the optional descriptor did not
 load, nothing is registered for `kt`. Linkage stays the architecture rule's claim, over bytecode,
 where it can be made without booting anything.
 
@@ -993,7 +993,14 @@ exists, holds these four and no others, and carries the reviewer. None of that i
    **no roadmap**.
 2. The bytecode scan is green — automatic, it finalizes `buildPlugin`.
 3. `verifyPlugin` is green: **no `COMPATIBILITY_PROBLEMS`, no `INTERNAL_API_USAGES`**. Both are
-   explicit Marketplace approval criteria and both are in the task's default failure levels.
+   explicit Marketplace approval criteria, and the build names both as failure levels — with the
+   default's third, `OVERRIDE_ONLY_API_USAGES` — rather than trusting the Gradle plugin's default to
+   keep them. A failure level fails only on what the verifier
+   can see, so the IDE set is `recommended()` **plus the unified IntelliJ IDEA builds from 2025.3** —
+   `recommended()` follows the floor's product, Community, and Community stops at 2025.2 — and
+   `verifyPlugin` fails before verifying if the newest IDE it resolved is older than
+   `platformLatestVersion`. 1.3.0 was rejected for a call that 2026.2 marks internal, by a gate that
+   had checked nothing newer than 2025.2.
 4. `assertNothingThirdPartyIsShipped` is green.
 4b. `assertThePluginWasSigned` is green — it gates `publishPlugin` and needs no remembering.
 4c. `kotlinDisabledBoot` is green — automatic, `release.yml` runs it before the upload and

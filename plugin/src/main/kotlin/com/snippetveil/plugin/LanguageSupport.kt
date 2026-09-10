@@ -19,7 +19,7 @@ import com.intellij.util.xmlb.annotations.Attribute
  * [PlanBuilder] are both platform-or-ours; nothing here reaches `org.jetbrains.kotlin.*`.
  *
  * **Presence is the availability signal.** The [gate]'s third outcome needs to know whether
- * *SnippetVeil's* Kotlin path loaded, which `PluginManagerCore` cannot answer — it knows only whether
+ * *SnippetVeil's* Kotlin path loaded, which the plugin manager cannot answer — it knows only whether
  * the Kotlin *plugin* is running, and the two come apart in K1 mode. Reading whether a support is
  * registered **for that language** answers it exactly: registrations are [beans][LanguageSupportBean]
  * carrying the extension they handle, so the question is asked of an attribute and no implementation
