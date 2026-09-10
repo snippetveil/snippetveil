@@ -765,9 +765,7 @@ the Java actions work, a `.kt` file is refused with the exact sentence and an un
 the gate reports `PLUGIN_NOT_RUNNING` — the one availability cause no fixture can produce, because
 every fixture in this repository runs with the Kotlin plugin loaded. That precondition is shown red
 in `KotlinDisabledBootDemonstrationTest`, which runs in the merge gate, in the one configuration where
-it must fail. The mapping from the platform's two answers — is the Kotlin plugin installed, is it
-switched off — to that cause is held at merge speed by `UnavailableCauseTest`; this cell is the only
-place the answers themselves are real.
+it must fail.
 
 It runs on `latest`, where the Kotlin plugin is fully active and taking it away is doing the whole of
 the work. On the floor its default mode is K1, where this plugin's optional descriptor is skipped
@@ -995,8 +993,9 @@ exists, holds these four and no others, and carries the reviewer. None of that i
    **no roadmap**.
 2. The bytecode scan is green — automatic, it finalizes `buildPlugin`.
 3. `verifyPlugin` is green: **no `COMPATIBILITY_PROBLEMS`, no `INTERNAL_API_USAGES`**. Both are
-   explicit Marketplace approval criteria, and the build names both as failure levels rather than
-   trusting the Gradle plugin's default to keep them. A failure level fails only on what the verifier
+   explicit Marketplace approval criteria, and the build names both as failure levels — with the
+   default's third, `OVERRIDE_ONLY_API_USAGES` — rather than trusting the Gradle plugin's default to
+   keep them. A failure level fails only on what the verifier
    can see, so the IDE set is `recommended()` **plus the unified IntelliJ IDEA builds from 2025.3** —
    `recommended()` follows the floor's product, Community, and Community stops at 2025.2 — and
    `verifyPlugin` fails before verifying if the newest IDE it resolved is older than

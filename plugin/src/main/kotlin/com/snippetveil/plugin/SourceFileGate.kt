@@ -1,9 +1,7 @@
 package com.snippetveil.plugin
 
-import com.intellij.ide.plugins.PluginManager
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.extensions.ExtensionPointName
-import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.psi.PsiFile
 
 /**
@@ -110,9 +108,10 @@ internal sealed interface GateVerdict {
 internal enum class Unavailable {
 
     /**
-     * The Kotlin plugin is not installed, or is installed and disabled. Nothing Kotlin-owned exists
-     * to point the user at, so the fix opens the **Plugins** page — a platform configurable, and the
-     * only correct target when a Kotlin-owned configurable id does not exist.
+     * The Kotlin plugin is not loaded: not installed, switched off, or switched on and still waiting
+     * for the restart that loads it. Nothing Kotlin-owned exists to point the user at, so the fix opens
+     * the **Plugins** page — a platform configurable, and the only correct target when a Kotlin-owned
+     * configurable id does not exist.
      */
     PLUGIN_NOT_RUNNING,
 
@@ -160,10 +159,10 @@ private val ACCEPTED = setOf(JAVA, KOTLIN)
  * The extension point each language's half registers itself through, and the reason the gate can tell
  * [Unavailable.PLUGIN_NOT_RUNNING] from [Unavailable.PATH_NOT_ACTIVATED] at all.
  *
- * The plugin manager answers whether the *Kotlin plugin* is running. It cannot answer whether
- * *SnippetVeil's* Kotlin path loaded, and those come apart in K1 mode. Presence of a registration
- * here is the second fact, and reading presence does not instantiate the implementation — so the gate
- * learns that a Kotlin builder exists without loading a class that names a Kotlin type.
+ * Whether the *Kotlin plugin* is running is a question the platform can answer. Whether
+ * *SnippetVeil's* Kotlin path loaded is not, and those come apart in K1 mode. Presence of a
+ * registration here is the second fact, and reading presence does not instantiate the implementation —
+ * so the gate learns that a Kotlin builder exists without loading a class that names a Kotlin type.
  *
  * **Presence is read per language, not in aggregate.** Java's support is registered from the main
  * descriptor and can never be absent, so *is anything registered?* is answered `yes` on an IDE with
@@ -172,8 +171,11 @@ private val ACCEPTED = setOf(JAVA, KOTLIN)
  */
 internal val LANGUAGE_SUPPORT = ExtensionPointName<LanguageSupportBean>("com.snippetveil.languageSupport")
 
-/** The Kotlin plugin's id, as a plain string — naming it costs nothing and links nothing. */
-private const val KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin"
+/**
+ * The name the Kotlin plugin registers its `.kt` file type under, as a plain string — asking for it
+ * costs nothing and links nothing.
+ */
+private const val KOTLIN_FILE_TYPE_NAME = "Kotlin"
 
 /**
  * The gate, over a file.
@@ -210,35 +212,29 @@ private fun PsiFile.extensionOf(): String =
     (virtualFile?.extension ?: name.substringAfterLast('.', "")).lowercase()
 
 /**
- * The two causes, told apart by two plugin-manager questions that need no Kotlin class to ask.
+ * The two causes, told apart by whether the Kotlin plugin is **loaded** — asked of the file type it
+ * registers, by name, so that no Kotlin class is needed to ask.
  *
- * *Running* is read as **installed and not switched off**: a plugin that is not installed and one that
- * is installed and switched off are the same problem to the user and take the same fix. Two questions
- * rather than one, because the platform's *is it installed?* counts a switched-off plugin as
- * installed — asked alone, it would send that user to a Kotlin settings page that does not exist.
+ * *Running* is read as loaded: a plugin that is not installed, one that is switched off, and one that
+ * was switched on and is waiting for a restart are the same problem to the user — nothing Kotlin-owned
+ * exists yet to point them at. The Kotlin plugin registers its `.kt` file type as `Kotlin` from its
+ * main descriptor on every platform this plugin claims, in K1 and K2 alike, and nothing registers it
+ * where the plugin did not load.
  *
- * **Public API on every platform this plugin claims, and that is the constraint that chose it.** The
- * loaded-plugin list this used to read is `@ApiStatus.Internal` from 2026.2, and so is
- * `PluginManager.findEnabledPlugin`, the obvious replacement; the Marketplace rejects a plugin for
- * either. It is `verifyPlugin` that says these two calls are public, not this comment: it fails the
- * build on internal API against every line from the floor to the newest release.
- */
-private fun whyKotlinIsMissing(): Unavailable {
-    val kotlin = PluginId.getId(KOTLIN_PLUGIN_ID)
-    return causeOfMissingKotlin(
-        installed = PluginManager.isPluginInstalled(kotlin),
-        disabled = PluginManagerCore.isDisabled(kotlin),
-    )
-}
-
-/**
- * Which cause the plugin manager's two answers add up to — apart from the calls that supply them, so
- * that `UnavailableCauseTest` can assert every combination at merge speed, including the ones no
- * fixture can produce.
+ * **Not the plugin manager, because the constraint is public API.** The loaded-plugin list this used
+ * to read is `@ApiStatus.Internal` from 2026.2, and so is `PluginManager.findEnabledPlugin`, the
+ * obvious replacement; the Marketplace rejects a plugin for either. What the plugin manager offers
+ * publicly on every platform — *is it installed?*, *is it switched off?* — cannot see a plugin that is
+ * switched on and not yet loaded, and would send that user to a Kotlin settings page that does not
+ * exist. One of Kotlin's own extension points would see it, but `ExtensionsArea` is internal on the
+ * 2024.2 floor. `verifyPlugin` is what holds this to public API, against every line from the floor to
+ * the newest release.
  *
  * The order matters: *not running* is the answer that makes *did not activate* impossible, so it is
- * decided first and the second is what remains.
+ * asked first and the second is what remains.
  */
-internal fun causeOfMissingKotlin(installed: Boolean, disabled: Boolean): Unavailable =
-    if (!installed || disabled) Unavailable.PLUGIN_NOT_RUNNING
+private fun whyKotlinIsMissing(): Unavailable {
+    val kotlinIsLoaded = FileTypeManager.getInstance().findFileTypeByName(KOTLIN_FILE_TYPE_NAME) != null
+    return if (!kotlinIsLoaded) Unavailable.PLUGIN_NOT_RUNNING
     else Unavailable.PATH_NOT_ACTIVATED
+}

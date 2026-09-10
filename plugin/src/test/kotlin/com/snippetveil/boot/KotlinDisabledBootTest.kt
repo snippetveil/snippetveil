@@ -115,14 +115,12 @@ class KotlinDisabledBootTest : JavaSnippetTestCase() {
      * **The one availability state this configuration can produce, and the only place it is
      * produced.**
      *
-     * The gate tells its two causes apart by asking the platform whether the Kotlin plugin is
-     * installed and whether it is switched off, and every fixture-based test in this repository runs
-     * with it installed and on — so [Unavailable.PLUGIN_NOT_RUNNING] is an answer no fixture produces.
-     * `UnavailableCauseTest` holds the mapping from those two answers to the cause, and
-     * `KotlinUnavailableTest` the notification it raises by hand. Here the answers are real, computed
-     * from the real plugin set, and the outcome decides which page the balloon's fix link opens:
-     * **Plugins**, because an IDE without the Kotlin plugin has no Kotlin-owned settings page to point
-     * at.
+     * The gate tells its two causes apart by whether the Kotlin plugin is loaded, and every
+     * fixture-based test in this repository runs with it loaded — so [Unavailable.PLUGIN_NOT_RUNNING]
+     * is an answer no fixture produces, and `KotlinUnavailableTest` can only assert the notification
+     * it raises by hand. Here the answer is real, computed from what the platform actually loaded, and
+     * it decides which page the balloon's fix link opens: **Plugins**, because an IDE without the
+     * Kotlin plugin has no Kotlin-owned settings page to point at.
      *
      * Asserted as the verdict, not as the API behind it: which [Unavailable] a switched-off Kotlin
      * plugin produces is the subject, and it must not move when the probe does.
