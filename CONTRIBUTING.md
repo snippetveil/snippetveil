@@ -475,10 +475,10 @@ contributor with no codebase to point it at is never blocked.
 ```
 
 The task runs on the build's platform profile, and the default, `floor`, runs the Kotlin plugin in
-K1, where SnippetVeil's Kotlin support is not registered. There the sweep **refuses before reading
-anything** if the target holds a single `.kt` file, and says how many it holds: sweeping the Java half
-alone would write a report whose Kotlin half nobody anonymised. A Java-only target sweeps on any
-profile.
+K1, where SnippetVeil's Kotlin support is not registered. There the sweep **refuses before the
+universe is read** if the target holds even one `.kt` file, and says how many it holds: sweeping the
+Java half alone would write a report whose Kotlin half nobody anonymised. A Java-only target sweeps
+on any profile.
 
 **The committed fixture corpus is 100% synthetic, and stays that way.** The obvious clever move —
 run the anonymiser over a real codebase and commit the anonymised output as the public corpus — is

@@ -11,7 +11,7 @@ import com.snippetveil.sweep.SourceSpellings
 import com.snippetveil.sweep.Swept
 import com.snippetveil.sweep.SweepPass
 import com.snippetveil.sweep.refuseKotlinThatCannotBeSwept
-import com.snippetveil.sweep.shippedRoute
+import com.snippetveil.sweep.sweepRoute
 import org.jetbrains.kotlin.psi.KtFile
 
 /**
@@ -29,14 +29,14 @@ internal class SweepPassTest : KotlinSnippetTestCase() {
      * Kotlin, and a Kotlin output that still holds `body` is a finding — which it can only be once a
      * Kotlin file is anonymised at all and its output handed to the oracle.
      *
-     * The leak is manufactured by a route that drops the rename, because the shipped route makes none:
+     * The leak is manufactured by a route that drops the rename, because the sweep's own route makes none:
      * a sweep that could not see this one would be blind to it on the day the walk regressed.
      */
     fun `test a Kotlin output still holding a Java getter's property spelling is a finding`() {
         assertTheSessionIsK2()
         val files = listOf(invoice(), reader())
 
-        val swept = passOver(files, route = { file -> leavingBodyInKotlin(shippedRoute(file), file) })
+        val swept = passOver(files, route = { file -> leavingBodyInKotlin(sweepRoute(file), file) })
 
         assertEquals(
             "The Kotlin output kept `javaObj.body`, and the sweep did not report it.",
@@ -58,8 +58,8 @@ internal class SweepPassTest : KotlinSnippetTestCase() {
         val swept = passOver(listOf(invoice(), reader()))
 
         assertEquals("Files that threw: ${swept.failures.map { "${it.path}: ${it.summary}" }}", 0, swept.failures.size)
-        assertEquals(1, swept.files.java)
-        assertEquals(1, swept.files.kotlin)
+        assertEquals(1, swept.counts.java)
+        assertEquals(1, swept.counts.kotlin)
         assertTrue("The Kotlin file's own function was not renamed: ${originalsIn(swept)}", "read" in originalsIn(swept))
         assertFalse(
             "`body` survived the shipped route in the Kotlin output.",
@@ -68,19 +68,30 @@ internal class SweepPassTest : KotlinSnippetTestCase() {
     }
 
     /**
-     * **One ledger across the run, and across both languages.** The Java file's private field is
-     * minted by the Java file alone and still held once the Kotlin file has been swept after it; and the
-     * Java class the Kotlin file names holds one placeholder, not one per language.
+     * **One ledger across the run, and across both languages.** The Java class the Kotlin file names
+     * keeps the placeholder the Java file minted for it — which it does only if the Kotlin file was
+     * anonymised *against* the ledger the Java file left, rather than against a fresh one whose delta
+     * was merged in afterwards. And what the Java file alone minted is still held at the end.
      */
     fun `test one ledger carries across the Java and Kotlin files of one run`() {
         assertTheSessionIsK2()
+        val invoice = invoice()
+        val reader = reader()
 
-        val originals = originalsIn(passOver(listOf(invoice(), reader())))
+        val mintedByJava = placeholderOf("Invoice", passOver(listOf(invoice)))
+        val swept = passOver(listOf(invoice, reader))
 
-        assertTrue("The Java file's names were not carried into the Kotlin file's ledger: $originals", "serial" in originals)
-        assertTrue("The Kotlin file minted nothing: $originals", "read" in originals)
-        assertEquals("The Java class the Kotlin file names was minted more than once: $originals", 1, originals.count { it == "Invoice" })
+        assertEquals(
+            "The Kotlin file re-minted the Java class it names instead of reading it from the one ledger.",
+            mintedByJava,
+            placeholderOf("Invoice", swept),
+        )
+        assertTrue("The Java file's names were not carried to the end of the run: ${originalsIn(swept)}", "serial" in originalsIn(swept))
+        assertTrue("The Kotlin file minted nothing: ${originalsIn(swept)}", "read" in originalsIn(swept))
     }
+
+    private fun placeholderOf(original: String, swept: Swept): String? =
+        swept.ledger.placeholders.values.single { it.original == original }.placeholder
 
     /** **A throw on a Kotlin file is a failure, recorded the way one on a Java file is**, and the run goes on. */
     fun `test a throw on a Kotlin file is recorded and the files after it are still swept`() {
@@ -88,7 +99,7 @@ internal class SweepPassTest : KotlinSnippetTestCase() {
 
         val swept = passOver(
             listOf(reader(), invoice()),
-            route = { file -> if (file is KtFile) PlanBuilder { error("a shape nobody thought of") } else shippedRoute(file) },
+            route = { file -> if (file is KtFile) PlanBuilder { error("a shape nobody thought of") } else sweepRoute(file) },
         )
 
         assertEquals(listOf("Reader.kt"), swept.failures.map { it.path })
@@ -105,7 +116,7 @@ internal class SweepPassTest : KotlinSnippetTestCase() {
 
     private fun originalsIn(swept: Swept): List<String> = swept.ledger.placeholders.values.map { it.original }
 
-    private fun passOver(files: List<PsiFile>, route: (PsiFile) -> PlanBuilder = ::shippedRoute): Swept {
+    private fun passOver(files: List<PsiFile>, route: (PsiFile) -> PlanBuilder = ::sweepRoute): Swept {
         val oracle = LeakOracle.over(
             SourceSpellings.of(SourceDeclarations.of(project, files.map { it.virtualFile }).declarations),
             declaredByLibraries = emptySet(),

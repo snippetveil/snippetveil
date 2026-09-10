@@ -26,9 +26,9 @@ import java.time.format.DateTimeFormatter
 /**
  * **The corpus sweep: real code in, findings out, and the code never moves.**
  *
- * Runs the anonymiser whole-file over every Java and Kotlin source in a real codebase — through one
- * ledger, as a real session does, and see [SweepPass] — and writes a triage list
- * of suspected leaks. It is run by a human, deliberately, and it is **never run in CI** — see
+ * Runs the anonymiser whole-file over every Java and Kotlin source in a real codebase, through one
+ * ledger as a real session does (see [SweepPass]), and writes a triage list of suspected leaks. It
+ * is run by a human, deliberately, and it is **never run in CI** — see
  * *Instrument, not test* below and `assertTheSweepIsNeverRunInCi` in the root `build.gradle.kts`.
  *
  * ### Why real code is load-bearing
@@ -66,7 +66,12 @@ import java.time.format.DateTimeFormatter
  *
  * ```
  * ./gradlew corpusSweep -PsweepProject=/path/to/a/real/checkout
+ * ./gradlew corpusSweep -PplatformProfile=k2 -PsweepProject=/path/to/a/real/checkout
  * ```
+ *
+ * The second is the one a target with Kotlin in it needs. The default platform runs the Kotlin plugin
+ * in K1, where SnippetVeil's Kotlin support is not registered, and there the sweep refuses such a
+ * target rather than sweep its Java half alone — see [refuseKotlinThatCannotBeSwept].
  *
  * With no `-PsweepProject` the task is **skipped, not failed**, so public CI cannot demand it and a
  * contributor without a codebase to point it at is never blocked. `-PsweepReportDir` moves the
@@ -135,7 +140,7 @@ class CorpusSweep : BareTestFixtureTestCase() {
         val javaFiles = files.count { it.fileType == JavaFileType.INSTANCE }
         say("${files.size} source file(s) in project content: $javaFiles Java and ${files.size - javaFiles} Kotlin.")
 
-        // Refused before anything is read, and before the minutes a real universe takes: a Kotlin
+        // Refused before the universe is read, which is the minutes a real codebase takes: a Kotlin
         // file this IDE cannot anonymise would otherwise be a half of the report nobody looked at.
         refuseKotlinThatCannotBeSwept(project, files)
 
@@ -180,14 +185,13 @@ class CorpusSweep : BareTestFixtureTestCase() {
 
         // Counts only. The names are the leak, and the console is the easiest thing in the world to
         // copy out of — so is an exception message, which can name the symbol it choked on.
-        say("Files swept: ${swept.files.java} Java and ${swept.files.kotlin} Kotlin.")
         say("Files with findings: ${swept.findings.size}. Distinct names surviving: ${swept.findings.sumOf { it.survivors.size }}.")
         say("Files that could not be swept: ${swept.failures.size}.")
 
         return SweepReport(
             startedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
             targetProject = targetPath.toString(),
-            swept = swept.files,
+            swept = swept.counts,
             universe = universe,
             findings = swept.findings,
             failures = swept.failures,
@@ -223,9 +227,17 @@ class CorpusSweep : BareTestFixtureTestCase() {
         val known = onDisk.mapNotNull { fileSystem.refreshAndFindFileByNioFile(it) }
 
         val index = ProjectRootManager.getInstance(project).fileIndex
-        return smartly(project) {
-            known.filter { it.fileType in SOURCE_TYPES && index.isInSourceContent(it) }.sortedBy { it.path }
+        val inContent = smartly(project) { known.filter { index.isInSourceContent(it) } }
+
+        // **Refused rather than dropped** where the name and the IDE's type disagree: a `.kt` file this
+        // IDE does not type as Kotlin — the Kotlin plugin switched off — would otherwise leave the
+        // universe and the sweep alike, and the report would never know it had existed.
+        val untyped = inContent.count { it.fileType !in SOURCE_TYPES }
+        check(untyped == 0) {
+            "$untyped source file(s) named .java or .kt are not typed Java or Kotlin by this IDE, so they " +
+                "could be neither read nor swept. Is the Kotlin plugin enabled in this IDE?"
         }
+        return inContent.sortedBy { it.path }
     }
 
     /**
@@ -312,7 +324,7 @@ class CorpusSweep : BareTestFixtureTestCase() {
         /** What the universe is read from. `.kts` is not here: a script is not the project's source. */
         val SOURCE_EXTENSIONS = listOf(".java", ".kt")
 
-        /** The same two, as the IDE types a file — which is what decides, where the name could lie. */
+        /** The same two, as the IDE types a file. A file whose name and type disagree is refused, not dropped. */
         val SOURCE_TYPES = setOf(JavaFileType.INSTANCE, KotlinFileType.INSTANCE)
 
         /**

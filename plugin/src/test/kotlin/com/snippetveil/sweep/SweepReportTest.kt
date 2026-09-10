@@ -240,7 +240,7 @@ class SweepReportTest {
     private fun report(findings: List<FileFindings>, failures: List<SweepFailure> = emptyList()) = SweepReport(
         startedAt = "2026-08-23T19:26:00",
         targetProject = "/home/me/acme",
-        swept = SweptFiles(java = 800, kotlin = 90),
+        swept = SweptCounts(java = 800, kotlin = 90),
         universe = UniverseSize(
             owned = 14203,
             declared = 14905,

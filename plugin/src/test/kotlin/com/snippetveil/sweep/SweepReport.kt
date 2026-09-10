@@ -17,8 +17,9 @@ import java.nio.file.Path
  *   rendering stays a function of its arguments.
  * @param targetProject the path the sweep was pointed at
  * @param swept how many files of each language were handed to the anonymiser — apart from how many
- *   the universe read, which is [universe]'s, because the two can differ and the difference is the
- *   half nobody anonymised
+ *   the universe read, which is [universe]'s. They are two coverages, the anonymiser's and the
+ *   check's, and one number standing for both is how a Kotlin half nobody anonymised was once
+ *   reported on as if it had been
  * @param universe how the project-owned spellings were arrived at — the check's own coverage, which is
  *   reported rather than assumed for the same reason the trust checks report theirs
  * @param findings the files that have something to triage, in the order they were swept — never one
@@ -35,7 +36,7 @@ import java.nio.file.Path
 internal class SweepReport(
     private val startedAt: String,
     private val targetProject: String,
-    private val swept: SweptFiles,
+    private val swept: SweptCounts,
     private val universe: UniverseSize,
     private val findings: List<FileFindings>,
     private val failures: List<SweepFailure> = emptyList(),
@@ -151,7 +152,7 @@ internal class SweepFailure(val path: String, val summary: String)
  * How many files of each language the sweep handed to the anonymiser — a file it threw on included,
  * because that file was swept and is listed among the failures.
  */
-internal class SweptFiles(val java: Int, val kotlin: Int)
+internal class SweptCounts(val java: Int, val kotlin: Int)
 
 /** Every project-owned name that reached one file's output. */
 internal class FileFindings(val path: String, val survivors: List<Survivor>)
