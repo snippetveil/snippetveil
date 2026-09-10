@@ -440,11 +440,18 @@ artifact that overstates its own reach is worse than one that does less and says
   rules change shape, and read the answers. It is recorded here rather than papered over, because
   the failure mode is a green build over a product that has quietly stopped being useful, and a
   reader of this file is entitled to know which of the two claims it checks.
-- **The corpus sweep is blind to an exact collision, and to nothing else.** The one instrument that
-  can see a *missing* plan item subtracts every name the JDK or a library also declares, so a project
-  class called `Builder` leaking verbatim looks exactly like the `Builder` the anonymiser preserves
-  on purpose. That is the **only** thing it cannot see, and it is deliberately the only thing: see
-  below for why nothing else is subtracted, and for the one false positive every sweep will contain.
+- **The corpus sweep is blind to an exact collision, and to two spellings it cannot read off the
+  page.** The one instrument that can see a *missing* plan item subtracts every spelling the JDK or a
+  library also declares, so a project class called `Builder` leaking verbatim looks exactly like the
+  `Builder` the anonymiser preserves on purpose — and so does a Kotlin `val body` leaking as
+  `getBody()`, where a library declares a `getBody` too. That subtraction is deliberately the only
+  one: see below for why nothing else is subtracted, and for the false positives it reports rather
+  than hides. The two spellings are the ones the universe would have to *resolve* something to know,
+  and it resolves nothing: a `@JvmName` whose argument is a constant or a template rather than a
+  literal, and an `internal` member of a module whose Kotlin `moduleName` is set in the build instead
+  of following the module's own name. Each is a leak the sweep would report clean, and each is stated
+  here rather than closed by teaching the universe to resolve — which would buy two spellings with the
+  independence the whole instrument rests on.
 
 ## The corpus sweep
 
@@ -455,7 +462,8 @@ artifact that overstates its own reach is worse than one that does less and says
 ```
 
 It opens that project, anonymises every Java file in its source content **whole-file**, and writes a
-triage list of names the project owns that survived into the output. With no `-PsweepProject` it is
+triage list of names the project owns that survived into the output. The names it looks for are read
+out of the project's Java **and** Kotlin sources; the files it anonymises are the Java ones. With no `-PsweepProject` it is
 **skipped, not failed**, so a contributor with no codebase to point it at is never blocked.
 
 **The committed fixture corpus is 100% synthetic, and stays that way.** The obvious clever move —
@@ -485,11 +493,65 @@ never in the mapping*. That is what the bug **was**. A mapping-derived check is 
 because it can only ask about entries that exist: it can prove that what the anonymiser did was
 done, and it can never prove that it did everything.
 
-So `LeakOracle` is built from two sets the anonymiser's own walk had no part in — every identifier
-declared anywhere in the target's own sources, less the names the JDK and the libraries declare — and
+So `LeakOracle` is built from sets the anonymiser's own walk had no part in — every spelling of every
+declaration in the target's own sources, less the spellings the JDK and the libraries declare — and
 its constructor is private so that it cannot be built from anything else. A future maintainer
 reaching for `AnonymizationResult.mapping` has to change a signature that says what the universe is
 derived from.
+
+### The universe is a set of spellings, not a set of declarations
+
+Java let a use-site token equal its declaration's text so reliably that nobody wrote the assumption
+down, and the universe was built on it. **Kotlin ends it.** A Java `String getBody()` is written
+`javaObj.body` from Kotlin, a Kotlin `val body` is written `getBody()` from Java, and a file's
+top-level functions live in a facade — `LedgerKt` — that no source text declares at all. A universe of
+declared text contains none of those, so a missed rename that let one out was reported *clean*; and
+before the universe was a closure, no `.kt` file was read at all.
+
+So the universe is a closure, and it is stated as a rule rather than kept as a list, because a list
+gets extended by taste:
+
+> **The closure contains exactly those spellings by which a project-owned declaration can be written
+> in a `.java` or `.kt` source file.**
+
+**In:** a property's getter, its setter (a `val` has none) and its backing field; the `is` form of
+both, where the compiler keeps the prefix; a Java getter's Kotlin property; a file's facade, or the
+`@file:JvmName` that replaces it; a `@JvmName`; a named companion; an `object`'s `Foo.INSTANCE`,
+matched as a qualified spelling so that the bare word the language fixes is not; and an `internal`
+callable with its module mangled in. **Out, by the same rule:** a value class's `f-impl`, which is
+not a Java identifier and cannot be written; the bytecode-only `f$default`, `access$…` and
+`DefaultImpls`, because a JVM signature is not a source spelling; and the names the *language* fixes
+rather than a declaration — `it`, `Companion`, `component1`. `SourceSpellingsTest` holds each row,
+`LeakOracleTest` holds each one surviving into an output in both directions, and
+`SweepDeclarationWalkTest` holds the walk against the names the platform itself gives the same Kotlin
+declarations, in the one cell a Kotlin fixture may run in.
+
+**It is string mangling, and that is the point.** Every spelling is derived from declaration text and
+file names; nothing is resolved, and no plan, mapping or result is consulted — which is what keeps the
+universe independent of the anonymiser's walk, the entire reason this layer exists. The module name
+an `internal` spelling needs is the one input that is neither, and it is read from the IDE's module
+structure rather than from anything the anonymiser computed: the module's name as the IDE has it, and
+the Gradle module that name stands for. A guess that names no real module costs nothing, because a
+spelling nobody compiled never appears. `LeakUniverseIndependenceTest` holds the rest over bytecode:
+the classes that build the universe reach no `com.snippetveil.core` or `com.snippetveil.plugin` type,
+no light class, no Analysis API and no reference resolution — and each of those edges is shown red,
+on a fixture that crosses it, before the rule is trusted. What the universe cannot read without
+resolving something is listed under the known limits above rather than read by resolving it.
+
+**The closure adds noise, and the noise is the accepted direction.** Some derived spellings never
+appear in any output, and some collide with a library member — `getBody` is declared by a great many
+libraries. The library set only ever subtracts, so an incomplete one costs false positives; an
+*authorising* list would make an over-broad one cost false negatives, on the one check whose whole job
+is to fail closed. So every derived row is annotated in the report — *this token entered the universe
+by closure, not by declaration*, and what it was derived from — and a false-positive rate that proves
+intolerable is answered by that annotation and never by a narrower universe. It is the `com`
+precedent below, applied a second time.
+
+**One contract, more than one construction.** `LeakOracle.survivorsIn` is the contract: nothing
+project-owned survives into the output except through a rule-stated preserve. `LeakOracle.over`, over
+a `SourceSpellings`, is the construction for *source under analysis*, and it is the only one. Another
+input shape takes a construction of its own, over an input type of its own, rather than widening this
+one — unifying them would collapse every construction to this one and bring its blindness with it.
 
 ### One subtraction, and why there is not a second
 

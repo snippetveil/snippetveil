@@ -94,6 +94,51 @@ class SweepReportTest {
         assertTrue("top-level package segment" in rendered) { rendered }
     }
 
+    /**
+     * **The triage annotation, on the row itself.** A spelling the closure derived — `getBody` for a
+     * Kotlin `val body` — is a new, known class of false positive, and the row says what it was derived
+     * from so that a reader adjudicates the class once instead of each row afresh.
+     */
+    @Test
+    fun `a row that entered the universe by closure says so, and says from what`() {
+        val rendered = report(
+            findings = listOf(
+                FileFindings(
+                    "Ledger.java",
+                    listOf(
+                        Survivor("getBody", 7, "x.getBody();", derivation = "the getter of Kotlin property body"),
+                        Survivor("MerchantLedger", 42, "MerchantLedger field2;"),
+                    ),
+                ),
+            ),
+        ).render().lines()
+
+        val derivedRow = rendered.single { it.trim().startsWith("L7") }
+        val declaredRow = rendered.single { it.trim().startsWith("L42") }
+        assertTrue("by closure" in derivedRow && "the getter of Kotlin property body" in derivedRow) { derivedRow }
+        assertTrue("by closure" !in declaredRow) { declaredRow }
+    }
+
+    /**
+     * The closure's noise is documented on the same footing as `com`: named in the report, and
+     * **never answered by a narrower universe.**
+     */
+    @Test
+    fun `the report names the false positive the closure adds`() {
+        val rendered = report(findings = listOf(fileWith("Ledger.java", "MerchantLedger"))).render()
+
+        assertTrue("entered the universe by closure, not by declaration" in rendered) { rendered }
+    }
+
+    /** Coverage, reported: what the closure added, and that Kotlin sources were read at all. */
+    @Test
+    fun `the report counts what the closure derived and the Kotlin files it read`() {
+        val rendered = report(findings = emptyList()).render()
+
+        assertTrue("2408" in rendered) { "The count derived by closure is missing:\n$rendered" }
+        assertTrue("97 Kotlin" in rendered) { "The Kotlin file count is missing:\n$rendered" }
+    }
+
     @Test
     fun `a path outside every named tree is allowed`(@TempDir root: Path) {
         val outside = root.resolve("elsewhere")
@@ -182,7 +227,14 @@ class SweepReportTest {
         startedAt = "2026-08-23T19:26:00",
         targetProject = "/home/me/acme",
         filesSwept = 812,
-        universe = UniverseSize(owned = 14203, declared = 17315, sharedWithLibraries = 3110),
+        universe = UniverseSize(
+            owned = 14203,
+            declared = 14905,
+            derived = 2408,
+            sharedWithLibraries = 3110,
+            javaFiles = 812,
+            kotlinFiles = 97,
+        ),
         findings = findings,
         failures = failures,
     )

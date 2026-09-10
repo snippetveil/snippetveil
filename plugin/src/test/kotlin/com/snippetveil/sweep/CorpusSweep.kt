@@ -9,12 +9,8 @@ import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.psi.JavaRecursiveElementWalkingVisitor
-import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiJavaFile
-import com.intellij.psi.PsiLabeledStatement
 import com.intellij.psi.PsiManager
-import com.intellij.psi.PsiNameIdentifierOwner
 import com.intellij.psi.search.ProjectScope
 import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.testFramework.PlatformTestUtil
@@ -26,6 +22,7 @@ import com.snippetveil.core.plus
 import com.snippetveil.plugin.InternalLibrarySettings
 import com.snippetveil.plugin.JavaPlanBuilder
 import com.snippetveil.plugin.SnippetRequest
+import org.jetbrains.kotlin.idea.KotlinFileType
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.nio.file.Files
@@ -140,22 +137,37 @@ class CorpusSweep : BareTestFixtureTestCase() {
 
     /** Everything between an open project and the rendered report, kept out of the test method so that it reads as the sequence it is. */
     private fun sweep(project: Project, targetPath: Path): String {
-        val files = javaSourcesOf(project, targetPath)
-        check(files.isNotEmpty()) { "No Java source files were found under $targetPath. Nothing would be swept." }
-        say("${files.size} Java source file(s) in project content.")
+        val files = sourcesOf(project, targetPath)
+        val javaFiles = files.filter { it.fileType == JavaFileType.INSTANCE }
+        check(javaFiles.isNotEmpty()) { "No Java source files were found under $targetPath. Nothing would be swept." }
+        say("${files.size} Java and Kotlin source file(s) in project content, ${javaFiles.size} of them Java.")
 
-        val declarations = smartly(project) { declarationsIn(project, files) }
-        val sharedWithLibraries = smartly(project) { namesTheLibrariesAlsoDeclare(project, declarations) }
-        val oracle = LeakOracle.over(
-            declaredInProjectSources = declarations,
-            declaredByLibraries = sharedWithLibraries,
-        )
+        // **The universe reads both languages; the anonymiser runs over the Java half.** A Kotlin
+        // declaration reaches a Java file's output under a sibling spelling — `getBody` for a
+        // `val body`, `LedgerKt` for a facade — and a universe read from Java alone could not see it.
+        val read = smartly(project) { SourceDeclarations.of(project, files) }
+
+        // Coverage, asserted rather than assumed: a source file the IDE would not hand over as Java
+        // or Kotlin is a file whose names never reached the universe, and every output would then be
+        // checked against less than the project declares — the fail-open this instrument exists not
+        // to have.
+        check(read.javaFiles + read.kotlinFiles == files.size) {
+            "${files.size - read.javaFiles - read.kotlinFiles} of the ${files.size} source file(s) found could " +
+                "not be read as Java or Kotlin, so their declarations are missing from the universe and a " +
+                "leak of any of them would be reported clean. Is the Kotlin plugin enabled in this IDE?"
+        }
+        val spellings = SourceSpellings.of(read.declarations)
+        val sharedWithLibraries = smartly(project) { spellingsTheLibrariesAlsoDeclare(project, spellings.names) }
+        val oracle = LeakOracle.over(spellings, declaredByLibraries = sharedWithLibraries)
         val universe = UniverseSize(
             owned = oracle.size,
-            declared = declarations.size,
+            declared = spellings.declared,
+            derived = spellings.derived,
             sharedWithLibraries = sharedWithLibraries.size,
+            javaFiles = read.javaFiles,
+            kotlinFiles = read.kotlinFiles,
         )
-        say("Name universe: ${universe.owned} project-owned of ${universe.declared} declared.")
+        say("Name universe: ${universe.owned} project-owned of ${universe.declared} declared and ${universe.derived} derived.")
 
         // The product's own settings, read rather than assumed: the internal-library prefix list is
         // the one thing a real checkout can have configured that changes what the output contains.
@@ -168,8 +180,8 @@ class CorpusSweep : BareTestFixtureTestCase() {
         val findings = mutableListOf<FileFindings>()
         val failures = mutableListOf<SweepFailure>()
 
-        files.forEachIndexed { index, file ->
-            if (index > 0 && index % 200 == 0) say("  … $index/${files.size}")
+        javaFiles.forEachIndexed { index, file ->
+            if (index > 0 && index % 200 == 0) say("  … $index/${javaFiles.size}")
             val where = relativeTo(targetPath, file)
 
             // **A throw is a finding, not an outage.** It is the shape nobody thought of, arriving
@@ -206,7 +218,7 @@ class CorpusSweep : BareTestFixtureTestCase() {
         return SweepReport(
             startedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
             targetProject = targetPath.toString(),
-            filesSwept = files.size,
+            filesSwept = javaFiles.size,
             universe = universe,
             findings = findings,
             failures = failures,
@@ -214,8 +226,9 @@ class CorpusSweep : BareTestFixtureTestCase() {
     }
 
     /**
-     * Every Java file in the target's **own source content** — which is what the oracle's universe is
-     * built from and what the sweep anonymizes, so the two can never be about different files.
+     * Every Java and Kotlin file in the target's **own source content** — which is what the oracle's
+     * universe is built from, and whose Java half is what the sweep anonymizes, so the two can never be
+     * about different trees.
      *
      * **Found on disk rather than by walking the project index**, because the sweep is pointed at a
      * live working tree: the VFS serves a directory listing it cached the last time something looked,
@@ -224,13 +237,13 @@ class CorpusSweep : BareTestFixtureTestCase() {
      * says is still authoritative for whether a file counts — hence the source-content filter, which
      * is what keeps build output, generated sources and `.git` out of the universe.
      */
-    private fun javaSourcesOf(project: Project, targetPath: Path): List<VirtualFile> {
+    private fun sourcesOf(project: Project, targetPath: Path): List<VirtualFile> {
         // The disk walk and the refresh happen **outside a read action**: a synchronous VFS refresh
         // under the read lock deadlocks, and the platform says so out loud. Only the question of
         // whether a file is source content needs the lock, so only that part takes it.
         val fileSystem = LocalFileSystem.getInstance()
         val onDisk = Files.walk(targetPath).use { paths ->
-            paths.filter { Files.isRegularFile(it) && it.toString().endsWith(".java") }
+            paths.filter { Files.isRegularFile(it) && SOURCE_EXTENSIONS.any(it.toString()::endsWith) }
                 .filter { path -> generateSequence(path.parent) { it.parent }.none { it.fileName?.toString() == ".git" } }
                 .toList()
         }
@@ -242,65 +255,38 @@ class CorpusSweep : BareTestFixtureTestCase() {
 
         val index = ProjectRootManager.getInstance(project).fileIndex
         return smartly(project) {
-            known.filter { it.fileType == JavaFileType.INSTANCE && index.isInSourceContent(it) }.sortedBy { it.path }
+            known.filter { it.fileType in SOURCE_TYPES && index.isInSourceContent(it) }.sortedBy { it.path }
         }
     }
 
     /**
-     * **The identifier universe, built without the anonymiser's own walk.**
-     *
-     * A second, independent reading of the same files: this one visits **declarations** and asks each
-     * for its name, where [JavaPlanBuilder] walks **references** and resolves them. Nothing here
-     * consults a plan, a mapping or a result, which is the property the whole instrument rests on —
-     * see [LeakOracle.over].
-     *
-     * Over-inclusive on purpose. Every [PsiNameIdentifierOwner] is a declaration in Java's grammar —
-     * classes, methods, fields, parameters, locals, type parameters, record components — and a label
-     * is added explicitly rather than relied upon, because whether a labelled statement implements
-     * that interface is a platform detail and not a thing this file should have an opinion about. A
-     * name collected here that the anonymiser was never going to touch costs a human a minute; a name
-     * missed costs the product its core promise.
-     */
-    private fun declarationsIn(project: Project, files: List<VirtualFile>): Set<String> {
-        val names = sortedSetOf<String>()
-        val manager = PsiManager.getInstance(project)
-
-        files.forEach { file ->
-            val psi = manager.findFile(file) as? PsiJavaFile ?: return@forEach
-
-            // A package statement declares every segment of its own name — **the first one
-            // included**. The engine passes that segment through by a positional rule, so it will be
-            // reported in every file the sweep touches; it is a known false positive a human
-            // adjudicates, and not a name this walk gets to drop. See [LeakOracle.over].
-            names += psi.packageName.takeIf { it.isNotEmpty() }?.split('.').orEmpty()
-
-            psi.accept(object : JavaRecursiveElementWalkingVisitor() {
-                override fun visitElement(element: PsiElement) {
-                    if (element is PsiNameIdentifierOwner) element.name?.let { names += it }
-                    if (element is PsiLabeledStatement) names += element.labelIdentifier.text
-                    super.visitElement(element)
-                }
-            })
-        }
-        return names
-    }
-
-    /**
-     * The names in [candidates] that the JDK or a library also declares — the oracle's one structural
-     * blind spot, measured rather than guessed at.
+     * The spellings in [candidates] that the JDK or a library also declares — the oracle's one
+     * structural blind spot, measured rather than guessed at.
      *
      * Asked of the short-names index over the libraries scope, which is a different question from
      * anything the anonymiser asks and answers it without resolving a single reference. A project
      * class called `Builder` is subtracted here, and a genuine leak of a project class called
      * `Builder` is therefore invisible to this instrument. That is stated in the report.
+     *
+     * A qualified spelling — `Settlement.INSTANCE` — is subtracted only where a library class of that
+     * name declares that member. **This set only ever subtracts**, so a question it answers too
+     * narrowly costs a false positive and never a miss.
      */
-    private fun namesTheLibrariesAlsoDeclare(project: Project, candidates: Set<String>): Set<String> {
+    private fun spellingsTheLibrariesAlsoDeclare(project: Project, candidates: Set<String>): Set<String> {
         val cache = PsiShortNamesCache.getInstance(project)
         val libraries = ProjectScope.getLibrariesScope(project)
-        return candidates.filterTo(sortedSetOf()) { name ->
-            cache.getClassesByName(name, libraries).isNotEmpty() ||
-                cache.getFieldsByName(name, libraries).isNotEmpty() ||
-                cache.getMethodsByName(name, libraries).isNotEmpty()
+        return candidates.filterTo(sortedSetOf()) { spelling ->
+            if ('.' in spelling) {
+                val owner = spelling.substringBeforeLast('.').substringAfterLast('.')
+                val member = spelling.substringAfterLast('.')
+                cache.getClassesByName(owner, libraries).any {
+                    it.findFieldByName(member, true) != null || it.findMethodsByName(member, true).isNotEmpty()
+                }
+            } else {
+                cache.getClassesByName(spelling, libraries).isNotEmpty() ||
+                    cache.getFieldsByName(spelling, libraries).isNotEmpty() ||
+                    cache.getMethodsByName(spelling, libraries).isNotEmpty()
+            }
         }
     }
 
@@ -360,6 +346,12 @@ class CorpusSweep : BareTestFixtureTestCase() {
         const val REPOSITORY_PROPERTY = "snippetveil.sweep.repository"
 
         val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+
+        /** What the universe is read from. `.kts` is not here: a script is not the project's source. */
+        val SOURCE_EXTENSIONS = listOf(".java", ".kt")
+
+        /** The same two, as the IDE types a file — which is what decides, where the name could lie. */
+        val SOURCE_TYPES = setOf(JavaFileType.INSTANCE, KotlinFileType.INSTANCE)
 
         /**
          * `~/snippetveil-sweep`: outside every checkout, and somewhere a human can find without being

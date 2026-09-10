@@ -17,7 +17,7 @@ import java.nio.file.Path
  *   rendering stays a function of its arguments.
  * @param targetProject the path the sweep was pointed at
  * @param filesSwept how many Java files were anonymized
- * @param universe how the project-owned name set was arrived at — the check's own coverage, which is
+ * @param universe how the project-owned spellings were arrived at — the check's own coverage, which is
  *   reported rather than assumed for the same reason the trust checks report theirs
  * @param findings the files that have something to triage, in the order they were swept — never one
  *   entry per file. A codebase of thousands is thousands of empty rows otherwise, and what was
@@ -63,8 +63,10 @@ internal class SweepReport(
         appendLine()
         appendLine("Target project  : $targetProject")
         appendLine("Files swept     : $filesSwept")
-        appendLine("Name universe   : ${universe.owned} project-owned name(s)")
-        appendLine("                  ${universe.declared} declared in the project's own sources,")
+        appendLine("Name universe   : ${universe.owned} project-owned spelling(s)")
+        appendLine("                  ${universe.declared} declared in the project's own sources")
+        appendLine("                  (${universe.javaFiles} Java and ${universe.kotlinFiles} Kotlin file(s) read),")
+        appendLine("                  plus ${universe.derived} derived from those declarations by closure,")
         appendLine("                  less ${universe.sharedWithLibraries} the JDK or a library also declares.")
         appendLine("                  That is the only subtraction. Nothing else is filtered out.")
         appendLine()
@@ -98,12 +100,23 @@ internal class SweepReport(
         appendLine("that is deliberate:")
         appendLine("suppressing it would buy a shorter report with a class of leak this instrument")
         appendLine("could never see again. Adjudicate it once and read past it.")
+        appendLine()
+        // The closure's noise, on the same footing as `com`: named here, marked on every row it
+        // produces, and never answered by a narrower universe.
+        appendLine("Rows marked (by closure) are a second known class. Java and Kotlin write one")
+        appendLine("declaration more than one way — a Kotlin `val body` is `getBody()` from Java, and")
+        appendLine("a file's top-level functions sit in a facade named after the file — so the universe")
+        appendLine("holds those spellings too, derived from the declarations. Such a row's token")
+        appendLine("entered the universe by closure, not by declaration: some of these spellings are")
+        appendLine("never used, and some collide with a library member the anonymiser preserves. They")
+        appendLine("are reported rather than narrowed away, for the reason the package segment is.")
+        appendLine("The marker says what each was derived from; adjudicate the class and read past it.")
 
         triage.forEach { file ->
             appendLine()
             appendLine("── ${file.path} ".padEnd(96, '─'))
             file.survivors.forEach { survivor ->
-                appendLine("  L${survivor.line}  ${survivor.name}")
+                appendLine("  L${survivor.line}  ${survivor.name}" + survivor.derivation?.let { "   (by closure: $it)" }.orEmpty())
                 appendLine("        ${survivor.text}")
             }
         }
@@ -140,12 +153,25 @@ internal class FileFindings(val path: String, val survivors: List<Survivor>)
  * assumed.
  *
  * @param owned the size of the universe the oracle actually tested against
- * @param declared how many names the declaration walk read out of the project's own sources
+ * @param declared how many spellings the declaration walk read out of the project's own sources, as
+ *   the declarations write them
+ * @param derived how many more the closure derived from those declarations — the spellings a Kotlin
+ *   declaration has in Java and the reverse, and the facades no source text declares
  * @param sharedWithLibraries how many of those the JDK or a library also declares, and which were
  *   therefore subtracted. A large number here is the instrument telling a reader how much of the
  *   project it is structurally blind to.
+ * @param javaFiles how many Java files the declaration walk read
+ * @param kotlinFiles how many Kotlin files it read — the half that was never read at all before the
+ *   universe was a closure, and so the half a reader most needs to see is not zero
  */
-internal class UniverseSize(val owned: Int, val declared: Int, val sharedWithLibraries: Int)
+internal class UniverseSize(
+    val owned: Int,
+    val declared: Int,
+    val derived: Int,
+    val sharedWithLibraries: Int,
+    val javaFiles: Int,
+    val kotlinFiles: Int,
+)
 
 /**
  * Where the report is allowed to go — **outside the repository tree entirely, and outside the swept
