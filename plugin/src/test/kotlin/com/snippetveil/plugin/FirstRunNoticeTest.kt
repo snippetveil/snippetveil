@@ -50,16 +50,16 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
      * sentence that sends the user to the right item and in one that sends them to the wrong menu,
      * and the sentence's own words are the only evidence either way. So the ancestry is derived —
      * from the editor popup down to the action, through the groups `plugin.xml` registers — and the
-     * balloon's claim is checked against it. The editor popup because that is the menu the sentence's
-     * gesture opens; the same group is also the Tools menu's, and one group is what makes the steps
-     * below either gesture the same two.
+     * balloon's claim is checked against it. The editor popup, because right-click is the gesture the
+     * sentence names; why that gesture rather than the Tools menu is recorded on
+     * `SnippetVeilNotifications.installed`.
      *
      * **The sentence has failed the second assertion before.** The four items moved into a
      * `SnippetVeil` submenu and the balloon went on saying right-click → **Copy Anonymized**, one step
      * short, so a user who followed it looked at a context menu without the item they had just been
      * told to click. The first assertion passes on that sentence — every step it does name is real —
-     * which is why it is not enough on its own. snippetveil/snippetveil#101 corrected the sentence
-     * here, where the old one was pinned, rather than beside it.
+     * which is why it is not enough on its own. The correction, for snippetveil/snippetveil#101, was
+     * made here, where the old sentence was pinned, rather than beside it.
      *
      * Two assertions, which together say the stated path *is* the registered one. They are kept apart
      * because they fail for different reasons and should say different things when they do:

@@ -125,8 +125,8 @@ internal object SnippetVeilNotifications {
      *
      * **Right-click rather than the Tools menu**, though the same group is the Tools menu's too and
      * `Tools → SnippetVeil → Copy Anonymized` is a few characters narrower. The user has just selected
-     * code, so the context menu is the one under their hand, and it is the path the listing's own
-     * screenshot of the menu shows — one gesture described twice rather than two. Because it is one
+     * code, so the context menu is the one under their hand; and it is the menu the listing's
+     * screenshots show, so the balloon and the listing describe the same gesture. Because it is one
      * group in both places, the steps after either gesture are the same two.
      *
      * **`Open settings` rather than a link to documentation**, because the page it opens is where
