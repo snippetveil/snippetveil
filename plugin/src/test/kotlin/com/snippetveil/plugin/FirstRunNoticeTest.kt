@@ -3,9 +3,6 @@ package com.snippetveil.plugin
 import com.intellij.notification.NotificationDisplayType
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
-import com.intellij.openapi.actionSystem.ActionGroup
-import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
@@ -44,14 +41,9 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
 
     /**
      * **The path the balloon names, against the path the action actually has** — read off the
-     * registration rather than matched as a substring.
-     *
-     * A substring check cannot tell a true path from a false one: `"Copy Anonymized"` appears in a
-     * sentence that sends the user to the right item and in one that sends them to the wrong menu,
-     * and the sentence's own words are the only evidence either way. So the ancestry is derived —
-     * from the editor popup down to the action, through the groups `plugin.xml` registers — and the
-     * balloon's claim is checked against it. The editor popup, because right-click is the gesture the
-     * sentence names; why that gesture rather than the Tools menu is recorded on
+     * registration rather than matched as a substring; [assertMenuPathIsReal] says how, and why it
+     * is two assertions. The listing names the same path and is held to the same check, in
+     * `ListingCopyTest`. Why the gesture is right-click rather than the Tools menu is recorded on
      * `SnippetVeilNotifications.installed`.
      *
      * **The sentence has failed the second assertion before.** The four items moved into a
@@ -60,78 +52,11 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
      * told to click. The first assertion passes on that sentence — every step it does name is real —
      * which is why it is not enough on its own. The correction, for snippetveil/snippetveil#101, was
      * made here, where the old sentence was pinned, rather than beside it.
-     *
-     * Two assertions, which together say the stated path *is* the registered one. They are kept apart
-     * because they fail for different reasons and should say different things when they do:
-     *
-     *  1. **Every step the balloon names is real, and in order.** A sentence naming a menu item that
-     *     does not exist, or naming them the wrong way round, fails here.
-     *  2. **No step is missing.** A sentence that skips a level of the menu — the submenu, or one
-     *     added above it later — fails here, naming the step it skipped.
      */
     fun `test the balloon's menu path is a real path to the action`() {
         announceInstallation(project)
 
-        val ancestry = menuAncestryOf(COPY_ANONYMIZED)
-        val stated = pathStatedIn(notifications.single().content)
-
-        assertEquals(
-            "The balloon sends the user somewhere the action is not: it names $stated, and the item's " +
-                "own ancestry under the editor popup is $ancestry.",
-            stated,
-            ancestry.filter { it in stated },
-        )
-        assertEquals(
-            "The balloon's menu path skips a level: it names $stated, and the item's own ancestry under " +
-                "the editor popup is $ancestry. A user following it opens a menu without its next step in it.",
-            emptyList<String>(),
-            ancestry - stated.toSet(),
-        )
-    }
-
-    /**
-     * The menu steps [content] tells the user to take, in order — the names after the gesture, with
-     * the emphasis the balloon renders them in taken off.
-     *
-     * The arrow is the separator the sentence itself uses, so this reads the sentence the way a user
-     * does rather than the way it was written.
-     */
-    private fun pathStatedIn(content: String): List<String> = content
-        .substringAfter("right-click \u2192")
-        .split("\u2192")
-        .map { it.replace(Regex("""<[^>]+>"""), "").trim().removeSuffix(".") }
-        .filter { it.isNotEmpty() }
-
-    /**
-     * The menu names between the editor popup and [actionId], ending with the action's own — the
-     * gesture written out, derived from what is registered.
-     *
-     * The walk descends only into this plugin's own groups. The platform's editor popup holds groups
-     * belonging to every other plugin in the IDE, and asking one of those for its children outside a
-     * real invocation is a question this test has no business asking; an action that had escaped the
-     * submenu would still be found, because it would be a child of the popup itself.
-     */
-    private fun menuAncestryOf(actionId: String): List<String> {
-        val manager = ActionManager.getInstance()
-        val popup = checkNotNull(manager.getAction(IdeActions.GROUP_EDITOR_POPUP) as? ActionGroup) {
-            "The editor popup is not a registered action group, so no ancestry can be read from it."
-        }
-
-        fun descend(group: ActionGroup): List<String>? {
-            for (child in group.getChildren(null)) {
-                val id = manager.getId(child)
-                if (id == actionId) return listOf(child.templatePresentation.text.orEmpty())
-                if (child is ActionGroup && id.orEmpty().startsWith("SnippetVeil.")) {
-                    descend(child)?.let { return listOf(child.templatePresentation.text.orEmpty()) + it }
-                }
-            }
-            return null
-        }
-
-        return checkNotNull(descend(popup)) {
-            "$actionId is not reachable from the editor popup at all, so the balloon's gesture names " +
-                "nothing a user can do."
-        }
+        assertMenuPathIsReal("The balloon", notifications.single().content, COPY_ANONYMIZED)
     }
 
     /**

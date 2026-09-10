@@ -19,7 +19,8 @@ control flow, and the libraries you call go as-is.
 
 ### How it works
 
-- Select Java or Kotlin code, right-click, **Copy Anonymized**. The anonymized text is on your clipboard.
+- Select Java or Kotlin code, then right-click → **SnippetVeil** → **Copy Anonymized**. The
+  anonymized text is on your clipboard.
 - **Anonymize with Preview…** shows the code that will be copied beside its mapping table,
   with counts: `14 renamed · 3 unknown · 22 preserved · 2 comments stripped`. It is the only
   place you can anonymize *less* — keep comments for this snippet, or preserve a name and send it

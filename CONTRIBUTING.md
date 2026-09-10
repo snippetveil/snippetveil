@@ -980,6 +980,15 @@ same way — change notes first among them. The phrase list itself is an `extra`
 read by both builds, for the reason the corpus sweep's task name is one: two lists would drift, and
 they would drift towards the strictest surface being checked against the laxest rule.
 
+**One sentence in the listing is checked by a test instead, and it is the menu path.** The first
+*How it works* bullet says where `Copy Anonymized` is — right-click → **SnippetVeil** → **Copy
+Anonymized** — and that is a claim about the registered menu rather than about the copy, so no rule
+over the README can decide it. `ListingCopyTest` reads the description the IDE loaded and holds its
+path to the action's ancestry under the editor popup, which is the check the first-run balloon's path
+is under: one derivation of the menu, read against both. A Gradle rule would have needed a second
+derivation of the menu out of `plugin.xml`, and two derivations of one fact are two things to keep in
+step.
+
 ### The banned phrases
 
 **The list is spelled once, in `bannedPhrases` in the root `build.gradle.kts`, and deliberately not
