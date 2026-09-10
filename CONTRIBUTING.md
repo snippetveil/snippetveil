@@ -461,10 +461,24 @@ artifact that overstates its own reach is worse than one that does less and says
 ./gradlew corpusSweep -PsweepProject=/path/to/a/real/checkout
 ```
 
-It opens that project, anonymises every Java file in its source content **whole-file**, and writes a
-triage list of names the project owns that survived into the output. The names it looks for are read
-out of the project's Java **and** Kotlin sources; the files it anonymises are the Java ones. With no `-PsweepProject` it is
-**skipped, not failed**, so a contributor with no codebase to point it at is never blocked.
+It opens that project, anonymises every Java and Kotlin file in its source content **whole-file**,
+through one ledger as a real session does, and writes a triage list of names the project owns that
+survived into the output. A `.kt` file goes through the registered Kotlin support — the route a
+user's `Copy Anonymized` takes — and the report counts the files swept in each language apart from
+the files read into the universe. With no `-PsweepProject` it is **skipped, not failed**, so a
+contributor with no codebase to point it at is never blocked.
+
+**A target with Kotlin in it needs a K2 platform:**
+
+```
+./gradlew corpusSweep -PplatformProfile=k2 -PsweepProject=/path/to/a/real/checkout
+```
+
+The task runs on the build's platform profile, and the default, `floor`, runs the Kotlin plugin in
+K1, where SnippetVeil's Kotlin support is not registered. There the sweep **refuses before reading
+anything** if the target holds a single `.kt` file, and says how many it holds: sweeping the Java half
+alone would write a report whose Kotlin half nobody anonymised. A Java-only target sweeps on any
+profile.
 
 **The committed fixture corpus is 100% synthetic, and stays that way.** The obvious clever move —
 run the anonymiser over a real codebase and commit the anonymised output as the public corpus — is

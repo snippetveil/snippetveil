@@ -139,6 +139,20 @@ class SweepReportTest {
         assertTrue("97 Kotlin" in rendered) { "The Kotlin file count is missing:\n$rendered" }
     }
 
+    /**
+     * **Swept and read are two numbers, and each language has both.** The universe reads every source
+     * file; the sweep anonymises them — and a report that gave one count for both would hide exactly
+     * the half that went unswept, which is how a Kotlin half nobody anonymised was once reported on.
+     */
+    @Test
+    fun `the report counts the files swept in each language apart from the files read`() {
+        val lines = report(findings = emptyList()).render().lines()
+
+        val swept = lines.single { it.startsWith("Files swept") }
+        assertTrue("800 Java and 90 Kotlin" in swept) { "The per-language swept count is missing: $swept" }
+        assertTrue(lines.any { "812 Java and 97 Kotlin file(s) read" in it }) { lines.joinToString("\n") }
+    }
+
     @Test
     fun `a path outside every named tree is allowed`(@TempDir root: Path) {
         val outside = root.resolve("elsewhere")
@@ -226,7 +240,7 @@ class SweepReportTest {
     private fun report(findings: List<FileFindings>, failures: List<SweepFailure> = emptyList()) = SweepReport(
         startedAt = "2026-08-23T19:26:00",
         targetProject = "/home/me/acme",
-        filesSwept = 812,
+        swept = SweptFiles(java = 800, kotlin = 90),
         universe = UniverseSize(
             owned = 14203,
             declared = 14905,
