@@ -39,8 +39,10 @@ class LeakUniverseIndependenceTest {
         assertTrue(names.any { it.startsWith(SourceDeclarations::class.java.name + "$") }) {
             "No visitor of the declaration walk was imported, so the walk's own traversal is unchecked: $names"
         }
-        assertTrue(CorpusSweep::class.java.name !in names) {
-            "The sweep itself was imported. It runs the anonymiser by design, so the rule would be red for a reason that is not a defect: $names"
+        listOf(CorpusSweep::class, SweepPass::class).forEach { type ->
+            assertTrue(type.java.name !in names) {
+                "${type.java.simpleName} was imported. It runs the anonymiser by design, so the rule would be red for a reason that is not a defect: $names"
+            }
         }
     }
 

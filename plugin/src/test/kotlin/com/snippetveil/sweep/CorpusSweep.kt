@@ -2,26 +2,18 @@ package com.snippetveil.sweep
 
 import com.intellij.ide.highlighter.JavaFileType
 import com.intellij.openapi.application.WriteAction
-import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.psi.PsiJavaFile
-import com.intellij.psi.PsiManager
 import com.intellij.psi.search.ProjectScope
 import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.BareTestFixtureTestCase
 import com.snippetveil.core.AnonymizationSettings
-import com.snippetveil.core.LedgerSnapshot
-import com.snippetveil.core.anonymize
-import com.snippetveil.core.plus
 import com.snippetveil.plugin.InternalLibrarySettings
-import com.snippetveil.plugin.JavaPlanBuilder
-import com.snippetveil.plugin.SnippetRequest
 import org.jetbrains.kotlin.idea.KotlinFileType
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -34,8 +26,9 @@ import java.time.format.DateTimeFormatter
 /**
  * **The corpus sweep: real code in, findings out, and the code never moves.**
  *
- * Runs the anonymiser whole-file over every Java source in a real codebase and writes a triage list
- * of suspected leaks. It is run by a human, deliberately, and it is **never run in CI** — see
+ * Runs the anonymiser whole-file over every Java and Kotlin source in a real codebase, through one
+ * ledger as a real session does (see [SweepPass]), and writes a triage list of suspected leaks. It
+ * is run by a human, deliberately, and it is **never run in CI** — see
  * *Instrument, not test* below and `assertTheSweepIsNeverRunInCi` in the root `build.gradle.kts`.
  *
  * ### Why real code is load-bearing
@@ -73,7 +66,12 @@ import java.time.format.DateTimeFormatter
  *
  * ```
  * ./gradlew corpusSweep -PsweepProject=/path/to/a/real/checkout
+ * ./gradlew corpusSweep -PplatformProfile=k2 -PsweepProject=/path/to/a/real/checkout
  * ```
+ *
+ * The second is the one a target with Kotlin in it needs. The default platform runs the Kotlin plugin
+ * in K1, where SnippetVeil's Kotlin support is not registered, and there the sweep refuses such a
+ * target rather than sweep its Java half alone — see [refuseKotlinThatCannotBeSwept].
  *
  * With no `-PsweepProject` the task is **skipped, not failed**, so public CI cannot demand it and a
  * contributor without a codebase to point it at is never blocked. `-PsweepReportDir` moves the
@@ -138,13 +136,18 @@ class CorpusSweep : BareTestFixtureTestCase() {
     /** Everything between an open project and the rendered report, kept out of the test method so that it reads as the sequence it is. */
     private fun sweep(project: Project, targetPath: Path): String {
         val files = sourcesOf(project, targetPath)
-        val javaFiles = files.filter { it.fileType == JavaFileType.INSTANCE }
-        check(javaFiles.isNotEmpty()) { "No Java source files were found under $targetPath. Nothing would be swept." }
-        say("${files.size} Java and Kotlin source file(s) in project content, ${javaFiles.size} of them Java.")
+        check(files.isNotEmpty()) { "No Java or Kotlin source files were found under $targetPath. Nothing would be swept." }
+        val javaFiles = files.count { it.fileType == JavaFileType.INSTANCE }
+        say("${files.size} source file(s) in project content: $javaFiles Java and ${files.size - javaFiles} Kotlin.")
 
-        // **The universe reads both languages; the anonymiser runs over the Java half.** A Kotlin
-        // declaration reaches a Java file's output under a sibling spelling — `getBody` for a
-        // `val body`, `LedgerKt` for a facade — and a universe read from Java alone could not see it.
+        // Refused before the universe is read, which is the minutes a real codebase takes: a Kotlin
+        // file this IDE cannot anonymise would otherwise be a half of the report nobody looked at.
+        refuseKotlinThatCannotBeSwept(project, files)
+
+        // **Both languages, into the universe and through the anonymiser.** A Kotlin declaration
+        // reaches a Java file's output under a sibling spelling — `getBody` for a `val body`,
+        // `LedgerKt` for a facade — and a Java getter reaches a Kotlin file's as `javaObj.body`; a
+        // universe read from either language alone could see neither.
         val read = smartly(project) { SourceDeclarations.of(project, files) }
 
         // Coverage, asserted rather than assumed: a source file the IDE would not hand over as Java
@@ -173,62 +176,32 @@ class CorpusSweep : BareTestFixtureTestCase() {
         // the one thing a real checkout can have configured that changes what the output contains.
         val settings = AnonymizationSettings(internalLibraries = InternalLibrarySettings.of(project).policy)
 
-        // Carried across files, which is what a real session does: the ledger is what makes a
-        // placeholder mean the same thing in the second paste as in the first, and a sweep that
-        // reset it per file would be exercising a mode the product does not have.
-        var ledger = LedgerSnapshot.EMPTY
-        val findings = mutableListOf<FileFindings>()
-        val failures = mutableListOf<SweepFailure>()
-
-        javaFiles.forEachIndexed { index, file ->
-            if (index > 0 && index % 200 == 0) say("  … $index/${javaFiles.size}")
-            val where = relativeTo(targetPath, file)
-
-            // **A throw is a finding, not an outage.** It is the shape nobody thought of, arriving
-            // as a stack trace instead of as a surviving name — and losing a whole sweep of a real
-            // codebase to one PSI edge case would make this an instrument nobody finishes running.
-            // Recorded and carried on with; the ledger is untouched, because a throw commits nothing.
-            //
-            // **The scan is inside this too, not only the anonymisation.** Everything the loop does
-            // to one file is in here, so that whatever a file can do to this instrument costs that
-            // file and no other. A guard drawn tighter than the unit of work is a guard with an
-            // outage on the other side of it.
-            try {
-                val text = smartly(project) {
-                    val psi = PsiManager.getInstance(project).findFile(file) as? PsiJavaFile ?: return@smartly null
-                    // No selection at all is the whole file, which is what the ticket asks for and
-                    // what the production path already means by an empty range list.
-                    val result = anonymize(JavaPlanBuilder.build(SnippetRequest(project, psi, emptyList())), settings, ledger)
-                    ledger += result.delta
-                    result.text
-                } ?: return@forEachIndexed
-
-                val survivors = oracle.survivorsIn(text)
-                if (survivors.isNotEmpty()) findings += FileFindings(where, survivors)
-            } catch (failure: Throwable) {
-                failures += SweepFailure(where, "${failure::class.java.name}: ${failure.message}")
-            }
-        }
+        // Every file, in both languages, through one ledger — see SweepPass for why one.
+        val swept = SweepPass(project, oracle, settings).over(
+            files,
+            pathOf = { relativeTo(targetPath, it) },
+            progress = { done -> if (done % 200 == 0) say("  … $done/${files.size}") },
+        )
 
         // Counts only. The names are the leak, and the console is the easiest thing in the world to
         // copy out of — so is an exception message, which can name the symbol it choked on.
-        say("Files with findings: ${findings.size}. Distinct names surviving: ${findings.sumOf { it.survivors.size }}.")
-        say("Files that could not be swept: ${failures.size}.")
+        say("Files with findings: ${swept.findings.size}. Distinct names surviving: ${swept.findings.sumOf { it.survivors.size }}.")
+        say("Files that could not be swept: ${swept.failures.size}.")
 
         return SweepReport(
             startedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
             targetProject = targetPath.toString(),
-            filesSwept = javaFiles.size,
+            swept = swept.counts,
             universe = universe,
-            findings = findings,
-            failures = failures,
+            findings = swept.findings,
+            failures = swept.failures,
         ).render()
     }
 
     /**
      * Every Java and Kotlin file in the target's **own source content** — which is what the oracle's
-     * universe is built from, and whose Java half is what the sweep anonymizes, so the two can never be
-     * about different trees.
+     * universe is built from and what the sweep anonymizes, so the two can never be about different
+     * trees.
      *
      * **Found on disk rather than by walking the project index**, because the sweep is pointed at a
      * live working tree: the VFS serves a directory listing it cached the last time something looked,
@@ -254,9 +227,17 @@ class CorpusSweep : BareTestFixtureTestCase() {
         val known = onDisk.mapNotNull { fileSystem.refreshAndFindFileByNioFile(it) }
 
         val index = ProjectRootManager.getInstance(project).fileIndex
-        return smartly(project) {
-            known.filter { it.fileType in SOURCE_TYPES && index.isInSourceContent(it) }.sortedBy { it.path }
+        val inContent = smartly(project) { known.filter { index.isInSourceContent(it) } }
+
+        // **Refused rather than dropped** where the name and the IDE's type disagree: a `.kt` file this
+        // IDE does not type as Kotlin — the Kotlin plugin switched off — would otherwise leave the
+        // universe and the sweep alike, and the report would never know it had existed.
+        val untyped = inContent.count { it.fileType !in SOURCE_TYPES }
+        check(untyped == 0) {
+            "$untyped source file(s) named .java or .kt are not typed Java or Kotlin by this IDE, so they " +
+                "could be neither read nor swept. Is the Kotlin plugin enabled in this IDE?"
         }
+        return inContent.sortedBy { it.path }
     }
 
     /**
@@ -314,13 +295,6 @@ class CorpusSweep : BareTestFixtureTestCase() {
         say("Attached the running JDK as '$wanted'; the project's own SDK is not configured in this process.")
     }
 
-    /**
-     * [work], in a read action, once the indexes are ready — the same conditions the production path
-     * builds a plan under, which is `ReadAction.nonBlocking { … }.inSmartMode(project)`.
-     */
-    private fun <T> smartly(project: Project, work: () -> T): T =
-        DumbService.getInstance(project).runReadActionInSmartMode<T>(work)
-
     private fun relativeTo(root: Path, file: VirtualFile): String =
         runCatching { root.relativize(Paths.get(file.path)).toString() }.getOrDefault(file.path)
 
@@ -350,7 +324,7 @@ class CorpusSweep : BareTestFixtureTestCase() {
         /** What the universe is read from. `.kts` is not here: a script is not the project's source. */
         val SOURCE_EXTENSIONS = listOf(".java", ".kt")
 
-        /** The same two, as the IDE types a file — which is what decides, where the name could lie. */
+        /** The same two, as the IDE types a file. A file whose name and type disagree is refused, not dropped. */
         val SOURCE_TYPES = setOf(JavaFileType.INSTANCE, KotlinFileType.INSTANCE)
 
         /**

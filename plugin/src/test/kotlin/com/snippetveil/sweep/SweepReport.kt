@@ -16,12 +16,15 @@ import java.nio.file.Path
  * @param startedAt when the sweep ran, as text. Passed in rather than read from a clock, so that
  *   rendering stays a function of its arguments.
  * @param targetProject the path the sweep was pointed at
- * @param filesSwept how many Java files were anonymized
+ * @param swept how many files of each language were handed to the anonymiser — apart from how many
+ *   the universe read, which is [universe]'s. They are two coverages, the anonymiser's and the
+ *   check's, and one number standing for both is how a Kotlin half nobody anonymised was once
+ *   reported on as if it had been
  * @param universe how the project-owned spellings were arrived at — the check's own coverage, which is
  *   reported rather than assumed for the same reason the trust checks report theirs
  * @param findings the files that have something to triage, in the order they were swept — never one
  *   entry per file. A codebase of thousands is thousands of empty rows otherwise, and what was
- *   *looked at* is [filesSwept], which is carried separately precisely so that the two numbers
+ *   *looked at* is [swept], which is carried separately precisely so that the two numbers
  *   cannot be read off one another. [render] filters again on the way out, which is belt and braces
  *   rather than the rule: a caller that handed over an empty entry gets the same report.
  * @param failures the files the anonymiser threw on. **A throw is a conclusion, not an outage** —
@@ -33,7 +36,7 @@ import java.nio.file.Path
 internal class SweepReport(
     private val startedAt: String,
     private val targetProject: String,
-    private val filesSwept: Int,
+    private val swept: SweptCounts,
     private val universe: UniverseSize,
     private val findings: List<FileFindings>,
     private val failures: List<SweepFailure> = emptyList(),
@@ -62,7 +65,7 @@ internal class SweepReport(
         appendLine("!! real code that revealed it. Real code in, findings out, code never moves.")
         appendLine()
         appendLine("Target project  : $targetProject")
-        appendLine("Files swept     : $filesSwept")
+        appendLine("Files swept     : ${swept.java + swept.kotlin} (${swept.java} Java and ${swept.kotlin} Kotlin), anonymised whole-file")
         appendLine("Name universe   : ${universe.owned} project-owned spelling(s)")
         appendLine("                  ${universe.declared} declared in the project's own sources")
         appendLine("                  (${universe.javaFiles} Java and ${universe.kotlinFiles} Kotlin file(s) read),")
@@ -144,6 +147,12 @@ internal class SweepReport(
  *   other row is: a message can name the symbol it choked on.
  */
 internal class SweepFailure(val path: String, val summary: String)
+
+/**
+ * How many files of each language the sweep handed to the anonymiser — a file it threw on included,
+ * because that file was swept and is listed among the failures.
+ */
+internal class SweptCounts(val java: Int, val kotlin: Int)
 
 /** Every project-owned name that reached one file's output. */
 internal class FileFindings(val path: String, val survivors: List<Survivor>)
