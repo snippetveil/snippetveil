@@ -50,21 +50,31 @@ class LeakUniverseIndependenceTest {
     }
 
     /**
-     * **The rule, pointed at code written to violate it.** Each fixture is one way the universe could
-     * stop being independent — resolving a reference to decide a spelling, and being built from a plan
-     * or from a result — and each has to be flagged. The same [ArchRule] object the test above checks,
-     * because a rebuilt copy would prove that a copy can fail.
+     * **The rule, pointed at code written to violate it — one edge at a time.** Each fixture is one way
+     * the universe could stop being independent, and crosses exactly one edge of the rule, so each is
+     * checked alone: a rule seen failing on a fixture that crossed every edge at once would say nothing
+     * about an edge that had quietly stopped matching. The same [ArchRule] object the test above
+     * checks, because a rebuilt copy would prove that a copy can fail.
      */
     @Test
-    fun `the rule flags a construction that resolves, or that reads a plan or a result`() {
-        val violations = assertThrows(AssertionError::class.java) {
-            THE_UNIVERSE_RESOLVES_NOTHING.check(
-                ClassFileImporter().importClasses(ResolvesToDecideASpelling::class.java, BuiltFromTheAnonymisersOutput::class.java)
-            )
-        }.message.orEmpty()
+    fun `the rule fails on a fixture crossing each of its edges`() {
+        listOf(
+            ReadsTheAnonymisersOutput::class.java,
+            AsksThePlanBuilder::class.java,
+            ReadsALightClass::class.java,
+            OpensAnAnalysisSession::class.java,
+            FollowsAKotlinReference::class.java,
+            AsksTheResolver::class.java,
+            HoldsAReference::class.java,
+            ResolvesToDecideASpelling::class.java,
+        ).forEach { fixture ->
+            val violations = assertThrows(
+                AssertionError::class.java,
+                { THE_UNIVERSE_RESOLVES_NOTHING.check(ClassFileImporter().importClasses(fixture)) },
+                "The rule did not flag ${fixture.simpleName}, so that edge of it has never been seen to fail.",
+            ).message.orEmpty()
 
-        listOf("resolve", "SnippetPlan", "AnonymizationResult").forEach { expected ->
-            assertTrue(expected in violations) { "The rule did not flag `$expected`: $violations" }
+            assertTrue(fixture.name in violations) { "The rule failed on ${fixture.simpleName} for another class: $violations" }
         }
     }
 

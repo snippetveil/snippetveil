@@ -140,21 +140,32 @@ class CorpusSweep : BareTestFixtureTestCase() {
         val files = sourcesOf(project, targetPath)
         val javaFiles = files.filter { it.fileType == JavaFileType.INSTANCE }
         check(javaFiles.isNotEmpty()) { "No Java source files were found under $targetPath. Nothing would be swept." }
-        say("${javaFiles.size} Java and ${files.size - javaFiles.size} Kotlin source file(s) in project content.")
+        say("${files.size} Java and Kotlin source file(s) in project content, ${javaFiles.size} of them Java.")
 
         // **The universe reads both languages; the anonymiser runs over the Java half.** A Kotlin
         // declaration reaches a Java file's output under a sibling spelling — `getBody` for a
         // `val body`, `LedgerKt` for a facade — and a universe read from Java alone could not see it.
-        val spellings = SourceSpellings.of(smartly(project) { SourceDeclarations.of(project, files) })
+        val read = smartly(project) { SourceDeclarations.of(project, files) }
+
+        // Coverage, asserted rather than assumed: a source file the IDE would not hand over as Java
+        // or Kotlin is a file whose names never reached the universe, and every output would then be
+        // checked against less than the project declares — the fail-open this instrument exists not
+        // to have.
+        check(read.javaFiles + read.kotlinFiles == files.size) {
+            "${files.size - read.javaFiles - read.kotlinFiles} of the ${files.size} source file(s) found could " +
+                "not be read as Java or Kotlin, so their declarations are missing from the universe and a " +
+                "leak of any of them would be reported clean. Is the Kotlin plugin enabled in this IDE?"
+        }
+        val spellings = SourceSpellings.of(read.declarations)
         val sharedWithLibraries = smartly(project) { spellingsTheLibrariesAlsoDeclare(project, spellings.names) }
         val oracle = LeakOracle.over(spellings, declaredByLibraries = sharedWithLibraries)
         val universe = UniverseSize(
             owned = oracle.size,
-            declared = spellings.written,
+            declared = spellings.declared,
             derived = spellings.derived,
             sharedWithLibraries = sharedWithLibraries.size,
-            javaFiles = javaFiles.size,
-            kotlinFiles = files.size - javaFiles.size,
+            javaFiles = read.javaFiles,
+            kotlinFiles = read.kotlinFiles,
         )
         say("Name universe: ${universe.owned} project-owned of ${universe.declared} declared and ${universe.derived} derived.")
 

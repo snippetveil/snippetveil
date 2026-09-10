@@ -65,7 +65,13 @@ internal sealed interface Declaration {
         override val written: String? get() = null
     }
 
-    /** `@JvmName("settleNow")`, or its `get:` and `set:` forms, on the declaration named [of]. */
+    /**
+     * `@JvmName("settleNow")`, or its `get:` and `set:` forms, on the declaration named [of].
+     *
+     * Only a literal argument is a name anybody can read off the page. A constant or a template would
+     * have to be resolved to know, and nothing here resolves — so that one is a stated blind spot of
+     * the sweep rather than a reason to start. See the known limits in CONTRIBUTING.md.
+     */
     data class JvmName(val name: String, val of: String) : Declaration {
         override val written: String? get() = null
     }
@@ -113,17 +119,23 @@ internal class SourceSpellings private constructor(private val derivations: Map<
     /** Every spelling in the closure. */
     val names: Set<String> get() = derivations.keys
 
-    /** How many spellings were written in the source, as the declarations spell themselves. */
-    val written: Int get() = derivations.values.count { it == null }
+    /** How many spellings the declarations themselves write, as the source spells them. */
+    val declared: Int get() = derivations.values.count { it == null }
 
     /** How many spellings only the closure put here. */
-    val derived: Int get() = derivations.size - written
+    val derived: Int get() = derivations.size - declared
 
     /**
      * What [spelling] was derived from, as a human reads it in a triage row — or `null` where it is
      * written in the source, which wins wherever the closure derives the same spelling too.
      */
     fun derivationOf(spelling: String): String? = derivations[spelling]
+
+    /**
+     * The closure less [subtracted], each spelling still carrying what it was derived from — the
+     * universe an oracle tests against once the libraries' spellings are taken out.
+     */
+    fun except(subtracted: Set<String>): Map<String, String?> = derivations.filterKeys { it !in subtracted }
 
     companion object {
 
@@ -170,8 +182,9 @@ internal class SourceSpellings private constructor(private val derivations: Map<
          */
         private fun accessorsOf(property: Declaration.KotlinProperty): List<Pair<String, String>> {
             val name = property.name
-            val getter = if (startsWithIsPrefix(name)) name else "get" + capitalizedAsciiOnly(name)
-            val setter = "set" + capitalizedAsciiOnly(if (startsWithIsPrefix(name)) name.substring(IS.length) else name)
+            val isForm = isAccessorShaped(name, IS)
+            val getter = if (isForm) name else "get" + capitalizedAsciiOnly(name)
+            val setter = "set" + capitalizedAsciiOnly(if (isForm) name.substring(IS.length) else name)
             return listOfNotNull(getter to "getter", (setter to "setter").takeIf { property.mutable })
         }
 
@@ -215,9 +228,10 @@ internal class SourceSpellings private constructor(private val derivations: Map<
             return if (stem.isEmpty()) "_$FACADE_SUFFIX" else capitalizedAsciiOnly(sanitizedAsJavaIdentifier(stem)) + FACADE_SUFFIX
         }
 
-        /** `JvmAbi.startsWithIsPrefix`: `is`, then something that is not a lower-case ASCII letter. */
-        private fun startsWithIsPrefix(name: String): Boolean = isAccessorShaped(name, IS)
-
+        /**
+         * `JvmAbi.startsWithIsPrefix`, and the compiler's `get` test beside it: [prefix], then
+         * something that is not a lower-case ASCII letter — `island` is not `is` + `Land`.
+         */
         private fun isAccessorShaped(name: String, prefix: String): Boolean =
             name.startsWith(prefix) && name.length > prefix.length && name[prefix.length] !in 'a'..'z'
 

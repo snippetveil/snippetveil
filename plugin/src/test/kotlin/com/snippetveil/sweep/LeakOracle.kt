@@ -143,7 +143,7 @@ internal class LeakOracle private constructor(private val universe: Map<String, 
          *   ever subtracts, so an incomplete library set costs false positives and never a miss.
          */
         fun over(spellings: SourceSpellings, declaredByLibraries: Set<String>): LeakOracle {
-            val universe = spellings.names.filter { it !in declaredByLibraries }.associateWith(spellings::derivationOf)
+            val universe = spellings.except(declaredByLibraries)
 
             // A check that found nothing to check is not a pass — the same rule the trust checks in
             // build.gradle.kts follow. An empty universe here means the declaration walk read
@@ -243,10 +243,12 @@ internal class LeakOracle private constructor(private val universe: Map<String, 
          * Unicode rather than ASCII, because Java allows it and a name this pattern could not read
          * would be a name the oracle silently vouches for.
          */
-        private val IDENTIFIER = Regex("""[\p{L}_$][\p{L}\p{N}_$]*""")
+        private const val IDENTIFIER_PATTERN = """[\p{L}_$][\p{L}\p{N}_$]*"""
+
+        private val IDENTIFIER = Regex(IDENTIFIER_PATTERN)
 
         /** Two or more identifiers joined by dots, whitespace allowed around each dot. */
-        private val QUALIFIED = Regex("""[\p{L}_$][\p{L}\p{N}_$]*(?:\s*\.\s*[\p{L}_$][\p{L}\p{N}_$]*)+""")
+        private val QUALIFIED = Regex("""$IDENTIFIER_PATTERN(?:\s*\.\s*$IDENTIFIER_PATTERN)+""")
     }
 }
 

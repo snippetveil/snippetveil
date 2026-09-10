@@ -185,18 +185,90 @@ internal class SweepDeclarationWalkTest : KotlinSnippetTestCase() {
         assertIn(spellings, "Entry", "amount", "zero", "total", "entries", "reset", "entry")
     }
 
+    /** `import …Payment as Pay` is a declaration the file writes, and `Pay` a spelling of the project's class. */
+    fun `test an import alias is a spelling the file writes`() {
+        val kotlin = myFixture.addFileToProject(
+            "com/acme/ledger/Aliases.kt",
+            """
+            package com.acme.ledger
+
+            import com.acme.billing.Payment as Pay
+
+            fun use(payment: Pay): Pay = payment
+            """.trimIndent(),
+        )
+
+        assertIn(spellingsOf(kotlin), "Pay", "use", "payment")
+    }
+
+    /**
+     * **Out, read off real PSI** — the shapes the compiler mangles, walked as they are written: a value
+     * class's members, default arguments and an interface's default method. The `-impl`, `$default`
+     * and `DefaultImpls` forms are the compiler's and never a source spelling, and a closure over
+     * declaration text cannot arrive at them; this asserts it does not, over the inputs that produce
+     * them rather than over inputs that never could.
+     */
+    fun `test the compiler's manglings of a Kotlin declaration are not spellings`() {
+        val kotlin = myFixture.addFileToProject(
+            "com/acme/ledger/Mangled.kt",
+            """
+            package com.acme.ledger
+
+            @JvmInline
+            value class Amount(val cents: Long) {
+                fun doubled(): Amount = Amount(cents * 2)
+            }
+
+            interface Settles {
+                fun settle(amount: Int = 0): Int = amount
+            }
+
+            internal fun reconcile(times: Int = 1): Int = times
+            """.trimIndent(),
+        )
+
+        val spellings = spellingsOf(kotlin)
+
+        assertIn(spellings, "Amount", "cents", "getCents", "doubled", "Settles", "settle", "reconcile")
+        listOf(
+            "doubled-impl", "getCents-impl", "box-impl", "constructor-impl",
+            "settle\$default", "reconcile\$default", "access\$reconcile", "DefaultImpls",
+        ).forEach { mangled ->
+            assertFalse("`$mangled` is the compiler's and entered the universe: ${spellings.names.sorted()}", mangled in spellings.names)
+        }
+        assertTrue(
+            "A spelling that is not a Java identifier cannot be written in source: ${spellings.names.filter { '-' in it }}",
+            spellings.names.none { '-' in it },
+        )
+    }
+
     /** A script is a `KtFile`, and the sweep reads source files: its names are not the project's API. */
     fun `test a Kotlin script is not read`() {
         val script = myFixture.addFileToProject("build.gradle.kts", "val scriptOnlyName = 1\n")
 
-        assertFalse(
-            "A .kts script was read as a source file.",
-            "scriptOnlyName" in SourceDeclarations.of(project, listOf(script.virtualFile)).mapNotNull { it.written },
-        )
+        val read = SourceDeclarations.of(project, listOf(script.virtualFile))
+
+        assertFalse("A .kts script was read as a source file.", "scriptOnlyName" in read.declarations.mapNotNull { it.written })
+        assertEquals("A .kts script was counted as a Kotlin file read.", 0, read.kotlinFiles)
+    }
+
+    /**
+     * The report's file counts are files **read**, not files found — a `.kt` file that reached the
+     * walk and was never read as Kotlin would otherwise be reported as covered.
+     */
+    fun `test the walk counts the files it read in each language`() {
+        assertTheSessionIsK2()
+        val java = myFixture.addFileToProject("com/acme/ledger/Invoice.java", "package com.acme.ledger;\n\npublic class Invoice {}\n")
+        val kotlin = myFixture.addFileToProject("com/acme/ledger/Payment.kt", "package com.acme.ledger\n\nclass Payment\n")
+
+        val read = SourceDeclarations.of(project, listOf(java.virtualFile, kotlin.virtualFile))
+
+        assertEquals(1, read.javaFiles)
+        assertEquals(1, read.kotlinFiles)
     }
 
     private fun spellingsOf(vararg files: PsiFile): SourceSpellings =
-        SourceSpellings.of(SourceDeclarations.of(project, files.map { it.virtualFile }))
+        SourceSpellings.of(SourceDeclarations.of(project, files.map { it.virtualFile }).declarations)
 
     /**
      * Every name the platform's light classes give [files] — each class, and each field and method as

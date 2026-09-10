@@ -26,7 +26,7 @@ class LeakOracleTest {
 
     @Test
     fun `a project-owned name surviving into the output is a finding`() {
-        val oracle = oracleOver("MerchantLedger")
+        val oracle = oracleOfNames("MerchantLedger")
 
         val survivors = oracle.survivorsIn("class Type1 { MerchantLedger field2; }")
 
@@ -35,7 +35,7 @@ class LeakOracleTest {
 
     @Test
     fun `a finding carries the line it was found on, and the line`() {
-        val oracle = oracleOver("MerchantLedger")
+        val oracle = oracleOfNames("MerchantLedger")
 
         val survivors = oracle.survivorsIn("class Type1 {\n\n    MerchantLedger field2;\n}")
 
@@ -45,7 +45,7 @@ class LeakOracleTest {
 
     @Test
     fun `an output naming nothing the project owns is clean`() {
-        val oracle = oracleOver("MerchantLedger")
+        val oracle = oracleOfNames("MerchantLedger")
 
         assertEquals(emptyList<String>(), oracle.survivorsIn("class Type1 { Type2 field2; }").map { it.name })
     }
@@ -57,7 +57,7 @@ class LeakOracleTest {
      */
     @Test
     fun `a name that is only a substring of a surviving identifier is not a finding`() {
-        val oracle = oracleOver("merchantId")
+        val oracle = oracleOfNames("merchantId")
 
         assertEquals(emptyList<String>(), oracle.survivorsIn("String merchantIdentifier = x.merchantIdx;").map { it.name })
     }
@@ -69,7 +69,7 @@ class LeakOracleTest {
      */
     @Test
     fun `a name surviving inside a literal is a finding like any other`() {
-        val oracle = oracleOver("MerchantLedger")
+        val oracle = oracleOfNames("MerchantLedger")
 
         assertEquals(
             listOf("MerchantLedger"),
@@ -79,7 +79,7 @@ class LeakOracleTest {
 
     @Test
     fun `one row per distinct name, at its first occurrence`() {
-        val oracle = oracleOver("MerchantLedger")
+        val oracle = oracleOfNames("MerchantLedger")
 
         val survivors = oracle.survivorsIn("MerchantLedger a;\nMerchantLedger b;")
 
@@ -118,7 +118,7 @@ class LeakOracleTest {
      */
     @Test
     fun `a top-level package segment is reported like any other declared name`() {
-        val oracle = oracleOver("com", "acme", "billing")
+        val oracle = oracleOfNames("com", "acme", "billing")
 
         assertEquals(listOf("com", "acme"), oracle.survivorsIn("package com.acme;").map { it.name })
     }
@@ -288,7 +288,7 @@ class LeakOracleTest {
         assertEquals(1, oracle.size)
     }
 
-    private fun oracleOver(vararg names: String) = oracleOf(*names.map(::Written).toTypedArray())
+    private fun oracleOfNames(vararg names: String) = oracleOf(*names.map(::Written).toTypedArray())
 
     private fun oracleOf(vararg declarations: Declaration) =
         LeakOracle.over(SourceSpellings.of(declarations.toList()), declaredByLibraries = emptySet())

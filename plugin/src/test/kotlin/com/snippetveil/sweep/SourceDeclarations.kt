@@ -45,18 +45,36 @@ import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 internal object SourceDeclarations {
 
     /**
+     * What the walk read out of the files it was given.
+     *
+     * @param declarations every declaration in them
+     * @param javaFiles how many were read as Java
+     * @param kotlinFiles how many were read as Kotlin — counted as read rather than as found, because
+     *   a `.kt` file the IDE will not hand over as Kotlin is a file whose names never reached the
+     *   universe, and a count of files found would report it as covered
+     */
+    class Reading(val declarations: List<Declaration>, val javaFiles: Int, val kotlinFiles: Int)
+
+    /**
      * Every declaration in [files]: Java and Kotlin source files, and nothing else — a script and a
      * decompiled class are both a `KtFile`, and neither is the project's source.
      */
-    fun of(project: Project, files: List<VirtualFile>): List<Declaration> {
+    fun of(project: Project, files: List<VirtualFile>): Reading {
         val manager = PsiManager.getInstance(project)
-        return files.flatMap { file ->
+        var javaFiles = 0
+        var kotlinFiles = 0
+        val declarations = files.flatMap { file ->
             when (val psi = manager.findFile(file)) {
-                is PsiJavaFile -> javaDeclarationsIn(psi)
-                is KtFile -> if (psi.isScript() || psi.isCompiled) emptyList() else kotlinDeclarationsIn(psi, moduleOf(project, file))
+                is PsiJavaFile -> javaDeclarationsIn(psi).also { javaFiles++ }
+                is KtFile -> if (psi.isScript() || psi.isCompiled) {
+                    emptyList()
+                } else {
+                    kotlinDeclarationsIn(psi, moduleOf(project, file)).also { kotlinFiles++ }
+                }
                 else -> emptyList()
             }
         }
+        return Reading(declarations, javaFiles, kotlinFiles)
     }
 
     /**
@@ -101,7 +119,14 @@ internal object SourceDeclarations {
 
         file.accept(object : PsiRecursiveElementWalkingVisitor() {
             override fun visitElement(element: PsiElement) {
-                if (element is KtNamedDeclaration) kotlinDeclarationOf(element, module)?.let { found += it }
+                when (element) {
+                    is KtNamedDeclaration -> kotlinDeclarationOf(element, module)?.let { found += it }
+                    // Named, and not a `KtNamedDeclaration`: an import alias is the case a Kotlin file
+                    // has — `import com.acme.billing.Payment as Pay` — and `Pay` is a spelling the file
+                    // writes for a declaration, which is what the closure's rule counts.
+                    is PsiNameIdentifierOwner ->
+                        element.nameIdentifier?.text?.removeSurrounding("`")?.let { found += Declaration.Written(it) }
+                }
                 if (element is KtLabeledExpression) element.getLabelName()?.let { found += Declaration.Written(it) }
                 if (element is KtAnnotationEntry && element.parent !is KtFileAnnotationList) {
                     jvmNameIn(listOf(element))?.let { name ->
@@ -136,7 +161,8 @@ internal object SourceDeclarations {
     /**
      * The name a `@JvmName` among [entries] gives, read off the annotation's text — its short name
      * and its string argument, and nothing resolved to decide either. An interpolated argument is not
-     * a name anybody can read off the page, and is skipped.
+     * a name anybody can read off the page, and is skipped — and so is a constant, which would have to
+     * be resolved to be read. Both are stated as blind spots in CONTRIBUTING.md's known limits.
      */
     private fun jvmNameIn(entries: List<KtAnnotationEntry>): String? {
         val entry = entries.firstOrNull { it.shortName?.asString() == "JvmName" } ?: return null

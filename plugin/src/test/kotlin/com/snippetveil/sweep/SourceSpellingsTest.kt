@@ -209,10 +209,10 @@ class SourceSpellingsTest {
     }
 
     @Test
-    fun `the closure counts what was written apart from what it derived`() {
+    fun `the closure counts what was declared apart from what it derived`() {
         val spellings = spellingsOf(KotlinProperty("body", mutable = true), Written("Payment"), KotlinFacade("Ledger.kt", null))
 
-        assertEquals(2, spellings.written) { "body and Payment are written." }
+        assertEquals(2, spellings.declared) { "body and Payment are declared." }
         assertEquals(3, spellings.derived) { "getBody, setBody and LedgerKt are derived." }
     }
 

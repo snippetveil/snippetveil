@@ -440,13 +440,18 @@ artifact that overstates its own reach is worse than one that does less and says
   rules change shape, and read the answers. It is recorded here rather than papered over, because
   the failure mode is a green build over a product that has quietly stopped being useful, and a
   reader of this file is entitled to know which of the two claims it checks.
-- **The corpus sweep is blind to an exact collision, and to nothing else.** The one instrument that
-  can see a *missing* plan item subtracts every spelling the JDK or a library also declares, so a
-  project class called `Builder` leaking verbatim looks exactly like the `Builder` the anonymiser
-  preserves on purpose — and so does a Kotlin `val body` leaking as `getBody()`, where a library
-  declares a `getBody` too. That is the **only** thing it cannot see, and it is deliberately the only
-  thing: see below for why nothing else is subtracted, and for the false positives it reports rather
-  than hides.
+- **The corpus sweep is blind to an exact collision, and to two spellings it cannot read off the
+  page.** The one instrument that can see a *missing* plan item subtracts every spelling the JDK or a
+  library also declares, so a project class called `Builder` leaking verbatim looks exactly like the
+  `Builder` the anonymiser preserves on purpose — and so does a Kotlin `val body` leaking as
+  `getBody()`, where a library declares a `getBody` too. That subtraction is deliberately the only
+  one: see below for why nothing else is subtracted, and for the false positives it reports rather
+  than hides. The two spellings are the ones the universe would have to *resolve* something to know,
+  and it resolves nothing: a `@JvmName` whose argument is a constant or a template rather than a
+  literal, and an `internal` member of a module whose Kotlin `moduleName` is set in the build instead
+  of following the module's own name. Each is a leak the sweep would report clean, and each is stated
+  here rather than closed by teaching the universe to resolve — which would buy two spellings with the
+  independence the whole instrument rests on.
 
 ## The corpus sweep
 
@@ -529,8 +534,9 @@ structure rather than from anything the anonymiser computed: the module's name a
 the Gradle module that name stands for. A guess that names no real module costs nothing, because a
 spelling nobody compiled never appears. `LeakUniverseIndependenceTest` holds the rest over bytecode:
 the classes that build the universe reach no `com.snippetveil.core` or `com.snippetveil.plugin` type,
-no light class, no Analysis API and no reference resolution — and the rule is shown red, on a fixture
-that does, before it is trusted.
+no light class, no Analysis API and no reference resolution — and each of those edges is shown red,
+on a fixture that crosses it, before the rule is trusted. What the universe cannot read without
+resolving something is listed under the known limits above rather than read by resolving it.
 
 **The closure adds noise, and the noise is the accepted direction.** Some derived spellings never
 appear in any output, and some collide with a library member — `getBody` is declared by a great many

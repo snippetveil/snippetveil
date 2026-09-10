@@ -17,7 +17,7 @@ import java.nio.file.Path
  *   rendering stays a function of its arguments.
  * @param targetProject the path the sweep was pointed at
  * @param filesSwept how many Java files were anonymized
- * @param universe how the project-owned name set was arrived at — the check's own coverage, which is
+ * @param universe how the project-owned spellings were arrived at — the check's own coverage, which is
  *   reported rather than assumed for the same reason the trust checks report theirs
  * @param findings the files that have something to triage, in the order they were swept — never one
  *   entry per file. A codebase of thousands is thousands of empty rows otherwise, and what was
