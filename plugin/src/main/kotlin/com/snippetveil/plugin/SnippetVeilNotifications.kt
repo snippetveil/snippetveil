@@ -114,9 +114,20 @@ internal object SnippetVeilNotifications {
      *
      * *"SnippetVeil is installed"* on its own is an announcement about us; the sentence that follows
      * is the whole point, and it is an instruction short enough to act on from memory a week later —
-     * select, right-click, the item's own name. The surface is otherwise invisible by design (see
-     * [FirstRunNotice]), so this one balloon is carrying the discoverability of the entire product
-     * and cannot afford to spend its second line on a description.
+     * select, right-click, the submenu, the item's own name. The surface is otherwise invisible by
+     * design (see [FirstRunNotice]), so this one balloon is carrying the discoverability of the entire
+     * product and cannot afford to spend its second line on a description.
+     *
+     * **The submenu is named, because the item is not where the user right-clicks.** The four
+     * actions live in a `SnippetVeil` submenu, and a sentence that goes straight from the gesture to
+     * `Copy Anonymized` sends the user to a context menu that does not contain it — which this one
+     * did, once, on the only occasion the product speaks first.
+     *
+     * **Right-click rather than the Tools menu**, though the same group is the Tools menu's too and
+     * `Tools → SnippetVeil → Copy Anonymized` is a few characters narrower. The user has just selected
+     * code, so the context menu is the one under their hand; and it is the menu the listing's
+     * screenshots show, so the balloon and the listing describe the same gesture. Because it is one
+     * group in both places, the steps after either gesture are the same two.
      *
      * **`Open settings` rather than a link to documentation**, because the page it opens is where
      * the two questions a new user actually has get answered — where the mapping is kept, and how to
@@ -128,7 +139,7 @@ internal object SnippetVeilNotifications {
     fun installed(project: Project) {
         group().createNotification(
             "SnippetVeil is installed",
-            "Select Java or Kotlin code, then right-click \u2192 <b>Copy Anonymized</b>.",
+            "Select Java or Kotlin code, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Copy Anonymized</b>.",
             NotificationType.INFORMATION,
         ).addAction(openSettings(project)).notify(project)
     }

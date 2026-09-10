@@ -11,6 +11,9 @@
   working either way.
 - Requires 2024.2 or later. Kotlin support uses the Kotlin Analysis API, which is not available in
   earlier builds. On 2024.1, the previous version remains available and continues to work.
+- The first-run notification names the whole menu path: right-click → SnippetVeil → Copy Anonymized.
+  It left out the SnippetVeil submenu, so it pointed at a context menu that did not contain the item
+  it named.
 
 ## [1.2.0] - 2026-09-01
 
