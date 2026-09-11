@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-11
+
 - Kotlin files can be anonymized. Copy Anonymized and Anonymize with Preview are offered on `.kt`
   files, and a Kotlin declaration and a Java reference to it share one placeholder, so a snippet that
   crosses the two languages stays coherent. Gradle scripts are not included: `.kts` carries its
@@ -73,7 +75,8 @@
 - The plugin makes no network calls and starts no subprocesses. `./gradlew check` asserts both
   against the built distribution rather than against the sources.
 
-[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/snippetveil/snippetveil/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/snippetveil/snippetveil/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/snippetveil/snippetveil/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/snippetveil/snippetveil/commits/v1.0.0
