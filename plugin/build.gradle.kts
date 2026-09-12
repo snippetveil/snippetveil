@@ -1879,7 +1879,7 @@ val kotlinFixturePackage = "com.snippetveil.plugin.kotlin"
 dependencies {
     // Test-scope by construction: this configuration is in no source set's classpath and reaches the
     // fixtures as a file path. `assertNothingThirdPartyIsShipped` sees nothing new.
-    kotlinFixtureStdlib("org.jetbrains.kotlin:kotlin-stdlib:1.9.25")
+    kotlinFixtureStdlib("org.jetbrains.kotlin:kotlin-stdlib:2.4.20")
 }
 
 /** The jar itself, as a lazy value the configuration cache can carry into the test task. */
