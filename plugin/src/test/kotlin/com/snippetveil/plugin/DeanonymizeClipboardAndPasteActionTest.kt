@@ -4,6 +4,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.editor.ex.DocumentEx
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.testFramework.TestActionEvent
 import com.snippetveil.core.AnonymizationSettings
@@ -338,8 +339,94 @@ class DeanonymizeClipboardAndPasteActionTest : JavaSnippetTestCase() {
 
         assertEquals("Before\n\nAfter", editor.document.text)
         val balloon = notifications.single()
-        assertEquals("Paste failed — the reply may be partly inserted. Your clipboard was not changed.", balloon.content)
+        assertEquals(
+            "Paste failed — your clipboard was not changed. Part of the reply may already have been inserted; Undo reverts it in one step.",
+            balloon.content,
+        )
         assertEquals(NotificationType.ERROR, balloon.type)
+    }
+
+    /**
+     * **The Undo the write-throw balloon promises is held true by the grouping, and this checks it.**
+     *
+     * The throw is placed where *may* is not hypothetical. The first caret's replacement lands, and
+     * the second caret sits in a guarded block, so the insert throws partway. What is left is the
+     * half-insert the balloon describes, across more than one caret. **One undo has to revert all of
+     * it**, because *"Undo reverts it in one step"* is true only while the insert is one write command.
+     * If that grouping is removed, this test fails, and it asserts the wording in the same place so
+     * the sentence cannot outlive the fact that makes it true.
+     */
+    fun `test one undo reverts a multi-caret insert that failed partway, as the balloon says`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
+        invokeCopyAnonymized()
+
+        // Three carets, and the throw at the last. Two inserts must land before it, because a single
+        // landed insert is reverted by one undo whether or not the carets share a command, and this
+        // test would then pass with the grouping gone.
+        val before = "one  two  three  four"
+        myFixture.configureByText("notes.md", "one <caret> two <caret> three <caret> four")
+        val editor = myFixture.editor
+        val document = editor.document as DocumentEx
+        val last = editor.caretModel.allCarets.last().offset
+        val guard = document.createGuardedBlock(last - 1, last + 1)
+
+        dropEarlierBalloons()
+        // Guarded blocks are enforced only while checking is on, which is how a real read-only fragment
+        // makes a write throw partway through. Off again before the undo, which must not meet it.
+        document.startGuardedBlockChecking()
+        try {
+            restoreIntoDocument(project, editor, FakeClipboard("`method1`"))
+        } finally {
+            document.stopGuardedBlockChecking()
+        }
+
+        assertEquals(
+            "two carets did not land before the throw, so there is no multi-caret half-insert to undo",
+            "one `settle` two `settle` three  four",
+            editor.document.text,
+        )
+        assertEquals(
+            "Paste failed — your clipboard was not changed. Part of the reply may already have been inserted; Undo reverts it in one step.",
+            notifications.single().content,
+        )
+
+        editor.document.removeGuardedBlock(guard)
+        myFixture.performEditorAction(IdeActions.ACTION_UNDO)
+
+        assertEquals("one undo did not revert every caret's insert", before, editor.document.text)
+    }
+
+    /**
+     * **The two failures are asserted together, because each exists as a separate message only because
+     * of the clause the other one may not use.** The read throws before anything is written, so it may
+     * promise *nothing was inserted*. The write may have inserted part of the reply, so it may not, and
+     * it names the remedy instead. Both keep the clipboard clause, the error level and the report link.
+     */
+    fun `test the read-throw and write-throw balloons differ only in what each may promise`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
+        invokeCopyAnonymized()
+
+        myFixture.configureByText("notes.md", "<caret>")
+        invokeDeanonymizeAndPaste(FakeClipboard("`method1`", failRead = true))
+        val read = notifications.single()
+
+        WriteCommandAction.runWriteCommandAction(project) { myFixture.editor.document.setReadOnly(true) }
+        dropEarlierBalloons()
+        restoreIntoDocument(project, myFixture.editor, FakeClipboard("`method1`"))
+        val write = notifications.single()
+
+        assertEquals("Paste failed — nothing was inserted and your clipboard was not changed.", read.content)
+        assertEquals(
+            "Paste failed — your clipboard was not changed. Part of the reply may already have been inserted; Undo reverts it in one step.",
+            write.content,
+        )
+        assertFalse("the write-throw balloon promised what it cannot check", "nothing was inserted" in write.content)
+        assertEquals(NotificationType.ERROR, read.type)
+        assertEquals(NotificationType.ERROR, write.type)
+        assertEquals(listOf("Report an issue"), read.actions.map { it.templatePresentation.text })
+        assertEquals(listOf("Report an issue"), write.actions.map { it.templatePresentation.text })
     }
 
     /**

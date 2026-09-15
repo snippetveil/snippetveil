@@ -16,6 +16,11 @@
   which says the name is gone when the mapping holds it under another spelling; `getIsField1` was not
   counted at all, so De-anonymize Clipboard and Paste wrote it into the file. Either word is left as
   the reply wrote it and counts as not restored, so the paste refuses the reply.
+- When De-anonymize Clipboard and Paste fails partway through inserting, the notification now says
+  how to recover: "Paste failed — your clipboard was not changed. Part of the reply may already have
+  been inserted; Undo reverts it in one step." It used to say only that the reply may be partly
+  inserted, which sent people searching the file for what landed at each caret. One Undo reverts the
+  whole insert, however many carets there were.
 
 ## [1.3.0] - 2026-09-11
 

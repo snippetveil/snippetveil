@@ -359,14 +359,20 @@ internal object SnippetVeilNotifications {
      * the one thing this code cannot check.
      *
      * The clipboard clause survives unchanged, because that fact is true by construction rather than
-     * by inspection. And the undo the user needs is one step, which is what makes *may* an actionable
-     * word here rather than an alarming one.
+     * by inspection.
+     *
+     * **And the remedy is said, not only argued.** *May* alone leaves the user searching the document
+     * for what landed, across however many carets were active. The insert is one write command, so one
+     * undo reverts all of it and the user never needs to count. That is what makes *may* an actionable
+     * word here rather than an alarming one, so the balloon says it. **The sentence is true only while
+     * the insert is one command.** `DeanonymizeClipboardAndPasteActionTest` checks the grouping against
+     * this wording, so a change to either fails the test.
      */
     fun insertFailed(project: Project?, failure: Throwable) = report(
         project,
         failure,
         logged = "SnippetVeil could not insert the de-anonymized reply; the document may have been written partway.",
-        said = "Paste failed — the reply may be partly inserted. Your clipboard was not changed.",
+        said = "Paste failed — your clipboard was not changed. Part of the reply may already have been inserted; Undo reverts it in one step.",
     )
 
     /**
