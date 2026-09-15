@@ -164,7 +164,8 @@ private fun Editor?.acceptsAnInsert(): Boolean = this != null && !isViewer && do
  * leaves text in the document while the message denies it. So that arm reports what it can vouch
  * for and says the reply *may* be partly inserted — the same restraint `exportFailed` shows about a
  * half-written file, and for the same reason: a message that must not contain a lie may not say the
- * one thing this code cannot check.
+ * one thing this code cannot check. It also names the remedy, one Undo, which is true because the
+ * insert is a single command. See [insertAtEveryCaret].
  *
  * **The balloon is outside the `try`,** for the reason the sibling's is: by the time it runs the
  * insert has happened, and a `try` wide enough to hold it would answer a failing balloon with a
