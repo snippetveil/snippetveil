@@ -277,6 +277,18 @@ enum class CommentVerdict {
  *   **Defaults to `false`, which is the direction to err in.** A key nobody vouched for is one the
  *   ledger does not keep, and the cost of that being wrong is a placeholder that stops being stable
  *   — never one that decodes to the wrong name.
+ * @param siblingAccessors **the JavaBeans accessors the builder read off the field this symbol is, or
+ *   reads or writes** — each described as the symbol it is, with an [accessor] naming that field.
+ *   Empty for everything else, which is nearly everything.
+ *
+ *   Reported whether or not any of them is in the snippet, and that is the whole of what it is for.
+ *   A model shown `field1` writes `getField1()` back unprompted, and a mapping that held a row only
+ *   for the spellings that were spliced would have nothing to restore it from — see [LedgerDelta]
+ *   for the rows these become, and why they cost no number.
+ *
+ *   **Each one is a member the platform reported, never a name assembled from a prefix and the
+ *   field's.** A `val` has no setter, so no setter is here; Kotlin's `val isSettled` is read as the
+ *   `isSettled` its light class declares, and a `getIsSettled` nobody can write is never minted.
  */
 class SymbolEvidence(
     val key: String,
@@ -289,6 +301,7 @@ class SymbolEvidence(
     val overrideRoots: List<OverrideRoot> = emptyList(),
     val accessor: AccessorEvidence? = null,
     val keyIsQualified: Boolean = false,
+    val siblingAccessors: List<SymbolEvidence> = emptyList(),
 )
 
 /**

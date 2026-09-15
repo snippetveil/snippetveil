@@ -151,6 +151,35 @@ class ShippedCodeArchitectureTest {
         }
     }
 
+    /**
+     * **The anonymiser never borrows the leak check's closure.**
+     *
+     * The two implementations of the sibling-spelling rule are kept apart on purpose: the sweep's is
+     * derived from declaration text and file names so that it cannot come to share the anonymiser's
+     * blind spots, and the anonymiser's is read off PSI. An import of the sweep from shipped code is
+     * the visible form of the one mistake that would make the leak check go green by construction —
+     * what binds the two is the rule stated in both places, and `KotlinSiblingRowsTest` holding them
+     * to agree on a fixture.
+     */
+    @Test
+    fun `nothing shipped reaches for the leak check`() {
+        NOTHING_REACHES_FOR_THE_SWEEP.check(SHIPPED_CLASSES)
+    }
+
+    /**
+     * **The rule, pointed at code written to violate it.** The sweep is test code, so shipped code
+     * cannot reach it today without failing to compile first — and a rule nothing can violate is a
+     * rule nobody would notice had stopped matching, on the day the closure is moved somewhere shared.
+     */
+    @Test
+    fun `the leak-check rule flags a class that reaches for the sweep`() {
+        val violations = NOTHING_REACHES_FOR_THE_SWEEP.violationsIn(classesOf(ReachesForTheSweep::class.java))
+
+        assertTrue(ReachesForTheSweep::class.java.name in violations) {
+            "The leak-check rule did not flag a class naming the sweep's closure: $violations"
+        }
+    }
+
     /** The claim on the Marketplace listing, checked. */
     @Test
     fun `nothing shipped can open a socket`() {
@@ -308,6 +337,17 @@ private val MAIN_DESCRIPTOR_NEVER_REACHES_KOTLIN: ArchRule =
         .because(
             "the Kotlin dependency is optional, so a class naming a Kotlin type fails to link " +
                 "on an IDE with Kotlin disabled — and it takes Java anonymization down with it"
+        )
+
+/**
+ * The leak check's independence, from the shipped side — hoisted for the reason the isolation rule is:
+ * the test that asserts it and the test that shows it failing check one object.
+ */
+private val NOTHING_REACHES_FOR_THE_SWEEP: ArchRule =
+    noClasses().should().dependOnClassesThat().resideInAnyPackage("com.snippetveil.sweep..")
+        .because(
+            "the leak check derives its spellings from declaration text so that it cannot share the " +
+                "anonymiser's blind spots, and an anonymiser reading it would make the check green by construction"
         )
 
 private val NOTHING_STARTS_A_PROCESS: ArchRule =

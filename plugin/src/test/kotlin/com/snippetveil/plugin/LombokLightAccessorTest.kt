@@ -81,6 +81,41 @@ class LombokLightAccessorTest : JavaSnippetTestCase() {
             result.delta.placeholders["field:class:com.acme.Payment#merchantId"],
         )
     }
+
+    /**
+     * **Every row is traceable to something PSI reported**, shown by stubbing PSI both ways over one
+     * shape of snippet: with nothing contributing a getter, anonymizing the field alone writes no
+     * getter row; with the synthesized getter, it writes one. A walk that assembled `getMerchantId`
+     * out of the field's name would write it in both.
+     *
+     * Two classes of one shape rather than one class planned twice, because a class keeps the members
+     * it has already computed: an augment registered after the first plan would never reach the class
+     * that plan asked, and the second half would fail for a reason that is the fixture's.
+     */
+    fun `test a field's accessor row exists exactly when PSI reports the accessor`() {
+        assertTheHarnessResolves()
+
+        val unreported = anonymize(planFor("com/acme/Refund.java", fieldOnly("Refund")), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+        assertEquals(
+            "a getter PSI never reported has a row",
+            setOf("field:class:com.acme.Refund#merchantId"),
+            unreported.delta.placeholders.keys,
+        )
+
+        PsiAugmentProvider.EP_NAME.point.registerExtension(SynthesizedGetters(), testRootDisposable)
+        val reported = anonymize(planFor("com/acme/Payment.java", fieldOnly("Payment")), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals(MintedName("getField1", "getMerchantId"), reported.delta.placeholders["method:class:com.acme.Payment#getMerchantId"])
+        assertEquals("the getter row moved the output", unreported.text, reported.text)
+        assertEquals("the getter row drew a number", unreported.delta.nextNumber, reported.delta.nextNumber)
+    }
+
+    /** A class named [name] holding one field and nothing else, with the field selected. */
+    private fun fieldOnly(name: String) = """
+        package com.acme;
+
+        public class $name { <selection>private String merchantId;</selection> }
+    """.trimIndent()
 }
 
 /** What `@Getter` does, reduced to the one mechanism these rules have to survive. */

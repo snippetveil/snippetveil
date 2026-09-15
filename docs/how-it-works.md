@@ -61,6 +61,14 @@ makes that impossible.
 The visible cost is that numbers only ever climb, so a mature project emits `Type247` rather than
 `Type3`. Placeholder form does not affect answer quality, so this is cosmetic.
 
+### Accessors are written down with their field
+
+A field goes out as `field3`, and an assistant answering in Java writes `getField3()` without having
+been shown one. So every getter and setter the IDE reports for an anonymized field, or for a Kotlin
+property, is written to the mapping beside it — spelled from the field's placeholder, whether or not
+the snippet showed it. None of them uses a number, and a row already in the mapping is never
+rewritten; a mapping from an earlier version gains these rows the next time the field is anonymized.
+
 ## Reversing a reply
 
 **De-anonymize Clipboard** matches only the exact placeholder strings SnippetVeil minted, on word

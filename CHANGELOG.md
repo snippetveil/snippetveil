@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+- De-anonymize Clipboard restores a getter or setter the snippet never showed. A field copied without
+  its getter used to leave only the field in the mapping, so a reply writing `getField1()` was reported
+  as beyond the recent-history window — about a name SnippetVeil was holding — and De-anonymize
+  Clipboard and Paste refused the whole reply over it. Every getter and setter the IDE reports for an
+  anonymized Java field or Kotlin property is now written to the mapping beside it, spelled from the
+  placeholder the field already has: no number is used up, and no placeholder already sent changes
+  meaning. An existing mapping is not rewritten; it gains these rows the next time the field is
+  anonymized.
+
 ## [1.3.0] - 2026-09-11
 
 - Kotlin files can be anonymized. Copy Anonymized and Anonymize with Preview are offered on `.kt`

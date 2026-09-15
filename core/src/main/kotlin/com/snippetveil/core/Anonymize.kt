@@ -422,6 +422,57 @@ fun anonymize(
         }
     }
 
+    /**
+     * **Whether [placeholder] already stands for a name other than [original]** — injectivity across
+     * the project's history, asked of a name no allocator handed out. A derived placeholder is unique
+     * to its field by construction, and this is the check that says so rather than the sentence.
+     */
+    fun standsForAnotherName(placeholder: String, original: String): Boolean =
+        ledger.originalOf(placeholder).let { it != null && it != original } ||
+            persisted.values.any { it.placeholder == placeholder && it.original != original }
+
+    /**
+     * **A row for an accessor the snippet may never have shown**, rendered from the placeholder its
+     * field already has. See [SymbolEvidence.siblingAccessors] for what is reported, and [LedgerDelta]
+     * for why the rows are worth their space.
+     *
+     * Held to everything a spliced accessor's row is held to, for the same reasons: it is filed under
+     * the key its placeholder would be handed out against, only a qualified key is written down, a
+     * name Java forbids from being renamed or the user preserved has no placeholder to record, and a
+     * derived name that already means something in this output is no placeholder either.
+     *
+     * What it adds is the one thing the spliced path never has to say: **it never draws a number.** A
+     * sibling whose placeholder cannot be derived is left without a row rather than allocated one —
+     * the counter is a record of what was handed out, and nothing here was.
+     *
+     * **A key already named is left as it is**, by the ledger or by this invocation, and that is the
+     * whole of the no-migration rule: rewriting a key re-points a placeholder already handed to an AI.
+     */
+    fun recordSibling(sibling: SymbolEvidence) {
+        val accessor = sibling.accessor ?: return
+        val field = placeholderByKey[accessor.fieldKey] ?: return
+        val key = sharedKeyOf(sibling)
+        if (key in placeholderByKey || !sharedKeyIsQualified(sibling)) return
+        if (!isReplaced(sibling) || isNameConstrained(sibling, ownership)) return
+
+        val placeholder = derivedAccessorPlaceholder(accessor.prefix, field)
+        if (!allocator.isFree(placeholder) || standsForAnotherName(placeholder, sibling.declaredName)) return
+
+        placeholderByKey[key] = placeholder
+        persisted[key] = MintedName(placeholder, sibling.declaredName)
+
+        // The word that reached the mapping is the word written down, on the rule [placeholderFor]
+        // follows for a derived accessor: only over a stem the user chose.
+        if (isChosen(stemOf(field))) mintedStems += stemOf(placeholder)
+    }
+
+    // After the pass rather than inside it, so that nothing a sibling does can move a character of the
+    // text, a row of the table or a number of the counter — and in document order of the symbol that
+    // reported them, so the rows come out in an order a person reading the file can follow.
+    for (symbol in namedSymbols) {
+        if (isReplaced(symbol)) symbol.siblingAccessors.forEach(::recordSibling)
+    }
+
     // Right to left, so that every replacement lands at an offset the ones before it have not
     // moved. Splicing into the original string is also why formatting comes out byte-perfect: no
     // PSI is mutated, no formatter is invoked, and nothing changes but the identifiers, the insides
