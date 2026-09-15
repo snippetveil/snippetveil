@@ -458,9 +458,13 @@ class RenamedStemTest {
         assertEquals("String merchantField1;", first.text)
         assertEquals("String getMerchantField1() { return null; }", second.text)
         assertEquals(setOf("merchantField", "getMerchantField"), committed.mintedStems)
+
+        // Against the recorded words alone, with every row gone: what is under test is that the stem
+        // recognises the word, and a row left beside it would answer a different question.
+        val rowsGone = LedgerSnapshot(emptyMap(), committed.nextNumber, committed.mintedStems)
         assertEquals(
             listOf(Unrestored("getMerchantField1", UnrestoredReason.EVICTED)),
-            deanonymize("getMerchantField1 never reloads it.", Sidecar.EMPTY, committed).unrestored,
+            deanonymize("getMerchantField1 never reloads it.", Sidecar.EMPTY, rowsGone).unrestored,
         )
     }
 

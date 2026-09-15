@@ -20,7 +20,8 @@ package com.snippetveil.core
  * It is why the restore pass is driven by *the table* rather than by [isMinted]: every word of the
  * reply is looked up, and a word that is in the table is by definition a string we minted. The shape
  * recogniser is used for one thing only, which is deciding what a word that did **not** decode was —
- * see [Unrestored].
+ * and so is the one other lookup, which asks whether the word is a known name in a spelling we never
+ * sent. See [Unrestored].
  *
  * ### Under-recovery is the designed behaviour
  *
@@ -54,12 +55,17 @@ fun deanonymize(text: String, sidecar: Sidecar, mapping: LedgerSnapshot): Revers
     var copied = 0
     for (word in WORD.findAll(text)) {
         val token = word.value
-        val original = sidecar.originalOf(token) ?: mapping.originalOf(token)
+        val original = originalOf(token, sidecar, mapping)
 
         if (original == null) {
-            if (isMinted(token, mapping.mintedStems)) {
-                unrestored.getOrPut(token) { Unrestored(token, reasonFor(token, mapping.nextNumber)) }
+            // Only once the lookup has failed: a word that decodes is restored, whatever it would
+            // also strip to.
+            val reason = when {
+                isUnsentSpelling(token, sidecar, mapping) -> UnrestoredReason.UNSENT_SPELLING
+                isMinted(token, mapping.mintedStems) -> reasonFor(token, mapping.nextNumber)
+                else -> null
             }
+            if (reason != null) unrestored.getOrPut(token) { Unrestored(token, reason) }
             continue
         }
 
@@ -101,23 +107,24 @@ class Reversal(
 }
 
 /**
- * One placeholder-shaped word that did not decode, and which of the two things that means.
+ * One word of ours that did not decode, and which of the three things that means.
  *
  * A value, and compared as one — like [MintedName], and for the reason a test wants: a list of these
  * asserted against a list of expected ones has to compare what they *say*, or a green assertion over
  * an empty list is the only one that ever meant anything.
  *
  * @param placeholder the word as the reply writes it
- * @param reason which side of the counter it fell on. See [UnrestoredReason].
+ * @param reason what the tables and the counter say about it. See [UnrestoredReason].
  */
 data class Unrestored(val placeholder: String, val reason: UnrestoredReason)
 
 /**
- * **Why a placeholder did not decode — two facts, not one number.**
+ * **Why a placeholder did not decode — three facts, not one number.**
  *
- * The never-recycling per-project counter gives an honest test for this for free, and the two
- * answers prompt different actions. Collapsed into a single *"3 not restored"* the user goes hunting
- * for a mapping that either never existed or is provably gone.
+ * The never-recycling per-project counter gives an honest test for two of them for free, and the
+ * tables already hold the evidence for the third. The three answers prompt different actions.
+ * Collapsed into a single *"3 not restored"* the user goes hunting for a mapping that either never
+ * existed, is provably gone, or is sitting in the table under a spelling nobody thought to look for.
  *
  * **A confound is accepted rather than hidden.** The mapping is per-project, so a placeholder minted
  * in project A and pasted back while project B is open can fall below B's counter and be reported as
@@ -142,7 +149,50 @@ enum class UnrestoredReason(val message: String) {
      * ever stood for anything.
      */
     FOREIGN("not from this project"),
+
+    /**
+     * **A name the table holds, in a spelling SnippetVeil never sent.** `setField1` where the
+     * declaration is a `val` and the mapping holds `field1`: the word is in neither table, yet the
+     * name it was built from is one row away. See [isUnsentSpelling] for the test.
+     *
+     * **It is still unrestored, and that is the whole discipline of this bucket.** The message states
+     * what the table holds and never what the model meant: restoring would be deciding, without
+     * evidence, that a spelling the model invented refers to a symbol — the one thing the reversal
+     * contract exists to refuse. So a paste still refuses a reply holding one.
+     *
+     * **A rarity, not a workaround.** The mapping records a row for every accessor spelling PSI
+     * reports, so an ordinary accessor restores. What is left is what PSI cannot report — a setter on
+     * a `val`, a `@JvmSynthetic` member, a boolean property whose prefix the model guessed wrong. An
+     * ordinary accessor landing here is a defect in the rows, and the fix is a row, not this bucket.
+     */
+    UNSENT_SPELLING("a name this project knows, in a spelling SnippetVeil never sent"),
 }
+
+/**
+ * **Whether [token] is a known accessor prefix in front of a placeholder the tables hold** — strip the
+ * prefix, decapitalise, and look the remainder up.
+ *
+ * It asks the same tables the restore pass asks the same question, so it is a lookup rather than a
+ * guess by shape, and needs no evidence the reversal does not already hold. It is exactly as wide as
+ * [derivedAccessorPlaceholder], and is checked by calling it rather than by inverting its spelling by
+ * hand: a candidate counts only when that function would write [token] from it, so the prefixes are
+ * [AccessorEvidence.PREFIXES] and the remainder is capitalised the way it always is.
+ *
+ * **Deliberately no wider.** Anything broader — trailing digits alone, case-insensitive matching,
+ * absorbing a compound — claims words out of the model's own prose and reports them as placeholders
+ * that could not be restored, which on the paste action is a refusal to write text that was never
+ * anonymized.
+ */
+private fun isUnsentSpelling(token: String, sidecar: Sidecar, mapping: LedgerSnapshot): Boolean =
+    AccessorEvidence.PREFIXES.any { prefix ->
+        if (!token.startsWith(prefix) || token.length == prefix.length) return@any false
+        val candidate = token.substring(prefix.length).replaceFirstChar(Char::lowercaseChar)
+        derivedAccessorPlaceholder(prefix, candidate) == token && originalOf(candidate, sidecar, mapping) != null
+    }
+
+/** What [word] stood for in either table — the sidecar first, for the reason given on [deanonymize]. */
+private fun originalOf(word: String, sidecar: Sidecar, mapping: LedgerSnapshot): String? =
+    sidecar.originalOf(word) ?: mapping.originalOf(word)
 
 /**
  * Which side of the counter [placeholder] falls on.

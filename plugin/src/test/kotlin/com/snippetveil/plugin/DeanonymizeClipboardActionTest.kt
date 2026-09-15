@@ -10,6 +10,7 @@ import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.UIUtil
 import com.intellij.testFramework.TestActionEvent
 import com.snippetveil.core.LedgerDelta
+import com.snippetveil.core.MintedName
 import com.snippetveil.core.deanonymize
 import javax.swing.table.TableModel
 
@@ -115,6 +116,29 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
             listOf(
                 listOf("local4", "beyond the recent-history window"),
                 listOf("local40", "not from this project"),
+            ),
+            (0 until rows.rowCount).map { row -> (0 until rows.columnCount).map { rows.getValueAt(row, it) } },
+        )
+    }
+
+    /**
+     * **The third bucket is a third value in the same list**, and nothing else about the list moves.
+     * `setField1` is below the counter and in neither table, and the mapping holds `field1` one strip
+     * away — so the row says the name is known and the spelling was never sent, not that it is gone.
+     */
+    fun `test the details list names a known name in a spelling that was never sent`() {
+        PlaceholderLedger.getInstance().commit(
+            project,
+            LedgerDelta(mapOf("field:class:com.acme.Payment#merchantRef" to MintedName("field1", "merchantRef")), nextNumber = 10),
+        )
+
+        val rows = tableIn(UnrestoredDialog(project, reversalOf("local4 and local40 and setField1").unrestored))
+
+        assertEquals(
+            listOf(
+                listOf("local4", "beyond the recent-history window"),
+                listOf("local40", "not from this project"),
+                listOf("setField1", "a name this project knows, in a spelling SnippetVeil never sent"),
             ),
             (0 until rows.rowCount).map { row -> (0 until rows.columnCount).map { rows.getValueAt(row, it) } },
         )

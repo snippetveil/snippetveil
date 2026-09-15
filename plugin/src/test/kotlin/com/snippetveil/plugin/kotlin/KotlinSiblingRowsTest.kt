@@ -1,6 +1,13 @@
 package com.snippetveil.plugin.kotlin
 
+import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.MintedName
+import com.snippetveil.core.Reversal
+import com.snippetveil.core.Sidecar
+import com.snippetveil.core.Unrestored
+import com.snippetveil.core.UnrestoredReason
+import com.snippetveil.core.deanonymize
+import com.snippetveil.core.plus
 import com.snippetveil.sweep.SourceDeclarations
 import com.snippetveil.sweep.SourceSpellings
 
@@ -75,6 +82,73 @@ internal class KotlinSiblingRowsTest : KotlinSnippetTestCase() {
         assertTrue("a getter nobody can write was minted: $rows", rows.keys.none { "getIsSettled" in it })
         assertTrue("a getter nobody can write was minted: $rows", rows.values.none { it.original == "getIsSettled" })
     }
+
+    /**
+     * **What is left once every reported spelling is a row** — the three a model can still write and
+     * PSI cannot report. Each is a known name in a spelling SnippetVeil never sent: unrestored, left as
+     * the reply wrote it, and not called gone. The ordinary getter beside them decodes, so a regression
+     * in the rows shows up here as a bucket hit rather than as silence.
+     */
+    fun `test a setter on a val is a known name in a spelling never sent`() {
+        assertTheSessionIsK2()
+
+        val reversal = reversalOver(
+            """
+            package com.acme.ledger
+
+            class Payment(<selection>val merchantRef: String</selection>)
+            """.trimIndent(),
+            reply = "payment.setField1(x) after payment.getField1()",
+        )
+
+        assertEquals("payment.setField1(x) after payment.getMerchantRef()", reversal.text)
+        assertEquals(listOf(Unrestored("setField1", UnrestoredReason.UNSENT_SPELLING)), reversal.unrestored)
+    }
+
+    /** `val isSettled` is its own getter, so `getIsField1` is a prefix the model guessed onto `isField1`. */
+    fun `test a get prefix guessed onto an is-property is a known name in a spelling never sent`() {
+        assertTheSessionIsK2()
+
+        val reversal = reversalOver(
+            """
+            package com.acme.ledger
+
+            class Payment {
+                <selection>val isSettled: Boolean = false</selection>
+            }
+            """.trimIndent(),
+            reply = "payment.getIsField1() or payment.isField1",
+        )
+
+        assertEquals("payment.getIsField1() or payment.isSettled", reversal.text)
+        assertEquals(listOf(Unrestored("getIsField1", UnrestoredReason.UNSENT_SPELLING)), reversal.unrestored)
+    }
+
+    /** A `@get:JvmSynthetic` getter is invisible to the light class, so PSI reports no row for it. */
+    fun `test the getter of a JvmSynthetic accessor is a known name in a spelling never sent`() {
+        assertTheSessionIsK2()
+
+        val result = kotlinResultFor(
+            "com/acme/ledger/Payment.kt",
+            """
+            package com.acme.ledger
+
+            class Payment {
+                <selection>@get:JvmSynthetic
+                val merchantRef: String = ""</selection>
+            }
+            """.trimIndent(),
+        )
+        val rows = result.delta.placeholders
+        val reversal = deanonymize("payment.getField1()", Sidecar.EMPTY, LedgerSnapshot.EMPTY + result.delta)
+
+        assertTrue("PSI reported the synthetic getter, so this is not the case under test: $rows", rows.values.none { it.original == "getMerchantRef" })
+        assertEquals(listOf(Unrestored("getField1", UnrestoredReason.UNSENT_SPELLING)), reversal.unrestored)
+    }
+
+    /** The reply reversed against the mapping the selection wrote, with nothing in the window. */
+    private fun reversalOver(text: String, reply: String): Reversal =
+        deanonymize(reply, Sidecar.EMPTY, LedgerSnapshot.EMPTY + kotlinResultFor("com/acme/ledger/Payment.kt", text).delta)
 
     /**
      * **A Java `getBody()` and `isSettled()` contribute the spellings Kotlin writes them in** — `body`,

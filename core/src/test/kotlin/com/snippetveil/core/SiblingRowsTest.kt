@@ -239,7 +239,9 @@ class SiblingRowsTest {
     /**
      * **The defect, end to end in `:core`.** A reply writing an accessor the snippet never showed is
      * restored from the mapping — and the same reply against the mapping as it stood before is the
-     * false *beyond the recent-history window* this ticket was filed over.
+     * defect this ticket was filed over. That control used to read *beyond the recent-history window*;
+     * it now reads as a known name in a spelling never sent, which is still unrestored, and is the
+     * shape a regression in the rows would take.
      */
     @Test
     fun `a reply naming an accessor the snippet never showed is restored rather than called evicted`() {
@@ -256,7 +258,8 @@ class SiblingRowsTest {
         val spliced = anonymize(planOf("merchantRef", merchantRef()), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
         val gone = deanonymize(reply, nobodyRemembers, LedgerSnapshot.EMPTY + spliced.delta)
 
-        assertEquals(listOf(Unrestored("getField1", UnrestoredReason.EVICTED)), gone.unrestored)
+        assertEquals("Null-check `payment.getField1()` first.", gone.text)
+        assertEquals(listOf(Unrestored("getField1", UnrestoredReason.UNSENT_SPELLING)), gone.unrestored)
     }
 }
 

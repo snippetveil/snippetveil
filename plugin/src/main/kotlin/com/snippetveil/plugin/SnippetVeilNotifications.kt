@@ -240,9 +240,10 @@ internal object SnippetVeilNotifications {
     /**
      * The list of what did not come back, **read-only and per bucket**.
      *
-     * Read-only because there is nothing to do to a placeholder that decoded to nothing: the two
-     * answers are *the name is gone* and *this was never ours*, and neither is an action. What the
-     * list is for is telling those two apart on the rows the user is actually holding.
+     * Read-only because there is nothing to do to a placeholder that decoded to nothing: the three
+     * answers are *the name is gone*, *this was never ours* and *the name is known, the spelling is
+     * not*, and none is an action. What the list is for is telling those apart on the rows the user is
+     * actually holding.
      */
     private fun showDetails(project: Project, unrestored: List<Unrestored>) =
         NotificationAction.createSimple("Show details") { UnrestoredDialog(project, unrestored).show() }
