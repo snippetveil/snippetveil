@@ -55,7 +55,7 @@ fun deanonymize(text: String, sidecar: Sidecar, mapping: LedgerSnapshot): Revers
     var copied = 0
     for (word in WORD.findAll(text)) {
         val token = word.value
-        val original = sidecar.originalOf(token) ?: mapping.originalOf(token)
+        val original = originalOf(token, sidecar, mapping)
 
         if (original == null) {
             // Only once the lookup has failed: a word that decodes is restored, whatever it would
@@ -173,9 +173,10 @@ enum class UnrestoredReason(val message: String) {
  * prefix, decapitalise, and look the remainder up.
  *
  * It asks the same tables the restore pass asks the same question, so it is a lookup rather than a
- * guess by shape, and needs no evidence the reversal does not already hold. It is the inverse of
- * [derivedAccessorPlaceholder] and exactly as wide: the prefixes are [AccessorEvidence.PREFIXES], and
- * the remainder must be capitalised the way that function writes it.
+ * guess by shape, and needs no evidence the reversal does not already hold. It is exactly as wide as
+ * [derivedAccessorPlaceholder], and is checked by calling it rather than by inverting its spelling by
+ * hand: a candidate counts only when that function would write [token] from it, so the prefixes are
+ * [AccessorEvidence.PREFIXES] and the remainder is capitalised the way it always is.
  *
  * **Deliberately no wider.** Anything broader — trailing digits alone, case-insensitive matching,
  * absorbing a compound — claims words out of the model's own prose and reports them as placeholders
@@ -184,10 +185,14 @@ enum class UnrestoredReason(val message: String) {
  */
 private fun isUnsentSpelling(token: String, sidecar: Sidecar, mapping: LedgerSnapshot): Boolean =
     AccessorEvidence.PREFIXES.any { prefix ->
-        val rest = token.removePrefix(prefix)
-        rest.length < token.length && rest.firstOrNull()?.isUpperCase() == true &&
-            rest.replaceFirstChar(Char::lowercaseChar).let { (sidecar.originalOf(it) ?: mapping.originalOf(it)) != null }
+        if (!token.startsWith(prefix) || token.length == prefix.length) return@any false
+        val candidate = token.substring(prefix.length).replaceFirstChar(Char::lowercaseChar)
+        derivedAccessorPlaceholder(prefix, candidate) == token && originalOf(candidate, sidecar, mapping) != null
     }
+
+/** What [word] stood for in either table — the sidecar first, for the reason given on [deanonymize]. */
+private fun originalOf(word: String, sidecar: Sidecar, mapping: LedgerSnapshot): String? =
+    sidecar.originalOf(word) ?: mapping.originalOf(word)
 
 /**
  * Which side of the counter [placeholder] falls on.

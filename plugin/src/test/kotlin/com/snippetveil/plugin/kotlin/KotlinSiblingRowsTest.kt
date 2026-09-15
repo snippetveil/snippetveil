@@ -105,6 +105,7 @@ internal class KotlinSiblingRowsTest : KotlinSnippetTestCase() {
         assertEquals(listOf(Unrestored("setField1", UnrestoredReason.UNSENT_SPELLING)), reversal.unrestored)
     }
 
+    /** `val isSettled` is its own getter, so `getIsField1` is a prefix the model guessed onto `isField1`. */
     fun `test a get prefix guessed onto an is-property is a known name in a spelling never sent`() {
         assertTheSessionIsK2()
 
@@ -123,6 +124,7 @@ internal class KotlinSiblingRowsTest : KotlinSnippetTestCase() {
         assertEquals(listOf(Unrestored("getIsField1", UnrestoredReason.UNSENT_SPELLING)), reversal.unrestored)
     }
 
+    /** A `@get:JvmSynthetic` getter is invisible to the light class, so PSI reports no row for it. */
     fun `test the getter of a JvmSynthetic accessor is a known name in a spelling never sent`() {
         assertTheSessionIsK2()
 
