@@ -339,10 +339,7 @@ class DeanonymizeClipboardAndPasteActionTest : JavaSnippetTestCase() {
 
         assertEquals("Before\n\nAfter", editor.document.text)
         val balloon = notifications.single()
-        assertEquals(
-            "Paste failed — your clipboard was not changed. Part of the reply may already have been inserted; Undo reverts it in one step.",
-            balloon.content,
-        )
+        assertEquals(WRITE_THROW_BALLOON, balloon.content)
         assertEquals(NotificationType.ERROR, balloon.type)
     }
 
@@ -386,10 +383,7 @@ class DeanonymizeClipboardAndPasteActionTest : JavaSnippetTestCase() {
             "one `settle` two `settle` three  four",
             editor.document.text,
         )
-        assertEquals(
-            "Paste failed — your clipboard was not changed. Part of the reply may already have been inserted; Undo reverts it in one step.",
-            notifications.single().content,
-        )
+        assertEquals(WRITE_THROW_BALLOON, notifications.single().content)
 
         editor.document.removeGuardedBlock(guard)
         myFixture.performEditorAction(IdeActions.ACTION_UNDO)
@@ -401,7 +395,8 @@ class DeanonymizeClipboardAndPasteActionTest : JavaSnippetTestCase() {
      * **The two failures are asserted together, because each exists as a separate message only because
      * of the clause the other one may not use.** The read throws before anything is written, so it may
      * promise *nothing was inserted*. The write may have inserted part of the reply, so it may not, and
-     * it names the remedy instead. Both keep the clipboard clause, the error level and the report link.
+     * it names the remedy instead. Both keep the clipboard clause, the error level and the report link,
+     * which `BalloonFamilyTest` checks for every balloon rather than for these two.
      */
     fun `test the read-throw and write-throw balloons differ only in what each may promise`() {
         assertTheHarnessResolves()
@@ -418,15 +413,8 @@ class DeanonymizeClipboardAndPasteActionTest : JavaSnippetTestCase() {
         val write = notifications.single()
 
         assertEquals("Paste failed — nothing was inserted and your clipboard was not changed.", read.content)
-        assertEquals(
-            "Paste failed — your clipboard was not changed. Part of the reply may already have been inserted; Undo reverts it in one step.",
-            write.content,
-        )
+        assertEquals(WRITE_THROW_BALLOON, write.content)
         assertFalse("the write-throw balloon promised what it cannot check", "nothing was inserted" in write.content)
-        assertEquals(NotificationType.ERROR, read.type)
-        assertEquals(NotificationType.ERROR, write.type)
-        assertEquals(listOf("Report an issue"), read.actions.map { it.templatePresentation.text })
-        assertEquals(listOf("Report an issue"), write.actions.map { it.templatePresentation.text })
     }
 
     /**
@@ -596,3 +584,10 @@ class DeanonymizeClipboardAndPasteActionTest : JavaSnippetTestCase() {
         return clipboard()
     }
 }
+
+/**
+ * The write-throw balloon, word for word. It is one constant because two tests check it: the one that
+ * ties its Undo sentence to the grouping, and the one that sets it beside the read-throw balloon.
+ */
+private const val WRITE_THROW_BALLOON =
+    "Paste failed — your clipboard was not changed. Part of the reply may already have been inserted; Undo reverts it in one step."
