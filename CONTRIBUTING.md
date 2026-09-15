@@ -1051,7 +1051,7 @@ The strictest surface wins automatically, by construction rather than by discipl
 
 | Check | Where | Covers |
 |---|---|---|
-| `assertTheListingCopyIsTheReadme` | `plugin/build.gradle.kts` | The description in the built distribution, word for word against README.md — plus the heading order, the 40-character floor, HTTPS-only links, the phrase ban and third-party brand names |
+| `assertTheListingCopyIsTheReadme` | `plugin/build.gradle.kts` | The description in the built distribution, word for word against README.md — plus the heading order, the 40-character floor, HTTPS-only links, the phrase ban, third-party brand names, and that the `canonical` markers enclose exactly the *No network* and both negative-list sections |
 | `assertNoBannedPhraseAppearsOnAnySurface` | root `build.gradle.kts` | Every Markdown file in the repository, the issue forms under `.github/ISSUE_TEMPLATE/`, every string literal in `:core` and `:plugin` main sources, and the descriptor's own menu strings |
 | `assertEveryIssueFormLinkIsHttps` | root `build.gradle.kts` | Every file under `.github/ISSUE_TEMPLATE/`: each `url:` starts `https://`, and no line anywhere carries a plaintext link |
 | `assertNoRoadmapIsPublished` | `plugin/build.gradle.kts` | README.md, CHANGELOG.md the day there is one, and the change notes in the built distribution |
@@ -1086,9 +1086,10 @@ fetches it from `main` on every push and pull request, together with this README
 `snippetveil.com` says any word on the lists, links over plain `http`, or no longer carries the
 paragraphs between the README's `canonical` markers verbatim. It reads `main` rather than a pinned
 ref on purpose, so a phrase added here can turn that repository red without a commit there. A `.json`
-is neither Markdown nor a Kotlin string literal, so the sweep below does not read it. A documentation
-file is one of the surfaces the check reads, so a ban list quoted
-into it fails the build on its own contents — which is not an awkwardness to work around but the
+is neither Markdown nor a Kotlin string literal, so the sweep below does not read it.
+
+A documentation file is one of the surfaces the check reads, so a ban list quoted into it fails the
+build on its own contents — which is not an awkwardness to work around but the
 rule working: there is no exception list, and a file exempted "because it is only explaining the
 rule" is exactly where a violation eventually hides.
 

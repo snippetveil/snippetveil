@@ -1015,6 +1015,18 @@ val assertTheListingCopyIsTheReadme = tasks.register("assertTheListingCopyIsTheR
         val block = readmeText.substring(start + startMarker.length, end).trim()
         check(block.isNotEmpty()) { "The listing-copy block in README.md is empty. Nothing was checked." }
 
+        // The markers are comments the renderer never sees, so every derivation of the copy's words
+        // reads the block without them.
+        fun withoutCanonicalMarkers(text: String) = text.replace(canonicalStartMarker, "").replace(canonicalEndMarker, "")
+
+        // The enclosure rule finds the canonical sections by the heading after the last of them, so
+        // the canonical headings have to be a run of the pinned ones for "the heading after" to mean
+        // anything. A rename that reached one list and not the other fails here, by name.
+        val canonicalAt = headings.indexOf(canonical.first())
+        check(canonicalAt >= 0 && headings.subList(canonicalAt, minOf(headings.size, canonicalAt + canonical.size)) == canonical) {
+            "The canonical headings $canonical are not a run of the pinned headings $headings."
+        }
+
         fun headingAt(text: String, heading: String): Int =
             Regex("""(?m)^###\s+${Regex.escape(heading)}\s*$""").find(text)?.range?.first ?: -1
 
@@ -1037,7 +1049,7 @@ val assertTheListingCopyIsTheReadme = tasks.register("assertTheListingCopyIsTheR
                 return "the listing copy marks more than one canonical subset"
             }
             val marked = block.substring(from + canonicalStartMarker.length, to)
-            val unmarked = block.replace(canonicalStartMarker, "").replace(canonicalEndMarker, "")
+            val unmarked = withoutCanonicalMarkers(block)
             val first = headingAt(unmarked, canonical.first())
             val following = headings.getOrNull(headings.indexOf(canonical.last()) + 1)
             val last = following?.let { headingAt(unmarked, it) } ?: unmarked.length
@@ -1069,8 +1081,11 @@ val assertTheListingCopyIsTheReadme = tasks.register("assertTheListingCopyIsTheR
         check(canonicalProblem(sampleBlock) == null) {
             "The enclosure rule flagged markers that enclose exactly the canonical sections: ${canonicalProblem(sampleBlock)}"
         }
-        check(canonicalProblem(sampleBlock.replace(canonicalStartMarker, "").replace(canonicalEndMarker, "")) != null) {
+        check(canonicalProblem(withoutCanonicalMarkers(sampleBlock)) != null) {
             "The enclosure rule passed a block with no canonical markers at all."
+        }
+        check(canonicalProblem("$canonicalStartMarker\n\n$canonicalEndMarker\n\n$sampleBlock") != null) {
+            "The enclosure rule passed a block that marks two canonical subsets."
         }
         check(canonicalProblem(sampleBlock.replace("$canonicalStartMarker\n\n### No network\n\nNone.", "### No network\n\nNone.\n\n$canonicalStartMarker")) != null) {
             "The enclosure rule passed a No network paragraph left above the start marker."
@@ -1114,8 +1129,7 @@ val assertTheListingCopyIsTheReadme = tasks.register("assertTheListingCopyIsTheR
             ?: throw GradleException("$where carries no <description>. The listing copy is not being patched in.")
 
         val shippedWords = wordsOfHtml(shipped)
-        // The canonical markers are comments the renderer never sees, so they are no words of the listing.
-        val readmeWords = wordsOfMarkdown(block.replace(canonicalStartMarker, "").replace(canonicalEndMarker, ""))
+        val readmeWords = wordsOfMarkdown(withoutCanonicalMarkers(block))
 
         if (shippedWords != readmeWords) {
             val at = shippedWords.zip(readmeWords).indexOfFirst { (a, b) -> a != b }
