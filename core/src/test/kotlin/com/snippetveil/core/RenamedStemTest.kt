@@ -458,8 +458,13 @@ class RenamedStemTest {
         assertEquals("String merchantField1;", first.text)
         assertEquals("String getMerchantField1() { return null; }", second.text)
         assertEquals(setOf("merchantField", "getMerchantField"), committed.mintedStems)
+
+        // Reported, which is what this test is about. The bucket is the unsent-spelling one rather than
+        // evicted because the fixture keys the accessor unqualified while its field is ledgered, so the
+        // mapping holds `merchantField1` one strip away — a pairing a real builder, which looks the
+        // field up on the accessor's own class, does not produce.
         assertEquals(
-            listOf(Unrestored("getMerchantField1", UnrestoredReason.EVICTED)),
+            listOf(Unrestored("getMerchantField1", UnrestoredReason.UNSENT_SPELLING)),
             deanonymize("getMerchantField1 never reloads it.", Sidecar.EMPTY, committed).unrestored,
         )
     }

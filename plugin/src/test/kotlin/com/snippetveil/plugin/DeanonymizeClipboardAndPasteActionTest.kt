@@ -430,6 +430,43 @@ class DeanonymizeClipboardAndPasteActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **A setter nobody can write is refused, and the refusal is unchanged** — the word is a known name
+     * in a spelling SnippetVeil never sent, which is still a word that did not restore.
+     *
+     * The field is `final`, so PSI reports a getter and no setter, and the mapping holds `field1` and
+     * `getField1` alone. The model writes `setField1` anyway. Pasting it would put a placeholder into
+     * a file, however well the rest of the reply decoded — so nothing is written, the clipboard is left
+     * alone, and `Show details` is what says the name is one row away rather than gone.
+     */
+    fun `test a reply naming a setter the field cannot have is refused with the clipboard untouched`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Payment.java",
+            """
+            package com.acme;
+
+            public class Payment {
+                <selection>private final String merchantRef = "";</selection>
+                public String getMerchantRef() { return merchantRef; }
+            }
+            """.trimIndent(),
+        )
+        invokeCopyAnonymized()
+        val reply = "Call `payment.setField1(x)` once `payment.getField1()` is known."
+        val clipboardUnderTest = FakeClipboard(reply)
+
+        myFixture.configureByText("notes.md", "Before\n<caret>\nAfter")
+        invokeDeanonymizeAndPaste(clipboardUnderTest)
+
+        assertEquals("Before\n\nAfter", myFixture.editor.document.text)
+        assertEquals(reply, clipboardUnderTest.text)
+        assertFalse("the clipboard was written", clipboardUnderTest.written)
+        val balloon = notifications.single()
+        assertEquals("Nothing pasted — 1 placeholder did not restore.", balloon.title)
+        assertEquals(listOf("Show details"), balloon.actions.map { it.templatePresentation.text })
+    }
+
+    /**
      * Copies [REVERSAL_SNIPPET] with its `owed` local renamed, the way a preview the user typed into
      * would — and hands back a lookup from a real name to the placeholder that went out, which is how
      * the replies below quote them.

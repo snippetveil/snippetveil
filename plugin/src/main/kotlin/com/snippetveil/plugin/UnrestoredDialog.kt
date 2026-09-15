@@ -14,17 +14,20 @@ import javax.swing.JPanel
 import javax.swing.table.AbstractTableModel
 
 /**
- * **What did not come back, and which of the two things that means.**
+ * **What did not come back, and which of the three things that means.**
  *
  * The balloon's `Show details`, and it is offered only when there is something to list. Read-only,
  * and not because a read-only dialog was simpler: there is **nothing to do** to a placeholder that
- * decoded to nothing. One of them is a name this project minted and has since forgotten, and the
- * other never stood for anything here at all — and neither is a button.
+ * decoded to nothing. One is a name this project minted and has since forgotten, one never stood for
+ * anything here at all, and one is a name the table holds in a spelling SnippetVeil never sent — and
+ * none of them is a button.
  *
- * **The split is the whole content.** Collapsed into a count, a user hunts for a mapping that either
- * never existed or is provably gone; told apart, one row says *stop looking* and the other says
- * *this is not a name, the model made it up*. That distinction is free — the counter never recycles a
- * number, so which side of it a placeholder falls on is an honest test with no record required.
+ * **The split is the whole content.** Collapsed into a count, a user hunts for a mapping that never
+ * existed, is provably gone, or is one row away under another spelling; told apart, one row says
+ * *stop looking*, one says *this is not a name, the model made it up*, and one says *the name is
+ * known, the spelling is not*. Two of those are free — the counter never recycles a number, so which
+ * side of it a placeholder falls on is an honest test with no record required — and the third asks
+ * the tables the reversal already holds.
  *
  * A row's *reason* is written out rather than shown as a code, because this list is read once by
  * somebody holding a reply they cannot fully read, and a legend is a second thing to learn.

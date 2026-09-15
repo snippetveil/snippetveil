@@ -10,6 +10,12 @@
   placeholder the field already has: no number is used up, and no placeholder already sent changes
   meaning. An existing mapping is not rewritten; it gains these rows the next time the field is
   anonymized.
+- A placeholder the model spelled as an accessor SnippetVeil never sent — `setField1` against a `val`,
+  `getIsField1` against `isField1` — is listed in Show details as a name this project knows, in a
+  spelling SnippetVeil never sent. It used to be listed as beyond the recent-history window, which
+  says the name is gone when the mapping holds it under another spelling. The word is still left as
+  the reply wrote it and still counts as not restored, so De-anonymize Clipboard and Paste still
+  refuses the reply.
 
 ## [1.3.0] - 2026-09-11
 
