@@ -302,6 +302,23 @@ data class MintedName(val placeholder: String, val original: String)
  * too, an AI's reply can quote either name, and recognising a word this project minted is the whole
  * job.
  *
+ * ### A row for every accessor, and a number for none of them
+ *
+ * A row used to exist only for a spelling that was spliced. A field sent with its getter outside the
+ * selection left `field1 = merchantRef` and nothing else, and a reply writing `getField1()` — which
+ * a model derives unprompted — decoded to nothing and was reported *beyond the recent-history
+ * window*: a false statement about a name held one row away, and a refused paste over it. **So every
+ * accessor the plan reported for a field that reached the output has a row, snippet or no snippet.**
+ * See [SymbolEvidence.siblingAccessors] for what is reported, and why it is read rather than derived.
+ *
+ * **Rows, not numbers.** A sibling's placeholder renders from the one its field already has, so no
+ * sibling allocates, [nextNumber] does not move for one, and nothing a user has already pasted
+ * changes meaning. Rows roughly double for accessor-bearing fields, which is the accepted cost.
+ *
+ * **Nor is a key ever rewritten**, which is also why there is no migration and none is possible: a key
+ * already in the mapping keeps the row it has, and a mapping written before sibling rows existed gains
+ * them the next time the field is anonymized, like any other row.
+ *
  * @param placeholders the qualified keys named during this invocation, and what they were named —
  *   see [MintedName] for why a row is a pair rather than a placeholder.
  * @param nextNumber where the counter stands afterwards. Higher than
@@ -352,6 +369,18 @@ operator fun LedgerSnapshot.plus(delta: LedgerDelta): LedgerSnapshot =
  * where an allocator that only ever counted up finished. A stem is recorded at the moment a
  * placeholder is minted under it, so [LedgerDelta.mintedStems] cannot grow without the counter
  * having moved either.
+ *
+ * **One kind of entry is the exception, and what missing it costs is stated rather than hidden.** A
+ * sibling accessor's row allocates nothing — see [LedgerDelta] — so a ledger can gain one, and the
+ * derived stem beside it, with the counter where it stood. Two invocations that add the same one add
+ * the same row, since both are a function of a row the ledger already held, and a commit carrying one
+ * hands out no number another invocation could also have handed out.
+ *
+ * What this cannot see is an invocation analysed before such a row landed that then gives the same
+ * accessor a placeholder of its own — a fallback allocation, where the derived name collided with a
+ * word in its output. Its commit files that placeholder over the sibling row. The row it replaces was
+ * never in any output, so the loss is one restore of a word nobody was sent; the placeholder that
+ * replaces it is the one that was. The same window was already open for a spliced accessor's field.
  */
 fun LedgerSnapshot.isStill(latest: LedgerSnapshot): Boolean = nextNumber == latest.nextNumber
 

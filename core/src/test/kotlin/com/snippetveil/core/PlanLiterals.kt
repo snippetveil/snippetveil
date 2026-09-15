@@ -109,6 +109,7 @@ internal fun symbol(
     overrideRoots: List<OverrideRoot> = emptyList(),
     accessor: AccessorEvidence? = null,
     keyIsQualified: Boolean = false,
+    siblingAccessors: List<SymbolEvidence> = emptyList(),
 ) = SymbolEvidence(
     key = key,
     role = role,
@@ -120,6 +121,7 @@ internal fun symbol(
     overrideRoots = overrideRoots,
     accessor = accessor,
     keyIsQualified = keyIsQualified,
+    siblingAccessors = siblingAccessors,
 )
 
 /**

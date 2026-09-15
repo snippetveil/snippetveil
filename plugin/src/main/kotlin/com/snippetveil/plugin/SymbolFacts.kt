@@ -59,17 +59,90 @@ internal object SymbolFacts {
      * @param declaredName the name to report when the element has none of its own, which is what a
      *   reverse mapping has to hand back
      */
-    fun evidenceOf(project: Project, symbol: PsiElement, declaredName: String): SymbolEvidence = SymbolEvidence(
+    fun evidenceOf(project: Project, symbol: PsiElement, declaredName: String): SymbolEvidence = describedAs(
+        symbol,
+        declaredName,
+        ownerOf = { originOf(project, it) },
+        accessor = (symbol as? PsiMethod)?.let(::accessorEvidenceOf),
+        siblingAccessors = siblingAccessorsOf(project, symbol),
+    )
+
+    /**
+     * **An accessor a walk read off a declaration**, described as the symbol it is and tied to the
+     * field it is an accessor of — one entry of [SymbolEvidence.siblingAccessors].
+     *
+     * The field is handed in rather than looked up, because the Kotlin walk knows it and a lookup would
+     * not find it: `val isSettled` compiles to a getter `isSettled` over a field `isSettled`, and
+     * [accessorEvidenceOf] looks for a field named `settled`. So is the ownership question, for the
+     * reason [overrideRootsOf] takes one.
+     */
+    fun siblingAccessorOf(method: PsiMethod, field: AccessorEvidence, ownerOf: (PsiElement) -> SymbolOrigin): SymbolEvidence =
+        describedAs(method, method.name, ownerOf, accessor = field, siblingAccessors = emptyList())
+
+    /**
+     * **The accessors a Java class declares for the field [symbol] is, or reads or writes** — the
+     * Java walk's half of [SymbolEvidence.siblingAccessors], and asked of a Kotlin light class too,
+     * where a Java file reaches a Kotlin property through its accessor.
+     *
+     * > The closure contains exactly those spellings by which a project-owned declaration can be
+     * > written in a `.java` or `.kt` source file.
+     *
+     * That rule is stated identically beside the leak check's own closure, `SourceSpellings`, and **the
+     * two implementations are kept apart on purpose.** That one derives every spelling from
+     * declaration text and file names, so that it cannot come to share this walk's blind spots; this
+     * one reads what PSI reports. Shared, the check would be asserting the anonymiser's beliefs back at
+     * it and would go green by construction — so what binds them is the rule, and a test that the two
+     * agree on a fixture, never an import of one by the other.
+     *
+     * **Members the class reports, matched by the rule that already decides what an accessor of a
+     * field is** — [accessorEvidenceOf]'s name and arity — so that a sibling row and a spliced accessor
+     * cannot disagree about which methods those are. A Lombok accessor is one of them: a class reports
+     * its augmented members with its own.
+     *
+     * **Accessors, and only accessors, which is a stated limit rather than the rule.** The other sibling
+     * spellings the rule names are a facade, a `@JvmName`, an `internal` mangling, a named companion and
+     * an object's `INSTANCE`. Every one of the last four is already the key of its declaration's own
+     * row, since a light element's name is what the key is read from; a facade has no placeholder a row
+     * could render from without allocating a number. Neither gains a row here.
+     */
+    private fun siblingAccessorsOf(project: Project, symbol: PsiElement): List<SymbolEvidence> {
+        val field = when (symbol) {
+            is PsiField -> symbol
+            is PsiMethod -> accessedFieldOf(symbol)?.first
+            else -> null
+        } ?: return emptyList()
+        val owner = field.containingClass ?: return emptyList()
+        val fieldKey = SymbolKeys.keyOf(field)
+
+        return owner.methods.mapNotNull { method ->
+            val (accessed, kind) = accessedFieldOf(method) ?: return@mapNotNull null
+            if (SymbolKeys.keyOf(accessed) != fieldKey) return@mapNotNull null
+            siblingAccessorOf(method, accessorEvidenceFor(accessed, kind)) { originOf(project, it) }
+        }
+    }
+
+    /**
+     * The description both of the functions above hand out, written once so that a sibling and the
+     * symbol it is a sibling of cannot come out described two different ways.
+     */
+    private fun describedAs(
+        symbol: PsiElement,
+        declaredName: String,
+        ownerOf: (PsiElement) -> SymbolOrigin,
+        accessor: AccessorEvidence?,
+        siblingAccessors: List<SymbolEvidence>,
+    ): SymbolEvidence = SymbolEvidence(
         key = SymbolKeys.keyOf(symbol),
         role = roleOf(symbol),
-        origin = originOf(project, symbol),
+        origin = ownerOf(symbol),
         declaredName = (symbol as? PsiNameIdentifierOwner)?.name ?: declaredName,
         qualifiedName = (symbol as? PsiQualifiedNamedElement)?.qualifiedName,
         packageName = packageNameOf(symbol),
         signature = (symbol as? PsiMethod)?.let(::signatureOf),
-        overrideRoots = (symbol as? PsiMethod)?.let { method -> overrideRootsOf(method) { originOf(project, it) } }.orEmpty(),
-        accessor = (symbol as? PsiMethod)?.let(::accessorEvidenceOf),
+        overrideRoots = (symbol as? PsiMethod)?.let { method -> overrideRootsOf(method, ownerOf) }.orEmpty(),
+        accessor = accessor,
         keyIsQualified = SymbolKeys.keyIsQualified(symbol),
+        siblingAccessors = siblingAccessors,
     )
 
     /**
@@ -308,18 +381,27 @@ internal object SymbolFacts {
      * what makes a change in the platform's answer move both languages together; that function says
      * why, and why the lookup does not go up the hierarchy.
      */
-    fun accessorEvidenceOf(method: PsiMethod): AccessorEvidence? {
+    fun accessorEvidenceOf(method: PsiMethod): AccessorEvidence? =
+        accessedFieldOf(method)?.let { (field, kind) -> accessorEvidenceFor(field, kind) }
+
+    /** The field [method] is a JavaBeans accessor of, and which kind of accessor — see [accessorEvidenceOf]. */
+    private fun accessedFieldOf(method: PsiMethod): Pair<PsiField, PropertyKind>? {
         val owner = method.containingClass ?: return null
         val property = PropertyUtilBase.getPropertyNameAndKind(method.name) ?: return null
         val parameters = if (property.second == PropertyKind.SETTER) 1 else 0
         if (method.parameterList.parametersCount != parameters) return null
 
         val field = SymbolKeys.backingFieldOf(owner, property.first) ?: return null
-        return AccessorEvidence(
-            SymbolKeys.keyOf(field),
-            field.name,
-            property.second.prefix,
-            SymbolKeys.keyIsQualified(field),
-        )
+        return field to property.second
     }
+
+    /**
+     * **The JavaBeans prefix [name] is written with**, or `null` where it has none — read by the
+     * platform call [accessorEvidenceOf] reads a prefix with, so that the Kotlin walk, which ties an
+     * accessor to its property by other means, cannot come to split names at a different place.
+     */
+    fun accessorPrefixOf(name: String): String? = PropertyUtilBase.getPropertyNameAndKind(name)?.second?.prefix
+
+    private fun accessorEvidenceFor(field: PsiField, kind: PropertyKind): AccessorEvidence =
+        AccessorEvidence(SymbolKeys.keyOf(field), field.name, kind.prefix, SymbolKeys.keyIsQualified(field))
 }

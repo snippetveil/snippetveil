@@ -96,6 +96,13 @@ fun anonymize(
     // it can still be the first thing to mint `getMerchantField1`.
     fun isChosen(stem: String): Boolean = stem in mintedStems || stem in ledger.mintedStems
 
+    // **The word a derived accessor placeholder adds**, recorded where it is made — by a spliced
+    // accessor in [placeholderFor] and by a sibling's row alike — and only over a stem the user
+    // chose: `getField1` is recognised from the roles alone, and `getField` is not the user's word.
+    fun recordDerivedStem(field: String, derived: String) {
+        if (isChosen(stemOf(field))) mintedStems += stemOf(derived)
+    }
+
     fun namespaceFor(symbol: SymbolEvidence): String {
         val namespace = namespaceOf(symbol)
         if (keepsItsNamespace(symbol)) return namespace
@@ -190,7 +197,7 @@ fun anonymize(
                 // Only over a stem the user chose. A default-stemmed accessor renders `getField1`,
                 // which the reversal already recognises from the roles alone — and putting `getField`
                 // in this set would file a namespace the engine chose among the words the user did.
-                if (isChosen(stemOf(field))) mintedStems += stemOf(fromField)
+                recordDerivedStem(field, fromField)
 
                 fromField
             } else {
@@ -420,6 +427,53 @@ fun anonymize(
                 edits += stripOf(plan.text, occurrence, after = edits.lastOrNull()?.end ?: 0)
             }
         }
+    }
+
+    // **Every placeholder already standing for some key** — in the ledger, or anywhere in this
+    // invocation, qualified or not. Injectivity across the project's history, asked of names no
+    // allocator handed out: a derived placeholder is unique to its field by construction, and this is
+    // the check that says so rather than the sentence. Taken once, after the pass, and kept current as
+    // sibling rows are added below.
+    val held = placeholderByKey.values.toHashSet()
+
+    /**
+     * **A row for an accessor the snippet may never have shown**, rendered from the placeholder its
+     * field already has. See [SymbolEvidence.siblingAccessors] for what is reported, and [LedgerDelta]
+     * for why the rows are worth their space.
+     *
+     * Held to everything a spliced accessor's row is held to, for the same reasons: it is filed under
+     * the key its placeholder would be handed out against, only a qualified key is written down, a
+     * name Java forbids from being renamed or the user preserved has no placeholder to record, and a
+     * derived name that already means something in this output is no placeholder either.
+     *
+     * What it adds is the one thing the spliced path never has to say: **it never draws a number.** A
+     * sibling whose placeholder cannot be derived is left without a row rather than allocated one —
+     * the counter is a record of what was handed out, and nothing here was.
+     *
+     * **A key already named is left as it is**, by the ledger or by this invocation, and that is the
+     * whole of the no-migration rule: rewriting a key re-points a placeholder already handed to an AI.
+     */
+    fun recordSibling(sibling: SymbolEvidence) {
+        val accessor = sibling.accessor ?: return
+        val field = placeholderByKey[accessor.fieldKey] ?: return
+        val key = sharedKeyOf(sibling)
+        if (key in placeholderByKey || !sharedKeyIsQualified(sibling)) return
+        if (!isReplaced(sibling) || isNameConstrained(sibling, ownership)) return
+
+        val placeholder = derivedAccessorPlaceholder(accessor.prefix, field)
+        if (!allocator.isFree(placeholder) || placeholder in held) return
+
+        placeholderByKey[key] = placeholder
+        held += placeholder
+        persisted[key] = MintedName(placeholder, sibling.declaredName)
+        recordDerivedStem(field, placeholder)
+    }
+
+    // After the pass rather than inside it, so that nothing a sibling does can move a character of the
+    // text, a row of the table or a number of the counter — and in document order of the symbol that
+    // reported them, so the rows come out in an order a person reading the file can follow.
+    for (symbol in namedSymbols) {
+        if (isReplaced(symbol)) symbol.siblingAccessors.forEach(::recordSibling)
     }
 
     // Right to left, so that every replacement lands at an offset the ones before it have not

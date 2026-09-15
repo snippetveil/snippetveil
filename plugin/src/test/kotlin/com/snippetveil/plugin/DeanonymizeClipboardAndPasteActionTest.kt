@@ -395,6 +395,41 @@ class DeanonymizeClipboardAndPasteActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **A reply naming a getter the snippet never showed is restored and written** — the defect #114
+     * was filed over, in pure Java, and live since 1.1.0.
+     *
+     * The field goes out as `field1` with its getter outside the selection, and the model writes
+     * `getField1()` back, as a model does. The mapping used to hold `field1` alone, so that word
+     * decoded to nothing, was reported *beyond the recent-history window* — false, about a name the
+     * product was holding one row away — and the whole paste was refused over it.
+     *
+     * The sidecar is not cleared. It never held the getter either, so the refusal was there a second
+     * after the copy, and not only once the window had moved on.
+     */
+    fun `test a reply naming a getter the snippet never showed is restored and pasted`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Payment.java",
+            """
+            package com.acme;
+
+            public class Payment {
+                <selection>private String merchantRef;</selection>
+                public String getMerchantRef() { return merchantRef; }
+            }
+            """.trimIndent(),
+        )
+        invokeCopyAnonymized()
+        assertEquals("the getter reached the snippet, so this is not the case under test", "private String field1;", clipboard())
+
+        myFixture.configureByText("notes.md", "<caret>")
+        invokeDeanonymizeAndPaste(FakeClipboard("Null-check `payment.getField1()` before `field1` is read."))
+
+        assertEquals("Null-check `payment.getMerchantRef()` before `merchantRef` is read.", myFixture.editor.document.text)
+        assertEquals("Reply pasted, de-anonymized", notifications.single().title)
+    }
+
+    /**
      * Copies [REVERSAL_SNIPPET] with its `owed` local renamed, the way a preview the user typed into
      * would — and hands back a lookup from a real name to the placeholder that went out, which is how
      * the replies below quote them.

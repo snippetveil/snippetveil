@@ -6,11 +6,13 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiMember
 import com.intellij.psi.PsiMethod
+import com.intellij.psi.PsiNameHelper
 import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.PsiQualifiedNamedElement
 import com.intellij.psi.PsiReference
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
+import com.snippetveil.core.AccessorEvidence
 import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.Occurrence
@@ -29,6 +31,7 @@ import com.snippetveil.plugin.SymbolKeys
 import com.snippetveil.plugin.fragmentsOf
 import com.snippetveil.plugin.snappedRangesOf
 import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
+import org.jetbrains.kotlin.asJava.toLightMethods
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
@@ -648,7 +651,45 @@ internal object KotlinPlanBuilder : PlanBuilder {
                 .orEmpty(),
             accessor = lightMethodOf(symbol)?.let(SymbolFacts::accessorEvidenceOf),
             keyIsQualified = ledgerKey.keyIsQualified,
+            siblingAccessors = siblingAccessorsOf(project, symbol, ledgerKey),
         )
+    }
+
+    /**
+     * **The accessors the compiler gives a Kotlin property, as its light class declares them** — the
+     * Kotlin walk's half of [com.snippetveil.core.SymbolEvidence.siblingAccessors]. The rule they
+     * follow, and why it is not the leak check's implementation of it, is stated beside the Java
+     * walk's half, in [SymbolFacts].
+     *
+     * **Read, never assembled.** Each accessor's name is the light method's own, so a `@get:JvmName`,
+     * an `is`-prefixed getter and an `internal` mangling arrive exactly as a Java file has to write them,
+     * and a `val` reports no setter because it has none. The prefix a row renders under is read off
+     * that name by [SymbolFacts.accessorPrefixOf], the call the Java walk reads a prefix with.
+     *
+     * Two things the light class reports are not rows, and each is out by the rule rather than by
+     * omission: a name that is **not a Java identifier** — a value class's `-impl` — cannot be written in
+     * source; and a method whose name has **no accessor prefix at all** — a `@get:JvmName("fetch")` —
+     * has no placeholder a row could derive, and it is already the key of nothing this walk splices.
+     *
+     * The field every sibling is tied to is the property's own key, which is the backing field where
+     * the light class exposes one and the getter where it does not — see
+     * [KotlinSymbolKeys.ledgerKeyOf] — so a computed property's setter derives from the placeholder its
+     * getter's key already holds.
+     */
+    private fun siblingAccessorsOf(project: Project, symbol: KtElement, ledgerKey: LedgerKey): List<SymbolEvidence> {
+        val property = symbol as? KtNamedDeclaration ?: return emptyList()
+        val isProperty = (property is KtProperty && !property.isLocal) || (property is KtParameter && property.hasValOrVar())
+        val name = property.name
+        if (!isProperty || name == null) return emptyList()
+
+        val nameHelper = PsiNameHelper.getInstance(project)
+        return property.toLightMethods().mapNotNull { method ->
+            if (!nameHelper.isIdentifier(method.name)) return@mapNotNull null
+            val prefix = SymbolFacts.accessorPrefixOf(method.name) ?: return@mapNotNull null
+            SymbolFacts.siblingAccessorOf(method, AccessorEvidence(ledgerKey.key, name, prefix, ledgerKey.keyIsQualified)) {
+                ownershipOf(project, it)
+            }
+        }
     }
 
     /**

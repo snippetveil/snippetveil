@@ -85,7 +85,8 @@ import java.nio.file.Path
  * benefit — keeping numbers small — does not materialise, because recycling a number is forbidden.
  * Pruning would bound disk while the numbers climbed anyway, and pay for it in *silent instability*,
  * which is the exact failure stability was chosen to avoid. The disk bound was never needed: an entry
- * exists only for a symbol that was actually pasted.
+ * exists only for a symbol that was actually pasted, and for the accessors of a field that was — which
+ * roughly doubles the rows for such a field, at the cost of no number.
  */
 @Service(Service.Level.APP)
 @State(
