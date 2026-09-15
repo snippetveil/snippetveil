@@ -7,7 +7,13 @@
 
      Consequence, and it is the point: **the Marketplace Approval Guidelines govern this block** —
      no third-party brand references, no marketing adjectives, no unverifiable claims, English
-     first, HTTPS links only. The strictest surface wins automatically. -->
+     first, HTTPS links only. The strictest surface wins automatically.
+
+     The two `canonical` markers inside it enclose the claims settled elsewhere and reproduced
+     verbatim on snippetveil.com: the No network paragraph and the lines of both negative lists. The
+     site's CI reads them from here on `main`; the rest of the block is the site's to word its own
+     way. The markers are stripped before the block is rendered, and the build fails if they stop
+     enclosing exactly those sections. -->
 
 <!-- listing copy -->
 
@@ -39,6 +45,8 @@ control flow, and the libraries you call go as-is.
 - The mapping is per-project and stays on your machine. Placeholders are stable across
   invocations and IDE restarts, so a second snippet never contradicts the first.
 
+<!-- canonical -->
+
 ### No network
 
 SnippetVeil makes no network calls. No networking code — enforced on every pull request,
@@ -58,6 +66,8 @@ scanned in every release build, and public from the first commit.
 
 - **The text inside your strings** — a string literal in your own code becomes `"str1"`.
 - **Your comments**, by default.
+
+<!-- canonical end -->
 
 ### Non-goals
 
