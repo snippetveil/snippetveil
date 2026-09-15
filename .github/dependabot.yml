@@ -23,3 +23,16 @@ updates:
     groups:
       gradle:
         patterns: ["*"]
+    # **The one dependency here that must not be kept current.** `kotlinFixtureStdlib` pins
+    # `kotlin-stdlib` deliberately *old* — older than every compiler in the matrix — because stdlib
+    # metadata is forwards-incompatible, so a newer one resolves to nothing in the analysing session.
+    # That is the fail-green the attachment exists to prevent: unresolved fails closed into `Unknown`,
+    # everything gets renamed, and the leak oracle comes back maximally green over a broken harness.
+    #
+    # Dependabot offered exactly that bump, bundled with a legitimate `kotlin.jvm` one, and the
+    # harness's own precondition caught it — `test a kotlin standard library member resolves to
+    # library origin`. Ignored here so the offer stops arriving weekly, rather than relying on
+    # somebody reading the comment on the pin every time. The artifact is declared in exactly one
+    # place, so nothing else loses its updates.
+    ignore:
+      - dependency-name: "org.jetbrains.kotlin:kotlin-stdlib"
