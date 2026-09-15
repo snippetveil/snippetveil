@@ -549,7 +549,11 @@ the Gradle module that name stands for. A guess that names no real module costs 
 spelling nobody compiled never appears. `LeakUniverseIndependenceTest` holds the rest over bytecode:
 the classes that build the universe reach no `com.snippetveil.core` or `com.snippetveil.plugin` type,
 no light class, no Analysis API and no reference resolution — and each of those edges is shown red,
-on a fixture that crosses it, before the rule is trusted. What the universe cannot read without
+on a fixture that crosses it, before the rule is trusted. The other direction is held as well. The
+anonymiser has an implementation of the same closure of its own — the accessors it writes to the mapping
+beside a field, read off PSI — and `ShippedCodeArchitectureTest` fails any shipped class that depends
+on the sweep, shown red on `ReachesForTheSweep`. What binds the two implementations is the rule, stated
+in both places, and `KotlinSiblingRowsTest` holding them to agree on a fixture. What the universe cannot read without
 resolving something is listed under the known limits above rather than read by resolving it.
 
 **The closure adds noise, and the noise is the accepted direction.** Some derived spellings never

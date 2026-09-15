@@ -395,6 +395,13 @@ internal object SymbolFacts {
         return field to property.second
     }
 
+    /**
+     * **The JavaBeans prefix [name] is written with**, or `null` where it has none — read by the
+     * platform call [accessorEvidenceOf] reads a prefix with, so that the Kotlin walk, which ties an
+     * accessor to its property by other means, cannot come to split names at a different place.
+     */
+    fun accessorPrefixOf(name: String): String? = PropertyUtilBase.getPropertyNameAndKind(name)?.second?.prefix
+
     private fun accessorEvidenceFor(field: PsiField, kind: PropertyKind): AccessorEvidence =
         AccessorEvidence(SymbolKeys.keyOf(field), field.name, kind.prefix, SymbolKeys.keyIsQualified(field))
 }

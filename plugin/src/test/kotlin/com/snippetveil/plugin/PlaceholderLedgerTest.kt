@@ -256,6 +256,49 @@ class PlaceholderLedgerTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **A mapping file written before sibling rows existed loads unchanged, and a commit carrying them
+     * only adds.** Through the serializer on the way in and a restart on the way out, because the claim
+     * is about a file: every row it held keeps its placeholder and its name, no key is rewritten, and
+     * the counter a sibling row never moves is where the file left it.
+     */
+    fun `test a mapping written before sibling rows loads unchanged and a sibling commit rewrites nothing`() {
+        val old = PlaceholderLedger.State()
+        old.projects += PlaceholderLedger.ProjectEntry().also { entry ->
+            entry.project = project.locationHash
+            entry.nextNumber = 3
+            entry.placeholders += PlaceholderLedger.Naming().also {
+                it.key = "class:com.acme.Payment"
+                it.placeholder = "Type1"
+                it.original = "Payment"
+            }
+            entry.placeholders += PlaceholderLedger.Naming().also {
+                it.key = "field:class:com.acme.Payment#merchantRef"
+                it.placeholder = "field2"
+                it.original = "merchantRef"
+            }
+        }
+        val ledger = PlaceholderLedger.getInstance()
+        ledger.loadState(asWrittenAndReadBack(old))
+
+        val before = ledger.snapshotOf(project).placeholders
+        assertEquals(
+            mapOf(
+                "class:com.acme.Payment" to MintedName("Type1", "Payment"),
+                "field:class:com.acme.Payment#merchantRef" to MintedName("field2", "merchantRef"),
+            ),
+            before,
+        )
+
+        val getter = "method:class:com.acme.Payment#getMerchantRef"
+        ledger.commit(project, LedgerDelta(mapOf(getter to MintedName("getField2", "getMerchantRef")), nextNumber = 3))
+        val after = restart(ledger).snapshotOf(project)
+
+        before.forEach { (key, row) -> assertEquals("$key was rewritten", row, after.placeholders[key]) }
+        assertEquals(MintedName("getField2", "getMerchantRef"), after.placeholders[getter])
+        assertEquals(3, after.nextNumber)
+    }
+
+    /**
      * The same store after an IDE restart: its state written out the way the platform writes it, and
      * read back into a component that has never seen it — which is the stronger half of the round
      * trip, because a component that kept the object it started with would pass whatever the

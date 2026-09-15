@@ -211,6 +211,14 @@ internal class KotlinSiblingRowsTest : KotlinSnippetTestCase() {
 
             internal fun reconcile(times: Int = 1): Int = times
 
+            class Vault {
+                private var secret: Int = 1
+
+                inner class Door {
+                    fun open(): Int = secret++
+                }
+            }
+
             data class Entry(val amount: Int) {
                 companion object {
                     fun zero(): Entry = Entry(0)

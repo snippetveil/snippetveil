@@ -10,7 +10,6 @@ import com.intellij.psi.PsiNameHelper
 import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.PsiQualifiedNamedElement
 import com.intellij.psi.PsiReference
-import com.intellij.psi.util.PropertyUtilBase
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.snippetveil.core.AccessorEvidence
@@ -665,7 +664,7 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * **Read, never assembled.** Each accessor's name is the light method's own, so a `@get:JvmName`,
      * an `is`-prefixed getter and an `internal` mangling arrive exactly as a Java file has to write them,
      * and a `val` reports no setter because it has none. The prefix a row renders under is read off
-     * that name by the same platform call the Java walk reads a prefix with.
+     * that name by [SymbolFacts.accessorPrefixOf], the call the Java walk reads a prefix with.
      *
      * Two things the light class reports are not rows, and each is out by the rule rather than by
      * omission: a name that is **not a Java identifier** — a value class's `-impl` — cannot be written in
@@ -683,11 +682,11 @@ internal object KotlinPlanBuilder : PlanBuilder {
         val name = property.name
         if (!isProperty || name == null) return emptyList()
 
-        val names = PsiNameHelper.getInstance(project)
+        val nameHelper = PsiNameHelper.getInstance(project)
         return property.toLightMethods().mapNotNull { method ->
-            if (!names.isIdentifier(method.name)) return@mapNotNull null
-            val kind = PropertyUtilBase.getPropertyNameAndKind(method.name)?.second ?: return@mapNotNull null
-            SymbolFacts.siblingAccessorOf(method, AccessorEvidence(ledgerKey.key, name, kind.prefix, ledgerKey.keyIsQualified)) {
+            if (!nameHelper.isIdentifier(method.name)) return@mapNotNull null
+            val prefix = SymbolFacts.accessorPrefixOf(method.name) ?: return@mapNotNull null
+            SymbolFacts.siblingAccessorOf(method, AccessorEvidence(ledgerKey.key, name, prefix, ledgerKey.keyIsQualified)) {
                 ownershipOf(project, it)
             }
         }

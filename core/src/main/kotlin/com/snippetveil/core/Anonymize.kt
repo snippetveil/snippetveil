@@ -96,6 +96,13 @@ fun anonymize(
     // it can still be the first thing to mint `getMerchantField1`.
     fun isChosen(stem: String): Boolean = stem in mintedStems || stem in ledger.mintedStems
 
+    // **The word a derived accessor placeholder adds**, recorded where it is made — by a spliced
+    // accessor in [placeholderFor] and by a sibling's row alike — and only over a stem the user
+    // chose: `getField1` is recognised from the roles alone, and `getField` is not the user's word.
+    fun recordDerivedStem(field: String, derived: String) {
+        if (isChosen(stemOf(field))) mintedStems += stemOf(derived)
+    }
+
     fun namespaceFor(symbol: SymbolEvidence): String {
         val namespace = namespaceOf(symbol)
         if (keepsItsNamespace(symbol)) return namespace
@@ -190,7 +197,7 @@ fun anonymize(
                 // Only over a stem the user chose. A default-stemmed accessor renders `getField1`,
                 // which the reversal already recognises from the roles alone — and putting `getField`
                 // in this set would file a namespace the engine chose among the words the user did.
-                if (isChosen(stemOf(field))) mintedStems += stemOf(fromField)
+                recordDerivedStem(field, fromField)
 
                 fromField
             } else {
@@ -422,14 +429,12 @@ fun anonymize(
         }
     }
 
-    /**
-     * **Whether [placeholder] already stands for a name other than [original]** — injectivity across
-     * the project's history, asked of a name no allocator handed out. A derived placeholder is unique
-     * to its field by construction, and this is the check that says so rather than the sentence.
-     */
-    fun standsForAnotherName(placeholder: String, original: String): Boolean =
-        ledger.originalOf(placeholder).let { it != null && it != original } ||
-            persisted.values.any { it.placeholder == placeholder && it.original != original }
+    // **Every placeholder already standing for some key** — in the ledger, or anywhere in this
+    // invocation, qualified or not. Injectivity across the project's history, asked of names no
+    // allocator handed out: a derived placeholder is unique to its field by construction, and this is
+    // the check that says so rather than the sentence. Taken once, after the pass, and kept current as
+    // sibling rows are added below.
+    val held = placeholderByKey.values.toHashSet()
 
     /**
      * **A row for an accessor the snippet may never have shown**, rendered from the placeholder its
@@ -456,14 +461,12 @@ fun anonymize(
         if (!isReplaced(sibling) || isNameConstrained(sibling, ownership)) return
 
         val placeholder = derivedAccessorPlaceholder(accessor.prefix, field)
-        if (!allocator.isFree(placeholder) || standsForAnotherName(placeholder, sibling.declaredName)) return
+        if (!allocator.isFree(placeholder) || placeholder in held) return
 
         placeholderByKey[key] = placeholder
+        held += placeholder
         persisted[key] = MintedName(placeholder, sibling.declaredName)
-
-        // The word that reached the mapping is the word written down, on the rule [placeholderFor]
-        // follows for a derived accessor: only over a stem the user chose.
-        if (isChosen(stemOf(field))) mintedStems += stemOf(placeholder)
+        recordDerivedStem(field, placeholder)
     }
 
     // After the pass rather than inside it, so that nothing a sibling does can move a character of the

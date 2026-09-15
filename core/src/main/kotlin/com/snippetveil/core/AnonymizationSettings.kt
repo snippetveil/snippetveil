@@ -370,11 +370,17 @@ operator fun LedgerSnapshot.plus(delta: LedgerDelta): LedgerSnapshot =
  * placeholder is minted under it, so [LedgerDelta.mintedStems] cannot grow without the counter
  * having moved either.
  *
- * **One kind of entry is the exception, and it is safe to miss.** A sibling accessor's row allocates
- * nothing — see [LedgerDelta] — so a ledger can gain one, and the derived stem beside it, with the
- * counter where it stood. Both are a function of a row the ledger already held, so two invocations
- * that add the same one add the same row, and a commit carrying one hands out no number another
- * invocation could also have handed out.
+ * **One kind of entry is the exception, and what missing it costs is stated rather than hidden.** A
+ * sibling accessor's row allocates nothing — see [LedgerDelta] — so a ledger can gain one, and the
+ * derived stem beside it, with the counter where it stood. Two invocations that add the same one add
+ * the same row, since both are a function of a row the ledger already held, and a commit carrying one
+ * hands out no number another invocation could also have handed out.
+ *
+ * What this cannot see is an invocation analysed before such a row landed that then gives the same
+ * accessor a placeholder of its own — a fallback allocation, where the derived name collided with a
+ * word in its output. Its commit files that placeholder over the sibling row. The row it replaces was
+ * never in any output, so the loss is one restore of a word nobody was sent; the placeholder that
+ * replaces it is the one that was. The same window was already open for a spliced accessor's field.
  */
 fun LedgerSnapshot.isStill(latest: LedgerSnapshot): Boolean = nextNumber == latest.nextNumber
 
