@@ -1,0 +1,31 @@
+{
+  "bannedPhrases": [
+    "safe to paste",
+    "paste with confidence",
+    "untraceable",
+    "cannot be traced back to your company",
+    "provably",
+    "guaranteed",
+    "sanitize", "sanitizes", "sanitized", "sanitizing", "sanitization",
+    "sanitise", "sanitises", "sanitised", "sanitising", "sanitisation",
+    "obfuscate", "obfuscates", "obfuscated", "obfuscating", "obfuscation"
+  ],
+  "roadmapPhrases": [
+    "roadmap",
+    "coming soon",
+    "in a future release",
+    "in a future version",
+    "in an upcoming release",
+    "we plan to",
+    "we intend to",
+    "will be added",
+    "will be supported",
+    "is planned",
+    "are planned"
+  ],
+  "thirdPartyBrands": [
+    "ChatGPT", "OpenAI", "Claude", "Anthropic", "Copilot", "Gemini", "Bard", "Llama",
+    "Cursor", "VS Code", "Visual Studio", "Eclipse", "NetBeans", "Vim",
+    "Spring", "Lombok", "Hibernate", "Jackson", "Guava"
+  ]
+}

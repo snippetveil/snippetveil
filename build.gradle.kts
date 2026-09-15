@@ -35,9 +35,9 @@ plugins {
 //
 // The two `extra` properties are the safer half of the same migration. `extra.set("...", ...)`
 // spells a key that `:plugin` already spells at its `rootProject.extra["..."]` read, and that read
-// throws on a key that is not there — for the sweep's task name while `:plugin` is configured, for
-// the phrase list when `check` realizes the task that reads it. Either way the drift goes red
-// rather than quiet.
+// throws on a key that is not there while `:plugin` is configured, so the drift goes red rather than
+// quiet. The copy rules' word lists were a third `extra` once; they are a file now, `copy-rules.json`,
+// because one of their readers is another repository.
 // ---------------------------------------------------------------------------------------------
 
 /**
@@ -387,6 +387,27 @@ val assertTheSweepIsNeverRunInCi = tasks.register("assertTheSweepIsNeverRunInCi"
 // ---------------------------------------------------------------------------------------------
 
 /**
+ * One list out of `copy-rules.json`, the file every copy rule's words are spelled in.
+ *
+ * **A data file rather than a Kotlin list, because the third reader is not a Gradle build.** The
+ * website repository's CI fetches the same file from `main` and holds snippetveil.com to it, and a
+ * list that lived in a build script would have to be copied there to be read — the second copy this
+ * file exists to abolish. `:plugin` reads it for itself, with the same refusal: a missing, empty or
+ * mistyped list throws while the build configures, rather than configuring a check over nothing.
+ *
+ * Read through `providers.fileContents`, so an edit to the file invalidates the configuration cache.
+ */
+fun copyRule(key: String): List<String> {
+    val file = layout.projectDirectory.file("copy-rules.json")
+    val rules = groovy.json.JsonSlurper().parseText(providers.fileContents(file).asText.get()) as Map<*, *>
+    val list = rules[key]
+    check(list is List<*> && list.isNotEmpty() && list.all { it is String }) {
+        "copy-rules.json must carry `$key` as a non-empty list of strings; it carries $list."
+    }
+    return list.map { it as String }
+}
+
+/**
  * Every phrase banned from every surface — listing, README, UI strings, docs.
  *
  * **Each one is a claim about an adversary's capability, and none of them is ours to make.** Copy
@@ -400,22 +421,13 @@ val assertTheSweepIsNeverRunInCi = tasks.register("assertTheSweepIsNeverRunInCi"
  * holds the claim up, and banning that sentence would be the kind of noise that teaches people to
  * suppress a check.
  *
- * **An `extra`, for the reason [corpusSweepTask] is one.** `:plugin` checks the shipped description
- * against this same list, and two lists that drifted would leave the strictest surface checked
- * against the laxest rule — with both checks green.
+ * **Spelled in `copy-rules.json`, not here.** `:plugin` checks the shipped description against this
+ * same list, and `snippetveil/website` checks snippetveil.com against it by fetching that file from
+ * `main`. Two lists would drift, and they would drift towards the strictest surface being checked
+ * against the laxest rule — with both checks green. A `.json` is neither Markdown nor a Kotlin string
+ * literal, so the sweep below does not read the file that names every phrase it bans.
  */
-val bannedPhrases = listOf(
-    "safe to paste",
-    "paste with confidence",
-    "untraceable",
-    "cannot be traced back to your company",
-    "provably",
-    "guaranteed",
-    "sanitize", "sanitizes", "sanitized", "sanitizing", "sanitization",
-    "sanitise", "sanitises", "sanitised", "sanitising", "sanitisation",
-    "obfuscate", "obfuscates", "obfuscated", "obfuscating", "obfuscation",
-)
-extra.set("bannedPhrases", bannedPhrases)
+val bannedPhrases = copyRule("bannedPhrases")
 
 /**
  * Fails if a banned phrase appears in a document in this repository or in a string the plugin shows.

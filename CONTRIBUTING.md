@@ -950,8 +950,10 @@ two jobs running at once, where the download races an upload that has not happen
 read `release.yml` alone would let `build.yml` attach the unsigned archive, which is the claim this
 whole arrangement exists to avoid making.
 
-**`snippetveil.com` carries the same sentence, and nothing checks the site's copy.** That is a
-separate gap, in a separate repository, and this rule does not close it.
+**`snippetveil.com` carries the same sentence, and this rule does not read it.** The site is held
+to the copy rules by its own repository's CI (see *The banned phrases* below), which checks words
+and canonical paragraphs. A claim about what the release pipeline does is a different kind of fact,
+and nothing here checks that on the site.
 
 ### The four secrets, and why they are not repository secrets
 
@@ -1063,8 +1065,8 @@ unverified copy.
 **Three of them read the built distribution rather than the checked-in files**, and the reason is
 the descriptor: it is patched at build time, so the description is set in Gradle and appears nowhere
 in `plugin.xml`. A rule that read the source descriptor would be blind to anything else written the
-same way — change notes first among them. The phrase list itself is an `extra` on the root project,
-read by both builds, for the reason the corpus sweep's task name is one: two lists would drift, and
+same way — change notes first among them. The word lists themselves are in `copy-rules.json` at the
+repository root, read by both builds and by the website's CI, because two lists would drift, and
 they would drift towards the strictest surface being checked against the laxest rule.
 
 **One sentence in the listing is checked by a test instead, and it is the menu path.** The first
@@ -1077,8 +1079,15 @@ Gradle rule is recorded on the test.
 
 ### The banned phrases
 
-**The list is spelled once, in `bannedPhrases` in the root `build.gradle.kts`, and deliberately not
-repeated here.** A documentation file is one of the surfaces the check reads, so a ban list quoted
+**The list is spelled once, as `bannedPhrases` in `copy-rules.json` at the repository root, and
+deliberately not repeated here.** The roadmap phrases and the third-party brand names are in the same
+file. It is JSON rather than Kotlin because one of its readers is not this build: `snippetveil/website`
+fetches it from `main` on every push and pull request, together with this README, and fails if
+`snippetveil.com` says any word on the lists, links over plain `http`, or no longer carries the
+paragraphs between the README's `canonical` markers verbatim. It reads `main` rather than a pinned
+ref on purpose, so a phrase added here can turn that repository red without a commit there. A `.json`
+is neither Markdown nor a Kotlin string literal, so the sweep below does not read it. A documentation
+file is one of the surfaces the check reads, so a ban list quoted
 into it fails the build on its own contents — which is not an awkwardness to work around but the
 rule working: there is no exception list, and a file exempted "because it is only explaining the
 rule" is exactly where a violation eventually hides.

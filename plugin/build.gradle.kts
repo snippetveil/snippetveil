@@ -143,6 +143,21 @@ kotlin {
 val libraryJarEntry = Regex("""[^/]+/lib/.+\.jar""")
 
 /**
+ * One list out of `copy-rules.json` at the repository root — the root build's `copyRule`, read here
+ * rather than handed over as an `extra`, because the file is the single spelling and each reader
+ * refuses a missing or empty list for itself.
+ */
+fun copyRule(key: String): List<String> {
+    val file = layout.settingsDirectory.file("copy-rules.json")
+    val rules = groovy.json.JsonSlurper().parseText(providers.fileContents(file).asText.get()) as Map<*, *>
+    val list = rules[key]
+    check(list is List<*> && list.isNotEmpty() && list.all { it is String }) {
+        "copy-rules.json must carry `$key` as a non-empty list of strings; it carries $list."
+    }
+    return list.map { it as String }
+}
+
+/**
  * The markers README.md fences the shared block with.
  *
  * Spelled once and read by both the renderer below and the assertion at the bottom of this file,
@@ -155,6 +170,22 @@ val libraryJarEntry = Regex("""[^/]+/lib/.+\.jar""")
  */
 val listingCopyStart = "<!-- listing copy -->"
 val listingCopyEnd = "<!-- listing copy end -->"
+
+/**
+ * The markers that fence the listing copy's **canonical subset**: the claims settled elsewhere and
+ * reproduced verbatim wherever they are stated — the *No network* paragraph and the lines of both
+ * negative lists. snippetveil.com's CI reads what these enclose out of README.md on `main` and holds
+ * the page to it word for word; everything else in the block is the site's to word as it likes.
+ *
+ * **They are comments, so they are taken out before the block is rendered.** The renderer below would
+ * otherwise read a marker line as a paragraph and ship it to the Marketplace as literal text.
+ * `assertTheListingCopyIsTheReadme` asserts they enclose exactly the sections under
+ * [canonicalHeadings], because a canonical paragraph left outside them is a claim that silently stops
+ * being checked on the site.
+ */
+val canonicalStart = "<!-- canonical -->"
+val canonicalEnd = "<!-- canonical end -->"
+val canonicalHeadings = listOf("No network", "What SnippetVeil does not hide", "What it does not preserve")
 
 /**
  * The shared block, as Markdown.
@@ -170,7 +201,7 @@ val listingCopyMarkdown: String = run {
     check(start >= 0 && end > start) {
         "README.md must fence the listing copy between `$listingCopyStart` and `$listingCopyEnd`."
     }
-    readme.substring(start + listingCopyStart.length, end).trim()
+    readme.substring(start + listingCopyStart.length, end).replace(canonicalStart, "").replace(canonicalEnd, "").trim()
 }
 
 /**
@@ -870,6 +901,9 @@ val assertTheListingCopyIsTheReadme = tasks.register("assertTheListingCopyIsTheR
     // for a top-level property drags the script into the configuration cache with it.
     val startMarker = listingCopyStart
     val endMarker = listingCopyEnd
+    val canonicalStartMarker = canonicalStart
+    val canonicalEndMarker = canonicalEnd
+    val canonical = canonicalHeadings
     val libraryJar = libraryJarEntry
 
     /**
@@ -897,26 +931,24 @@ val assertTheListingCopyIsTheReadme = tasks.register("assertTheListingCopyIsTheR
      * pasting Java into an AI chat would actually be tempted by — the assistants, and the editors
      * that are not the one this plugin ships to. IDEA, Android Studio and the JetBrains Marketplace
      * are the host platform rather than a third party, and are absent for that reason.
+     *
+     * Spelled in `copy-rules.json`, which snippetveil.com's CI reads too.
      */
-    val thirdPartyBrands = listOf(
-        "ChatGPT", "OpenAI", "Claude", "Anthropic", "Copilot", "Gemini", "Bard", "Llama",
-        "Cursor", "VS Code", "Visual Studio", "Eclipse", "NetBeans", "Vim",
-        "Spring", "Lombok", "Hibernate", "Jackson", "Guava",
-    )
+    val thirdPartyBrands = copyRule("thirdPartyBrands")
 
     // The listing is the one surface the phrase ban exists for, so it is checked here as well as in
     // the root build's sweep over the repository — on the shipped bytes rather than on a file that
     // is asserted, elsewhere, to be the same as them.
     //
-    // **The list itself comes from the root build**, the way the corpus sweep's task name does. Two
-    // lists would drift, and the direction they would drift in is the bad one: the strictest surface
-    // checked against the laxest rule, with both checks green.
-    @Suppress("UNCHECKED_CAST")
-    val bannedPhrases = rootProject.extra["bannedPhrases"] as List<String>
+    // **The list is the root build's, read from the same file.** Two lists would drift, and the
+    // direction they would drift in is the bad one: the strictest surface checked against the laxest
+    // rule, with both checks green.
+    val bannedPhrases = copyRule("bannedPhrases")
 
     inputs.file(distribution).withPropertyName("distribution")
     inputs.file(readme).withPropertyName("readme")
     inputs.property("headings", headings)
+    inputs.property("canonicalHeadings", canonical)
     inputs.property("thirdPartyBrands", thirdPartyBrands)
     inputs.property("bannedPhrases", bannedPhrases)
     outputs.file(report).withPropertyName("report")
@@ -983,6 +1015,80 @@ val assertTheListingCopyIsTheReadme = tasks.register("assertTheListingCopyIsTheR
         val block = readmeText.substring(start + startMarker.length, end).trim()
         check(block.isNotEmpty()) { "The listing-copy block in README.md is empty. Nothing was checked." }
 
+        fun headingAt(text: String, heading: String): Int =
+            Regex("""(?m)^###\s+${Regex.escape(heading)}\s*$""").find(text)?.range?.first ?: -1
+
+        /**
+         * Why the canonical markers do not enclose exactly the sections under the canonical headings,
+         * or null when they do.
+         *
+         * **The sections are found by their headings**, which the fold rule below already pins, so a
+         * line added under *What it does not preserve* is canonical by where it is written — the
+         * markers are checked against the headings rather than trusted to have been widened.
+         */
+        fun canonicalProblem(block: String): String? {
+            val from = block.indexOf(canonicalStartMarker)
+            val to = block.indexOf(canonicalEndMarker)
+            if (from < 0 || to <= from) {
+                return "the listing copy does not mark its canonical subset between `$canonicalStartMarker` " +
+                    "and `$canonicalEndMarker`"
+            }
+            if (block.indexOf(canonicalStartMarker, from + 1) >= 0 || block.indexOf(canonicalEndMarker, to + 1) >= 0) {
+                return "the listing copy marks more than one canonical subset"
+            }
+            val marked = block.substring(from + canonicalStartMarker.length, to)
+            val unmarked = block.replace(canonicalStartMarker, "").replace(canonicalEndMarker, "")
+            val first = headingAt(unmarked, canonical.first())
+            val following = headings.getOrNull(headings.indexOf(canonical.last()) + 1)
+            val last = following?.let { headingAt(unmarked, it) } ?: unmarked.length
+            if (first < 0 || last < first) {
+                return "the listing copy has no run of sections headed $canonical"
+            }
+            val whitespace = Regex("""\s+""")
+            if (whitespace.replace(marked, " ").trim() != whitespace.replace(unmarked.substring(first, last), " ").trim()) {
+                return "the canonical markers must enclose exactly the sections headed $canonical, from the " +
+                    "first heading to the line before `### $following`"
+            }
+            val sections = marked.split(Regex("""(?m)^###\s+.*$""")).drop(1)
+            if (sections.size != canonical.size || sections.any { it.isBlank() }) {
+                return "a canonical section is empty, so there is no claim under its heading to check"
+            }
+            return null
+        }
+
+        // The enclosure rule proves it can fail on each way the markers can stop covering the claims
+        // before it is believed about the real README.
+        val sampleBlock = listOf(
+            "### How it works", "- one", canonicalStartMarker,
+            "### No network", "None.",
+            "### What SnippetVeil does not hide", "- a\n  wrapped",
+            "### What it does not preserve", "- b",
+            canonicalEndMarker, "### Non-goals", "Not these.",
+        ).joinToString("\n\n")
+
+        check(canonicalProblem(sampleBlock) == null) {
+            "The enclosure rule flagged markers that enclose exactly the canonical sections: ${canonicalProblem(sampleBlock)}"
+        }
+        check(canonicalProblem(sampleBlock.replace(canonicalStartMarker, "").replace(canonicalEndMarker, "")) != null) {
+            "The enclosure rule passed a block with no canonical markers at all."
+        }
+        check(canonicalProblem(sampleBlock.replace("$canonicalStartMarker\n\n### No network\n\nNone.", "### No network\n\nNone.\n\n$canonicalStartMarker")) != null) {
+            "The enclosure rule passed a No network paragraph left above the start marker."
+        }
+        check(canonicalProblem(sampleBlock.replace("- b\n\n$canonicalEndMarker", "$canonicalEndMarker\n\n- b")) != null) {
+            "The enclosure rule passed a does-not-preserve line left below the end marker."
+        }
+        check(canonicalProblem(sampleBlock.replace("### No network\n\nNone.\n\n", "### No network\n\n")) != null) {
+            "The enclosure rule passed a canonical section with nothing under its heading."
+        }
+
+        canonicalProblem(block)?.let {
+            throw GradleException(
+                "README.md: $it. snippetveil.com's CI holds the page to what these markers enclose, so a " +
+                    "canonical paragraph outside them is a claim that silently stops being checked there."
+            )
+        }
+
         // The descriptor as it ships: inside the plugin jar, inside the zip that gets uploaded.
         val descriptors = mutableMapOf<String, String>()
         ZipFile(distribution.get().asFile).use { zip ->
@@ -1008,7 +1114,8 @@ val assertTheListingCopyIsTheReadme = tasks.register("assertTheListingCopyIsTheR
             ?: throw GradleException("$where carries no <description>. The listing copy is not being patched in.")
 
         val shippedWords = wordsOfHtml(shipped)
-        val readmeWords = wordsOfMarkdown(block)
+        // The canonical markers are comments the renderer never sees, so they are no words of the listing.
+        val readmeWords = wordsOfMarkdown(block.replace(canonicalStartMarker, "").replace(canonicalEndMarker, ""))
 
         if (shippedWords != readmeWords) {
             val at = shippedWords.zip(readmeWords).indexOfFirst { (a, b) -> a != b }
@@ -1574,19 +1681,8 @@ val assertNoRoadmapIsPublished = tasks.register("assertNoRoadmapIsPublished") {
     val report = layout.buildDirectory.file("reports/trust/no-roadmap.txt")
     val libraryJar = libraryJarEntry
 
-    val promises = listOf(
-        "roadmap",
-        "coming soon",
-        "in a future release",
-        "in a future version",
-        "in an upcoming release",
-        "we plan to",
-        "we intend to",
-        "will be added",
-        "will be supported",
-        "is planned",
-        "are planned",
-    )
+    // Spelled in `copy-rules.json`, which snippetveil.com's CI reads too.
+    val promises = copyRule("roadmapPhrases")
 
     inputs.file(distribution).withPropertyName("distribution")
     inputs.file(readme).withPropertyName("readme")
