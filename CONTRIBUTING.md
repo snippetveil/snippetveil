@@ -713,6 +713,18 @@ rather than trusting the pin. Java-only is about what **runs**: the Kotlin fixtu
 test source set, so they are still compiled against the floor, which holds them to the same floor API
 surface the product is held to.
 
+**The stdlib the Kotlin fixtures attach is old on purpose, and a task says so.** `kotlinFixtureStdlib`
+pins `kotlin-stdlib` below every compiler in the matrix, because Kotlin metadata is
+forwards-incompatible: a stdlib equal to or newer than the analysing compiler resolves to nothing,
+unresolved fails closed into `Unknown`, and the leak oracle comes back green over a harness that has
+stopped working. `assertTheFixtureStdlibIsOlderThanTheCompiler` reads the compiler version off each
+cell's own Kotlin plugin and fails unless the pin is strictly older, naming both versions, the line
+that pins it and the cell. It runs in every cell the Kotlin fixtures run in — the compiler half of the
+comparison changes per cell — and `test` depends on it, so a raised pin fails there by name rather
+than as five Kotlin tests at once. `test a kotlin standard library member resolves to library origin`
+stays beside it: the task checks the input, the test checks the outcome, and only the outcome check
+survives a cause nobody predicted.
+
 **One deliberate exception, and it is the source-file gate's table.** `SourceFileGateTest` runs in
 every cell and reads `KotlinPluginModeProvider` to decide what a `.kt` file must get there: in a K1
 session the platform skips this plugin's optional descriptor on the strength of `supportsK1="false"`,

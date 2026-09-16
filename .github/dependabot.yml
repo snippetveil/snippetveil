@@ -33,6 +33,7 @@ updates:
     # harness's own precondition caught it — `test a kotlin standard library member resolves to
     # library origin`. Ignored here so the offer stops arriving weekly, rather than relying on
     # somebody reading the comment on the pin every time. The artifact is declared in exactly one
-    # place, so nothing else loses its updates.
+    # place, so nothing else loses its updates. This only stops the offer: a hand edit is still
+    # possible, and `assertTheFixtureStdlibIsOlderThanTheCompiler` fails that one by name.
     ignore:
       - dependency-name: "org.jetbrains.kotlin:kotlin-stdlib"
