@@ -1957,7 +1957,8 @@ tasks.named("check") {
  * Non-transitive and deliberately old — older than every compiler in the matrix. Metadata is
  * forwards-incompatible, so a stdlib newer than the analysing compiler resolves to nothing, which is
  * exactly the fail-green this attachment exists to prevent. What is under test here is *origin*, and
- * every version answers that identically.
+ * every version answers that identically. `assertTheFixtureStdlibIsOlderThanTheCompiler` below holds
+ * the rule in every cell the fixtures run in.
  */
 val kotlinFixtureStdlib: Configuration = configurations.create("kotlinFixtureStdlib") {
     isCanBeConsumed = false
@@ -1978,6 +1979,9 @@ val kotlinFixtureStdlib: Configuration = configurations.create("kotlinFixtureStd
  * nothing, and Gradle reports neither.
  */
 val kotlinFixturePackage = "com.snippetveil.plugin.kotlin"
+
+/** Whether this cell runs the Kotlin fixtures — every cell but the floor, for the reason above. */
+val kotlinFixturesRun = platformProfile != "floor"
 
 // **Java-only is about what runs, and the fixtures still compile on the floor.** They are in the
 // one test source set, so `compileTestKotlin` builds them against every platform in the matrix —
@@ -2016,7 +2020,158 @@ tasks.test {
     // **The floor cell is Java-only.** See `kotlinFixturePackage` above for why, and
     // `assertTheKotlinFixturesAreExcludedFromTheFloor` below for what keeps this from silently
     // excluding nothing.
-    if (platformProfile == "floor") filter { excludeTestsMatching("$kotlinFixturePackage.*") }
+    if (!kotlinFixturesRun) filter { excludeTestsMatching("$kotlinFixturePackage.*") }
+}
+
+/**
+ * **The fixture stdlib's version, and the line that pins it**, read off the declaration rather than
+ * spelled a second time — so the assertion below compares the version the fixtures actually attach,
+ * and its failure can point at the line to change without anyone finding the comment first.
+ */
+val kotlinFixtureStdlibVersion: String =
+    kotlinFixtureStdlib.dependencies.single().version
+        ?: error("kotlinFixtureStdlib declares no version, so nothing can say what the fixtures attach.")
+
+// Not finding the line is an error rather than a message that quietly loses its pointer: the failure
+// below is written for a reader who has never seen the pin, and "somewhere in this file" is not one.
+val kotlinFixtureStdlibDeclaredAt: String =
+    buildFile.readLines().indexOfFirst { it.trimStart().startsWith("kotlinFixtureStdlib(\"") }
+        .also { check(it >= 0) { "No `kotlinFixtureStdlib(\"…\")` line in $buildFile to point a failure at." } }
+        .let { index -> "${buildFile.relativeTo(rootDir).path}:${index + 1}" }
+
+/**
+ * Fails when the fixture stdlib is not strictly older than the Kotlin compiler that analyses it.
+ *
+ * **The rule used to be held by a comment**, and the comment lost: a dependency-update pull request
+ * raised the pin to the current release, nothing in the build objected, and five Kotlin tests failed
+ * at once. The harness precondition among them was right — `test a kotlin standard library member
+ * resolves to library origin` — but it reports the symptom rather than the rule, and a reader had to
+ * already know the pin exists to get from *Kotlin resolution is broken* to *somebody raised a
+ * version that is supposed to be low*. This names the rule. The precondition stays exactly as it is:
+ * it asserts the resolved outcome, this asserts the input that makes the outcome possible, and the
+ * check on the outcome is the one that survives a cause nobody predicted.
+ *
+ * **Strictly older, not equal.** The declaration's KDoc states the property as *older than every
+ * compiler in the matrix*, and equal is the boundary where forwards-incompatibility starts.
+ *
+ * **The compiler half is read off the cell's own Kotlin plugin**, from the `compiler.version` the
+ * plugin's compiler jar carries — not from `kotlinc/build.txt` beside it, which is the standalone
+ * compiler the plugin bundles for builds and is a release or more behind the one doing the analysis.
+ * It changes per cell, so the task runs in **every cell the Kotlin fixtures run in**: a single check
+ * against one platform would go green while the cell that actually breaks stayed unchecked. The
+ * floor cell runs no Kotlin fixture and skips with its reason stated, on the same `kotlinFixturesRun`
+ * that excludes the fixtures there, so the two cannot disagree about which cells those are.
+ *
+ * **`test` depends on it**, so a raised pin fails here — by name, before the Kotlin fixtures run —
+ * instead of arriving as the five failures this task exists to explain.
+ */
+val assertTheFixtureStdlibIsOlderThanTheCompiler = tasks.register("assertTheFixtureStdlibIsOlderThanTheCompiler") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the Kotlin fixtures' stdlib is not strictly older than the compiler analysing it."
+
+    // Plain values for the action to close over, for the reason
+    // `assertTheFloorStillHasNoExtensionFilterBuilder` gives: a reference back into the script is
+    // something the configuration cache cannot carry.
+    val thisCell = "$platformProfile ($platformType $platformVersion)"
+    val fixturesRun = kotlinFixturesRun
+    val pinned = kotlinFixtureStdlibVersion
+    val pinnedAt = kotlinFixtureStdlibDeclaredAt
+    val classpath = configurations["compileClasspath"].elements
+
+    onlyIf("the Kotlin fixtures do not run in this cell, so no compiler here analyses their stdlib") {
+        fixturesRun
+    }
+
+    inputs.files(classpath).withPropertyName("compileClasspath")
+    inputs.property("kotlinFixtureStdlibVersion", pinned)
+
+    doLast {
+        val compilerJar = "kotlinc.kotlin-compiler-common.jar"
+        val versionEntry = "META-INF/compiler.version"
+
+        /** `major.minor.patch`, off the front of a version such as `2.2.0-ij251-153` or `1.9.25`. */
+        fun release(version: String): List<Int>? =
+            Regex("""^(\d+)\.(\d+)\.(\d+)""").find(version.trim())?.groupValues?.drop(1)?.map { it.toInt() }
+
+        /** Whether [stdlib] is strictly older than [compiler], or `null` when either cannot be read. */
+        fun isOlder(stdlib: String, compiler: String): Boolean? {
+            val s = release(stdlib) ?: return null
+            val c = release(compiler) ?: return null
+            val (a, b) = s.zip(c).firstOrNull { (a, b) -> a != b } ?: return false
+            return a < b
+        }
+
+        /** Why [stdlib] may not be attached where [compiler] analyses it in [cell], or `null` when it may. */
+        fun violation(stdlib: String, compiler: String, cell: String, declaredAt: String): String? {
+            // Unreadable is a failure, not a pass: a comparison that could not be made has not
+            // shown the stdlib is older, and passing it would be the fail-green this guards.
+            val older = isOlder(stdlib, compiler)
+            if (older == true) return null
+            val verdict = if (older == null) "one of those versions could not be read as major.minor.patch" else "it is not"
+            return "The Kotlin fixtures attach kotlin-stdlib $stdlib (pinned at $declaredAt, in the " +
+                "`kotlinFixtureStdlib` configuration), and the $cell cell analyses them with Kotlin " +
+                "compiler $compiler. The stdlib has to be strictly older than the compiler, and $verdict." +
+                "\n\nWhy the direction matters: Kotlin metadata is forwards-incompatible, so a stdlib " +
+                "equal to or newer than the analysing compiler resolves to nothing. Unresolved fails " +
+                "closed into the `Unknown` namespace, every Kotlin symbol gets renamed, and the leak " +
+                "oracle comes back maximally green — because the harness has stopped working, not " +
+                "because the product is correct. The pin is old on purpose.\n\nPut the pin at " +
+                "$declaredAt back below $compiler, and below the compiler of every other cell the " +
+                "Kotlin fixtures run in — each cell checks only its own. The fixtures test *origin*, " +
+                "which every stdlib version answers identically, so a newer one buys nothing."
+        }
+
+        // The rule proves it can fail before it reports that nothing failed, and it does it on
+        // made-up versions rather than on the real pin: a red path that is never exercised decays
+        // into a check that always passes. **The message is held to what it must name**, not only to
+        // existing — it is the part of this task a reader acts on.
+        val demoCompiler = "2.2.0-ij251-153"
+        fun demo(stdlib: String, compiler: String = demoCompiler) =
+            violation(stdlib, compiler, "demo-cell", "demo-file:7")
+        val mustName = listOf("demo-cell", "demo-file:7", demoCompiler, "forwards-incompatible", "`Unknown`")
+
+        val newer = demo("2.3.0")
+        check(newer != null && (mustName + "2.3.0").all { it in newer }) {
+            "The rule let a stdlib newer than the compiler through, or failed it without naming " +
+                "${mustName + "2.3.0"}: $newer"
+        }
+        val equal = demo("2.2.0")
+        check(equal != null && (mustName + "2.2.0").all { it in equal }) {
+            "The rule let a stdlib equal to the compiler through — equal is not older — or failed it " +
+                "without naming ${mustName + "2.2.0"}: $equal"
+        }
+        val older = demo("1.9.25")
+        check(older == null) { "The rule flagged a stdlib older than the compiler: $older" }
+        check(demo("1.9.25", compiler = "unreadable") != null) {
+            "The rule passed a compiler version it could not read. Not having looked is not a pass."
+        }
+
+        val jars = classpath.get().map { it.asFile }.filter { it.isFile && it.name == compilerJar }
+        val compiler = jars.firstNotNullOfOrNull { jar ->
+            ZipFile(jar).use { archive ->
+                archive.getEntry(versionEntry)?.let { archive.getInputStream(it).readBytes().decodeToString().trim() }
+            }
+        }
+            // Not finding the compiler is a failure and not a pass, for the reason the demonstration
+            // above gives: this task may not report the pin safe without having compared it.
+            ?: error(
+                "$versionEntry was not found in any $compilerJar on the $thisCell compile classpath, " +
+                    "so nothing here can say whether kotlin-stdlib $pinned (pinned at $pinnedAt) is " +
+                    "older than the compiler analysing the Kotlin fixtures. This task may not pass " +
+                    "without having looked.",
+            )
+
+        violation(pinned, compiler, thisCell, pinnedAt)?.let { throw GradleException(it) }
+        logger.lifecycle("kotlin-stdlib $pinned is older than Kotlin compiler $compiler in the $thisCell cell.")
+    }
+}
+
+tasks.test {
+    dependsOn(assertTheFixtureStdlibIsOlderThanTheCompiler)
+}
+
+tasks.named("check") {
+    dependsOn(assertTheFixtureStdlibIsOlderThanTheCompiler)
 }
 
 /**
