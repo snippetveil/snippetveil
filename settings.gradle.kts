@@ -2,7 +2,7 @@ import org.jetbrains.intellij.platform.gradle.extensions.intellijPlatform
 
 pluginManagement {
     plugins {
-        id("org.jetbrains.kotlin.jvm") version "2.4.10"
+        id("org.jetbrains.kotlin.jvm") version "2.4.20"
 
         // CHANGELOG.md's parser, and the source of the descriptor's change notes. It is applied in
         // `:plugin` rather than at the root, for the reason `assertNoRoadmapIsPublished` lives
