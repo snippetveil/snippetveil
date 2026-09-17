@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-17
+
 - De-anonymize Clipboard restores a getter or setter the snippet never showed. A field copied without
   its getter used to leave only the field in the mapping, so a reply writing `getField1()` was reported
   as beyond the recent-history window — about a name SnippetVeil was holding — and De-anonymize
@@ -95,7 +97,8 @@
 - The plugin makes no network calls and starts no subprocesses. `./gradlew check` asserts both
   against the built distribution rather than against the sources.
 
-[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/snippetveil/snippetveil/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/snippetveil/snippetveil/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/snippetveil/snippetveil/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/snippetveil/snippetveil/compare/v1.0.0...v1.1.0
