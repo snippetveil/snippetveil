@@ -82,6 +82,8 @@ internal class SnippetVeilConfigurable(private val project: Project) : Searchabl
      */
     private val table = JBTable(prefixes).also {
         it.putClientProperty("terminateEditOnFocusLost", true)
+        // A prefix is read out of `.idea/snippetveil.xml`, which can arrive with a clone.
+        it.showCellTextAsText()
         it.preferredScrollableViewportSize = JBUI.size(400, 120)
         it.columnModel.getColumn(TREATMENT).cellEditor = DefaultCellEditor(ComboBox(arrayOf(PROJECT_CODE, THIRD_PARTY)))
     }

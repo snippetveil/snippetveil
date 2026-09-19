@@ -16,6 +16,10 @@
   line — and copy them unchanged, with `0 comments stripped`. This affected Java files in every
   version. The block is now selected whole, stripped like any other comment, and reported by
   "Selection expanded to whole tokens".
+- The Original column of the preview and of Show mapping shows its text as plain text. A string
+  literal beginning `<html>` was drawn as an HTML document, and an image tag inside one would have
+  made the IDE fetch that image's address. The same applies to the package prefix table in Settings
+  and to the list of words not restored.
 
 ## [1.4.0] - 2026-09-17
 

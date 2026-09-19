@@ -110,6 +110,14 @@ var c = Class.forName(new String(new byte[] {106, 97, 118, 97, 46, 110, 101, 116
 Both checks read text and structure; neither of them runs the code. A person who wanted to put a
 network call in this plugin and had commit access could do it, and these checks would stay green.
 
+**Neither sees a request the JDK makes on the plugin's behalf, either**, and that one has happened.
+Swing draws any label whose text begins `<html>` as a document, and a document fetches the images
+it references — so a table cell showing a string literal out of your source could make a request
+without any class here naming a socket. The tables that show source text, text from a reply, or
+text from a file that can arrive with a clone now draw it as plain text, and a test holds that for
+the preview. It is listed here because it is the shape of thing a scan of class references cannot
+find: the check was green throughout.
+
 So the checks are not the guarantee, and it would be dishonest to present them as one. **The real
 guarantee is that this repository has been public since its first commit**, with every change on
 the record, and the two checks are continuously-verified evidence sitting on top of that — they
