@@ -77,15 +77,26 @@ internal object JavaPlanBuilder : PlanBuilder {
     }
 
     /**
-     * **What one token is, in Java: the leaf itself.** See [TokenOf].
+     * **What one token is, in Java: the javadoc block a leaf belongs to, or the leaf itself.** See
+     * [TokenOf].
      *
      * Java's token classes are the identifier, the string literal and the text block, and the
      * platform gives each of them a single leaf — a text block included, delimiters, newlines and
-     * all. So there is nothing to widen, and a snap onto a leaf boundary is already a snap onto a
-     * token boundary. Stated rather than defaulted, because *which classes those are* is a statement
-     * about a language, and the language's own walk is where such a statement belongs.
+     * all. A line comment and a block comment are single leaves too. For all of those there is
+     * nothing to widen, and a snap onto a leaf boundary is already a snap onto a token boundary.
+     *
+     * **Javadoc is the one container**, and it snaps as a whole for the reason every container does
+     * — see [fragmentsOf]. A `PsiDocComment` is a tree whose leaves are its lines, so a selection
+     * starting inside one used to snap to a *line* of it: that line came in whole, the block it
+     * belongs to was then contained by no fragment, [literalsAndCommentsIn] reported no comment, and
+     * the prose went out verbatim under `0 comments stripped`. Half a comment is not a comment the
+     * strip can remove, so there is never half of one in the analysed range.
+     *
+     * Stated rather than defaulted, because *which classes those are* is a statement about a
+     * language, and the language's own walk is where such a statement belongs.
      */
-    private fun tokenOf(leaf: PsiElement): PsiElement = leaf
+    private fun tokenOf(leaf: PsiElement): PsiElement =
+        PsiTreeUtil.getParentOfType(leaf, PsiDocComment::class.java, false) ?: leaf
 
     /**
      * Every identifier inside the analysed ranges, with what is known about the symbol it names.

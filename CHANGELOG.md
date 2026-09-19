@@ -11,6 +11,11 @@
   1.4.0, the comments in it went out unchanged. One limit: Kotlin reads some short prose comments as
   code, so the "commented-out code" part of the count can run high on a Kotlin file. The count
   decides nothing; every comment is stripped either way.
+- **A selection that starts or ends inside a javadoc or KDoc block takes the whole block.** It used
+  to take whole lines of the block instead — including the unselected part of the first and last
+  line — and copy them unchanged, with `0 comments stripped`. This affected Java files in every
+  version. The block is now selected whole, stripped like any other comment, and reported by
+  "Selection expanded to whole tokens".
 
 ## [1.4.0] - 2026-09-17
 
