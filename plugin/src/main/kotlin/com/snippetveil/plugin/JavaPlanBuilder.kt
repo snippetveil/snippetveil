@@ -183,7 +183,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * it does not fail the invocation closed.
      */
     private fun verdictOf(project: Project, comment: PsiComment): CommentVerdict {
-        val body = bodyOf(comment)
+        val body = commentBodyOf(comment)
         if (body.isBlank()) return CommentVerdict.PROSE
 
         return try {
@@ -198,28 +198,6 @@ internal object JavaPlanBuilder : PlanBuilder {
         } catch (refused: IncorrectOperationException) {
             CommentVerdict.PROSE
         }
-    }
-
-    /**
-     * The text inside a comment's delimiters, with the leading asterisks taken off the front of each
-     * line — which is what a reader of a javadoc block sees, and therefore what there is to parse.
-     *
-     * **The asterisks come off a block comment only.** A line comment has no such convention, so an
-     * asterisk at the front of one is text somebody wrote: `// * total = 3;` is a bullet in a list,
-     * and reading javadoc's line prefix off it would turn a line of prose into a statement that
-     * parses. The verdict is meant to be exact, and that is a way for it not to be.
-     *
-     * The closing delimiter is removed if it is there and not assumed to be: a block comment in red
-     * code runs to the end of the file, and the body is then everything after the opening.
-     */
-    private fun bodyOf(comment: PsiComment): String {
-        val text = comment.text
-        if (!text.startsWith(BLOCK_COMMENT_OPENING)) return text.removePrefix(LINE_COMMENT_OPENING)
-
-        return text.removePrefix(BLOCK_COMMENT_OPENING)
-            .removeSuffix(BLOCK_COMMENT_CLOSING)
-            .lineSequence()
-            .joinToString("\n") { it.trimStart().removePrefix(JAVADOC_LINE_PREFIX) }
     }
 
     /**
@@ -602,14 +580,6 @@ internal object JavaPlanBuilder : PlanBuilder {
      * [com.snippetveil.core.Occurrence.language].
      */
     private val LANGUAGE = SourceLanguage.JAVA
-
-    // What opens and closes a comment, and the asterisk a block comment's continuation lines are
-    // written with. Read only to find the body a parser is handed — never to decide anything about
-    // what the body says.
-    private const val LINE_COMMENT_OPENING = "//"
-    private const val BLOCK_COMMENT_OPENING = "/*"
-    private const val BLOCK_COMMENT_CLOSING = "*/"
-    private const val JAVADOC_LINE_PREFIX = "*"
 
     /** What opens and closes a text block, and the one thing that tells one from a string literal. */
     private const val TEXT_BLOCK_DELIMITER = "\"\"\""
