@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+- **Comments in Kotlin files are stripped.** Since 1.3.0, Copy Anonymized and Anonymize with Preview
+  on a `.kt` file left every comment in the output exactly as written — line comments, block
+  comments and KDoc — and the notification showed no comment count, because none had been stripped.
+  Java files were not affected. Comments in Kotlin are now stripped by default and counted, as they
+  are in Java, and Keep comments in the preview keeps them. With comments kept, a KDoc link such as
+  `[merchantRef]` is renamed with the name it links to. If you copied Kotlin code with 1.3.0 or
+  1.4.0, the comments in it went out unchanged. One limit: Kotlin reads some short prose comments as
+  code, so the "commented-out code" part of the count can run high on a Kotlin file. The count
+  decides nothing; every comment is stripped either way.
+- **A selection that starts or ends inside a javadoc or KDoc block takes the whole block.** It used
+  to take whole lines of the block instead — including the unselected part of the first and last
+  line — and copy them unchanged, with `0 comments stripped`. This affected Java files in every
+  version. The block is now selected whole, stripped like any other comment, and reported by
+  "Selection expanded to whole tokens".
+- The Original column of the preview and of Show mapping shows its text as plain text. A string
+  literal beginning `<html>` was drawn as an HTML document, and an image tag inside one would have
+  made the IDE fetch that image's address. The same applies to the package prefix table in Settings
+  and to the list of words not restored.
+
 ## [1.4.0] - 2026-09-17
 
 - De-anonymize Clipboard restores a getter or setter the snippet never showed. A field copied without

@@ -303,6 +303,8 @@ internal class PreviewDialog private constructor(
         }
 
         table.setShowGrid(false)
+        // The `Original` column is source text, and a literal is free to begin `<html>`.
+        table.showCellTextAsText()
         table.rowSorter = TableRowSorter(rows).also { sorter ->
             // Header-click re-sorts; unsorted is the model's own order, which is first occurrence in
             // this snippet. The tick column is not a column anyone reads down.
@@ -846,7 +848,7 @@ private const val OUTLINE = "JComponent.outline"
  * renderer is handed the view index; the model is asked for the sentence rather than the row for its
  * state, so the four answers are spelled out in one place.
  */
-private class PlaceholderRenderer(private val rows: MappingTableModel) : DefaultTableCellRenderer() {
+private class PlaceholderRenderer(private val rows: MappingTableModel) : PlainTextCellRenderer() {
 
     override fun getTableCellRendererComponent(
         table: JTable,

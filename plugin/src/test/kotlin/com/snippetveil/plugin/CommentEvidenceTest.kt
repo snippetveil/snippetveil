@@ -215,6 +215,34 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **A selection that starts inside a javadoc block takes the whole block, and the block is then
+     * stripped.** Javadoc is a tree whose leaves are its lines, so a leaf-level snap brought one
+     * line in whole — the half the user never selected included — while the block it belongs to was
+     * contained by no fragment, went unreported, and left verbatim under `0 comments stripped`.
+     * Asserted on the clipboard text, because *the prose did not leave* is the claim.
+     */
+    fun `test a selection cutting into javadoc snaps to the block and strips it`() {
+        val plan = planFor(
+            "Ledger.java",
+            """
+            class Ledger {
+                /**
+                 * Settles the Acme merchant <selection>ledger against the Globex payout file.
+                 */
+                void settle() {}</selection>
+            }
+            """.trimIndent(),
+        )
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertTrue("the snap was not disclosed", plan.selectionExpanded)
+        assertEquals(1, result.comments.stripped)
+        for (word in listOf("Acme", "Globex", "ledger", "*/")) {
+            assertFalse("`$word` survived the strip: ${result.text}", word in result.text)
+        }
+    }
+
+    /**
      * One occurrence per reference, never two: the class half of `{@link Payment#pay}` is an ordinary
      * `PsiJavaCodeReferenceElement` that the identifier walk already reports, and two occurrences over
      * one range would be two edits over one range.

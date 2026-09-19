@@ -13,6 +13,7 @@ import javax.swing.JCheckBox
 import javax.swing.JTable
 import javax.swing.table.TableCellRenderer
 import javax.swing.JComponent
+import javax.swing.plaf.basic.BasicHTML
 
 /**
  * The dialog, over real analyses — what it opens showing, and what it does not offer.
@@ -234,6 +235,47 @@ class PreviewDialogTest : JavaSnippetTestCase() {
         val model = modelOf(rows, reducible = true)
 
         assertEquals(listOf("MissingType", "—", "Unknown", true), (0 until 4).map { model.getValueAt(0, it) })
+    }
+
+    /**
+     * **A cell shows its text as text, in both openings, whatever the source wrote between two
+     * quotes.** Swing turns a label whose text begins `<html>` into a document, and a document
+     * fetches what it references — so a string literal that is ordinary in any Swing codebase would
+     * have this plugin's own window make a request. See [PlainTextCellRenderer].
+     *
+     * Read off `BasicHTML.propertyKey`, which is the view Swing attaches to a label at the moment it
+     * decides the text is a document: present means it was parsed as one, and nothing short of that
+     * is the claim. **The first assertion is the precondition** — the same text in a bare label
+     * *does* become a document — because without it a row whose text had quietly stopped beginning
+     * `<html>` would pass this test by not being the case it is about.
+     */
+    fun `test a literal that begins html is drawn as text and never as a document`() {
+        val analysis = analysisOf(
+            """
+            class Ledger {
+                <selection>String banner() { return "$HTML_LITERAL"; }</selection>
+            }
+            """.trimIndent(),
+        )
+        assertNotNull(
+            "a bare label no longer reads this text as a document, so the rows below prove nothing",
+            javax.swing.JLabel(HTML_LITERAL).getClientProperty(BasicHTML.propertyKey),
+        )
+
+        for (dialog in listOf(PreviewDialog.forCopy(project, analysis), PreviewDialog.forReview(project, analysis))) {
+            withDialog(dialog) {
+                val table = tableIn(it)
+                val row = (0 until table.rowCount).single { row -> table.getValueAt(row, 0) == HTML_LITERAL }
+
+                for (column in 0 until table.columnCount) {
+                    val cell = table.prepareRenderer(table.getCellRenderer(row, column), row, column) as JComponent
+                    assertNull(
+                        "column ${table.getColumnName(column)} parsed its cell as an HTML document",
+                        cell.getClientProperty(BasicHTML.propertyKey),
+                    )
+                }
+            }
+        }
     }
 
     /**
@@ -649,6 +691,9 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             }
         }
 }
+
+/** A string a Swing codebase is full of. The host does not resolve, and nothing here should ask. */
+private const val HTML_LITERAL = "<html><img src='https://snippetveil.invalid/p.png'>"
 
 /**
  * A resolved row, an `Unknown` row and a replaced literal — the three shapes the `Preserve` column

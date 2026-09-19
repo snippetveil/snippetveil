@@ -1056,6 +1056,204 @@ val assertOnlyTheGatedJobCanReachTheSigningKey = tasks.register("assertOnlyTheGa
 }
 
 /**
+ * Fails if the environment-gated job restores a cache.
+ *
+ * **The scoping above keeps `build.yml` from naming the key; this keeps it from reaching the key
+ * without naming it.** A cache entry is bytes an earlier run wrote, and the entries a release tag
+ * can read are the ones written on `main` — by `build.yml`, the pipeline the environment exists to
+ * fence off. A restored Gradle user home is jars, plugins and toolchains that `publishPlugin` then
+ * executes with the four secrets in its environment, so a compromised action in `build.yml` would
+ * arrive at the signing key one cache entry later, with
+ * [assertOnlyTheGatedJobCanReachTheSigningKey] green throughout.
+ *
+ * Three rules, over every job that declares the environment:
+ *
+ *  1. **It uses no `actions/cache`**, in either spelling — the whole action or its `restore` half.
+ *  2. **Every `setup-gradle` in it says `cache-disabled: true`.** That action restores a Gradle user
+ *     home by default, so the safe state is the one that has to be written down.
+ *  3. **No `setup-java` in it asks for `cache:`**, which is the same restore by another door.
+ *
+ * What it does not check is a cache restored by a shell step, or by an action this does not know
+ * caches. The three above are the ones this repository's workflows have ever used.
+ */
+val assertTheGatedJobRestoresNoCache = tasks.register("assertTheGatedJobRestoresNoCache") {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    description = "Fails if the environment-gated release job restores a cache written by another run."
+
+    val workflows = layout.projectDirectory.dir(".github/workflows")
+    val report = layout.buildDirectory.file("reports/trust/gated-job-caches.txt")
+
+    val environment = marketplaceEnvironment
+    val gatedWorkflow = publishingWorkflowName
+
+    inputs.dir(workflows).withPropertyName("workflows")
+    inputs.property("environment", environment)
+    inputs.property("gatedWorkflow", gatedWorkflow)
+    outputs.file(report).withPropertyName("report")
+
+    doLast {
+        // Whole-line comments, dropped first: the gated job's own comments explain this rule and
+        // quote the strings it matches on.
+        val commentLine = Regex("""^\s*#""")
+
+        // A job key: two spaces, a name, and nothing after the colon.
+        val jobHeader = Regex("""^ {2}([A-Za-z0-9_-]+):\s*$""")
+
+        // The same two spellings [assertOnlyTheGatedJobCanReachTheSigningKey] reads.
+        val declaresEnvironment = Regex(
+            """(?m)^\s*environment:\s*(?:$environment\s*$|\s*$\s*^\s*name:\s*$environment\s*$)"""
+        )
+
+        val stepStart = Regex("""^\s*-\s""")
+        val usesCache = Regex("""^\s*-?\s*uses:\s*actions/cache(?:/[\w-]+)?@""")
+        val usesSetupGradle = Regex("""^\s*-?\s*uses:\s*gradle/actions/setup-gradle@""")
+        val usesSetupJava = Regex("""^\s*-?\s*uses:\s*actions/setup-java@""")
+        val cacheDisabled = Regex("""^\s*cache-disabled:\s*true\s*$""")
+        val asksForCache = Regex("""^\s*cache:\s*\S""")
+
+        /** Each job in a workflow, by name, as the lines under its key. */
+        fun jobsOf(text: String): Map<String, List<String>> {
+            val lines = text.lines().filterNot { commentLine.containsMatchIn(it) }
+            if (!lines.contains("jobs:")) return emptyMap()
+            val body = lines.subList(lines.indexOf("jobs:") + 1, lines.size)
+            val starts = body.indices.filter { jobHeader.matches(body[it]) }
+            return starts.mapIndexed { index, start ->
+                val end = starts.getOrElse(index + 1) { body.size }
+                jobHeader.matchEntire(body[start])!!.groupValues[1] to body.subList(start, end)
+            }.toMap()
+        }
+
+        /** Each step of a job, as the lines from one `- ` to the next. */
+        fun stepsOf(job: List<String>): List<List<String>> {
+            val starts = job.indices.filter { stepStart.containsMatchIn(job[it]) }
+            return starts.mapIndexed { index, start -> job.subList(start, starts.getOrElse(index + 1) { job.size }) }
+        }
+
+        /** Every violation in one workflow's text, and the number of gated `setup-gradle` steps read. */
+        fun inspect(name: String, text: String): Pair<List<String>, Int> {
+            val violations = mutableListOf<String>()
+            var gradleSetupsRead = 0
+
+            jobsOf(text)
+                .filterValues { declaresEnvironment.containsMatchIn(it.joinToString("\n")) }
+                .forEach { (job, lines) ->
+                    stepsOf(lines).forEach { step ->
+                        when {
+                            step.any { usesCache.containsMatchIn(it) } ->
+                                violations += "$name: `$job` holds the signing key and restores a " +
+                                    "cache, which is bytes a run outside the gate wrote"
+
+                            step.any { usesSetupGradle.containsMatchIn(it) } -> {
+                                gradleSetupsRead++
+                                if (step.none { cacheDisabled.matches(it) }) {
+                                    violations += "$name: `$job` holds the signing key and its " +
+                                        "setup-gradle does not say `cache-disabled: true`, so it " +
+                                        "restores a Gradle user home by default"
+                                }
+                            }
+
+                            step.any { usesSetupJava.containsMatchIn(it) } && step.any { asksForCache.containsMatchIn(it) } ->
+                                violations += "$name: `$job` holds the signing key and its " +
+                                    "setup-java asks for `cache:`, which restores a Gradle user home"
+                        }
+                    }
+                }
+
+            return violations to gradleSetupsRead
+        }
+
+        fun violationsIn(name: String, text: String) = inspect(name, text).first
+
+        // The rules prove they can fail before they report that nothing failed.
+        val uncached = """
+            jobs:
+              release:
+                environment: $environment
+                steps:
+                  - uses: actions/setup-java@0123456789abcdef0123456789abcdef01234567 # v6.0.1
+                    with:
+                      java-version: 17
+                  - uses: gradle/actions/setup-gradle@0123456789abcdef0123456789abcdef01234567 # v6.3.0
+                    with:
+                      cache-disabled: true
+              attach:
+                steps:
+                  - uses: gradle/actions/setup-gradle@0123456789abcdef0123456789abcdef01234567 # v6.3.0
+        """.trimIndent()
+
+        check(violationsIn(gatedWorkflow, uncached).isEmpty()) {
+            "The rules flagged a gated job that restores nothing: ${violationsIn(gatedWorkflow, uncached)}"
+        }
+        check(violationsIn(gatedWorkflow, uncached.replace("cache-disabled: true", "cache-provider: basic")).size == 1) {
+            "The rules failed to flag a gated setup-gradle with its cache left on. The default is the unsafe state."
+        }
+        check(violationsIn(gatedWorkflow, uncached.replace("cache-disabled: true", "cache-disabled: false")).size == 1) {
+            "The rules read `cache-disabled: false` as disabled."
+        }
+        check(
+            violationsIn(
+                gatedWorkflow,
+                uncached.replace(
+                    "  attach:",
+                    "      - uses: actions/cache/restore@0123456789abcdef0123456789abcdef01234567 # v6.1.0\n  attach:"
+                )
+            ).size == 1
+        ) {
+            "The rules failed to flag `actions/cache/restore` inside the gated job."
+        }
+        check(violationsIn(gatedWorkflow, uncached.replace("java-version: 17", "java-version: 17\n          cache: gradle")).size == 1) {
+            "The rules failed to flag a gated setup-java that asks for a cache."
+        }
+        check(
+            violationsIn(gatedWorkflow, uncached.replace("environment: $environment", "environment:\n      name: $environment")).isEmpty() &&
+                inspect(gatedWorkflow, uncached.replace("environment: $environment", "environment:\n      name: $environment")).second == 1
+        ) {
+            "The rules failed to read `environment:` written as a mapping, so they checked no job."
+        }
+        check(inspect(gatedWorkflow, uncached).second == 1) {
+            "The rules read ${inspect(gatedWorkflow, uncached).second} gated setup-gradle steps out of a " +
+                "fixture that has one inside the gate and one outside it. They are not reading jobs."
+        }
+
+        val files = workflows.asFile.listFiles().orEmpty()
+            .filter { it.isFile && (it.name.endsWith(".yml") || it.name.endsWith(".yaml")) }
+            .sortedBy { it.name }
+
+        check(files.isNotEmpty()) { "No workflows were found in ${workflows.asFile}. Nothing was checked." }
+        check(files.any { it.name == gatedWorkflow }) {
+            "$gatedWorkflow is not in ${workflows.asFile}. These rules are named after a file that is not there."
+        }
+
+        val inspected = files.map { it to inspect(it.name, it.readText()) }
+        val violations = inspected.flatMap { (_, result) -> result.first }
+        val gradleSetupsRead = inspected.single { (file, _) -> file.name == gatedWorkflow }.second.second
+
+        report.get().asFile.also { it.parentFile.mkdirs() }.writeText(
+            buildString {
+                appendLine("Workflows checked: ${files.size}; gated setup-gradle steps read: $gradleSetupsRead")
+                appendLine("A job that declares `environment: $environment` uses no `actions/cache`, says")
+                appendLine("`cache-disabled: true` on every setup-gradle, and asks setup-java for no `cache:`.")
+                appendLine()
+                appendLine("Not checked here: a cache restored by a shell step, or by an action these rules do not name.")
+            }
+        )
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "The job that holds the signing key executes nothing an ungated run left behind:\n" +
+                    violations.joinToString("\n") { "  $it" }
+            )
+        }
+
+        // The gated job runs Gradle, so it sets Gradle up. Zero means the rules stopped finding the
+        // job or the step, and a rule that finds nothing passes.
+        check(gradleSetupsRead > 0) {
+            "No setup-gradle was read out of the gated job in $gatedWorkflow. The rules read the wrong thing."
+        }
+    }
+}
+
+/**
  * Fails if `release.yml` does not carry the signed distribution out of the gated job and attach it
  * to the release.
  *
@@ -1601,6 +1799,7 @@ tasks.named("check") {
     dependsOn(assertNoBannedPhraseAppearsOnAnySurface)
     dependsOn(assertEveryIssueFormLinkIsHttps)
     dependsOn(assertOnlyTheGatedJobCanReachTheSigningKey)
+    dependsOn(assertTheGatedJobRestoresNoCache)
     dependsOn(assertTheReleaseCarriesTheSignedZip)
     dependsOn(assertTheReleaseGateRunsTheKotlinDisabledBoot)
 }

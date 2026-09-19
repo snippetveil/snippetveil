@@ -53,6 +53,9 @@ internal class UnrestoredDialog(project: Project, private val unrestored: List<U
         // break the one correspondence this list has to the text on the clipboard.
         val table = JBTable(UnrestoredTableModel(unrestored))
         table.setShowGrid(false)
+        // These rows are words out of a reply somebody else wrote. A word cannot begin `<html>`
+        // today, and the table does not depend on that staying true.
+        table.showCellTextAsText()
 
         val panel = JPanel(BorderLayout())
         panel.add(
