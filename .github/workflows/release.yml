@@ -53,16 +53,22 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # **No cache is restored in this job, and that is the other half of the scoping above.** A
+      # cache entry is bytes some earlier run wrote, and the runs that write the ones a tag can read
+      # are `build.yml`'s on `main` — the pipeline the environment exists to keep away from the key.
+      # A Gradle user home restored from there is jars, plugins and toolchains that `publishPlugin`
+      # then executes with the four secrets in its environment; a verifier IDE restored from there is
+      # a JVM's worth of the same. So a compromised action in `build.yml` would reach the signing key
+      # after all, one cache entry later, and the scoping would be true on paper only.
+      #
+      # The cost is every dependency and every verifier IDE downloaded fresh, on a handful of
+      # releases a year — the same trade this file already makes by re-running `check`.
+      #
+      # `:assertTheGatedJobRestoresNoCache` in the root build fails `check` if a cache comes back.
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           validate-wrappers: true
-          cache-provider: basic
-
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.pluginVerifier/ides
-          key: plugin-verifier-ides-${{ runner.os }}-
-          restore-keys: plugin-verifier-ides-${{ runner.os }}-
+          cache-disabled: true
 
       # Separate steps rather than one `./gradlew check verifyPlugin publishPlugin`, for one
       # reason: Gradle orders a task graph by dependency, not by the order the tasks were named on

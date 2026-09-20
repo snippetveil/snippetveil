@@ -2,8 +2,11 @@ package com.snippetveil.plugin.kotlin
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
+import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.PsiMember
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNameHelper
@@ -13,6 +16,8 @@ import com.intellij.psi.PsiReference
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.snippetveil.core.AccessorEvidence
+import com.snippetveil.core.CommentOccurrence
+import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
 import com.snippetveil.core.Occurrence
@@ -28,6 +33,7 @@ import com.snippetveil.plugin.PlanBuilder
 import com.snippetveil.plugin.SnippetRequest
 import com.snippetveil.plugin.SymbolFacts
 import com.snippetveil.plugin.SymbolKeys
+import com.snippetveil.plugin.commentBodyOf
 import com.snippetveil.plugin.fragmentsOf
 import com.snippetveil.plugin.snappedRangesOf
 import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
@@ -36,6 +42,8 @@ import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.KotlinFileType
+import org.jetbrains.kotlin.kdoc.psi.api.KDoc
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtClass
@@ -90,15 +98,16 @@ import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
  * rather than deriving a key of its own. Ranges come from this walk; keys come from that rule; the
  * two never swap jobs, and there is no second spelling of either to keep in step.
  *
- * ### Identifiers and string templates, and a stated limit
+ * ### Identifiers, string templates and comments
  *
- * **This walk reports identifiers and the literal text of string templates.** A template is a
- * container rather than a token: it snaps as a whole — see [tokenOf] — and it is then decomposed
- * into its parts, each of which meets a rule on its own. See [templateChunksIn].
+ * **This walk reports identifiers, the literal text of string templates, and comments.** A template
+ * is a container rather than a token: it snaps as a whole — see [tokenOf] — and it is then
+ * decomposed into its parts, each of which meets a rule on its own. See [templateChunksIn].
  *
- * **Kotlin's comments are still not walked**, and that is a limit rather than a decision made here:
- * a comment's verdict is *what a parser makes of its body*, and the parser this product asks is
- * Java's.
+ * **A comment is reported whole, with what Kotlin's own parser made of its body** — see
+ * [commentsIn]. Until it was, nothing on a `.kt` file stripped one: the engine strips the comments
+ * it is told about, this walk told it about none, and every line comment, block comment and KDoc
+ * block in a Kotlin selection went out verbatim under a balloon that had no comment count to show.
  *
  * **A `.kt` file reaches this walk through [KotlinSupport]**, which `com.snippetveil-withKotlin.xml`
  * registers for `kt` — so this runs exactly where that descriptor loaded, and nowhere else. On an IDE
@@ -131,8 +140,9 @@ internal object KotlinPlanBuilder : PlanBuilder {
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
-        val occurrences = (symbolsIn(request.project, file, fragments) + templateChunksIn(file, fragments))
-            .sortedBy { it.start }
+        val occurrences =
+            (symbolsIn(request.project, file, fragments) + templateChunksIn(file, fragments) + commentsIn(request.project, file, fragments))
+                .sortedBy { it.start }
 
         return SnippetPlan(
             text,
@@ -178,8 +188,8 @@ internal object KotlinPlanBuilder : PlanBuilder {
     }
 
     /**
-     * **What one token is, in Kotlin: the string template a leaf belongs to, or the leaf itself.**
-     * See [com.snippetveil.plugin.TokenOf].
+     * **What one token is, in Kotlin: the string template or the KDoc block a leaf belongs to, or
+     * the leaf itself.** See [com.snippetveil.plugin.TokenOf].
      *
      * Kotlin's token classes are the identifier, the string literal, the raw string and the string
      * template — and the last three are one PSI type, [KtStringTemplateExpression], whose leaves are
@@ -193,9 +203,80 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * That is the fail-open argument rather than a tidiness one, and it is stated in full beside
      * [com.snippetveil.plugin.fragmentsOf]. The **topmost** template, because templates nest —
      * `"a ${"b"}"` — and the outer one is the container the selection actually cut.
+     *
+     * **KDoc is the other container, for the same argument.** A line comment and a block comment
+     * are one leaf each; a [KDoc] block is a tree of sections, tags and lines. A selection starting
+     * inside one would snap to a leaf of it, no fragment would then contain the block, [commentsIn]
+     * would report nothing, and the prose would go out verbatim — so it snaps to the block. The
+     * template is asked first because it is the wider of the two wherever both apply: KDoc inside
+     * an interpolation is inside the template.
      */
     private fun tokenOf(leaf: PsiElement): PsiElement =
-        PsiTreeUtil.getTopmostParentOfType(leaf, KtStringTemplateExpression::class.java) ?: leaf
+        PsiTreeUtil.getTopmostParentOfType(leaf, KtStringTemplateExpression::class.java)
+            ?: PsiTreeUtil.getParentOfType(leaf, KDoc::class.java, false)
+            ?: leaf
+
+    /**
+     * Every comment that falls whole inside the analysed ranges — line, block and KDoc alike — with
+     * the verdict Kotlin's parser reached about its body, and with nothing else said about it.
+     * Whether it is stripped is [com.snippetveil.core.anonymize]'s decision, exactly as it is for
+     * Java's.
+     *
+     * **Whole is every comment there is**, which [tokenOf] is what makes true: a line comment and a
+     * block comment are single leaves, and KDoc snaps as a block, so no analysed range holds half of
+     * one.
+     *
+     * **KDoc's links are not reported a second time.** `[Ledger]` and an `@param` target are
+     * identifier leaves, so [symbolsIn] has already walked them: they rename with the symbol they
+     * name when comments are kept, and the engine drops them with everything else a stripped comment
+     * covers when they are not.
+     */
+    private fun commentsIn(project: Project, file: PsiFile, fragments: List<Fragment>): List<Occurrence> =
+        PsiTreeUtil.findChildrenOfType(file, PsiComment::class.java).mapNotNull { comment ->
+            val fragment = fragments.firstOrNull { it.range.contains(comment.textRange) } ?: return@mapNotNull null
+            CommentOccurrence(
+                start = fragment.translate(comment.textRange.startOffset),
+                end = fragment.translate(comment.textRange.endOffset),
+                verdict = verdictOf(project, comment),
+                language = LANGUAGE,
+            )
+        }
+
+    /**
+     * **What a Kotlin parser makes of one comment's body: the body of a function, or not.**
+     *
+     * The same question [com.snippetveil.plugin.JavaPlanBuilder] asks, put to the parser of the
+     * language the comment was written in — commented-out Kotlin is not Java, and Java's parser
+     * would call `// val total = 3` prose. The body is wrapped in a function and the file is read
+     * back: it is code iff nothing in it is an error **and the function is still the only
+     * declaration**, because a body that closes the brace and opens another declaration parses
+     * cleanly as something that is not a block.
+     *
+     * **The verdict feeds a count and gates nothing**: a comment is stripped whatever it says. That
+     * matters here more than in Java, because Kotlin's grammar reads more prose as code than Java's
+     * does — a bare word is an expression, and `retry on timeout` is an infix call. So the split
+     * this reports over-counts *commented-out code* on short prose comments, and it is a stated
+     * limit rather than something a heuristic here papers over: a rule that guessed which parses
+     * were accidents would be deciding from a comment's content, which is the one thing a verdict
+     * is not. `KotlinCommentTest` pins what it says about both.
+     *
+     * An empty body is prose, for the reason it is in Java: an empty block parses, and *commented-out
+     * code* is the one verdict about an empty comment that is plainly false.
+     */
+    private fun verdictOf(project: Project, comment: PsiComment): CommentVerdict {
+        val body = commentBodyOf(comment)
+        if (body.isBlank()) return CommentVerdict.PROSE
+
+        // The closing brace goes on a line of its own, because a body ending in a line comment
+        // would otherwise swallow it.
+        val parsed = PsiFileFactory.getInstance(project)
+            .createFileFromText("comment.kt", KotlinFileType.INSTANCE, "fun body() {\n$body\n}") as? KtFile
+            ?: return CommentVerdict.PROSE
+
+        val isOneFunction = parsed.declarations.singleOrNull() is KtNamedFunction
+        val parsedCleanly = PsiTreeUtil.findChildOfType(parsed, PsiErrorElement::class.java) == null
+        return if (isOneFunction && parsedCleanly) CommentVerdict.CODE else CommentVerdict.PROSE
+    }
 
     /**
      * **A construct PSI exposes as a tree of parts is decomposed structurally, and each part meets
@@ -233,10 +314,9 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * A template with no interpolation is one run and therefore one chunk, which is the ordinary
      * literal rule reached by the ordinary route rather than a case of its own.
      *
-     * **Two stated limits.** Kotlin's comments are not walked, so nothing here strips one — the
-     * builder's header says why that is still true. And a chunk carries **no references**: the
-     * per-framework contributors that make a Java literal splice are Java's, and a Kotlin chunk is
-     * therefore always replaced whole, which is the safe direction and not a rule this decides.
+     * **One stated limit.** A chunk carries **no references**: the per-framework contributors that
+     * make a Java literal splice are Java's, and a Kotlin chunk is therefore always replaced whole,
+     * which is the safe direction and not a rule this decides.
      */
     private fun templateChunksIn(file: PsiFile, fragments: List<Fragment>): List<Occurrence> =
         PsiTreeUtil.findChildrenOfType(file, KtStringTemplateExpression::class.java)

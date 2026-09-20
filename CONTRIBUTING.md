@@ -1005,6 +1005,17 @@ failed, and it asserts its own coverage: `release.yml` must yield all four, so a
 fails rather than passing quietly. What it cannot check is the GitHub side — that the environment
 exists, holds these four and no others, and carries the reviewer. None of that is in a clone.
 
+**The gated job also restores no cache**, and that is the same fence seen from the other side. A
+cache entry is bytes an earlier run wrote, and the entries a release tag can read are the ones
+`build.yml` wrote on `main`. A Gradle user home restored from there is jars and plugins that
+`publishPlugin` then executes with the four secrets in its environment — so a compromised action in
+`build.yml` would reach the key one cache entry later, without ever naming it. The job that signs
+therefore downloads everything fresh, on a handful of releases a year.
+`assertTheGatedJobRestoresNoCache`, wired into `check`, holds that: a job declaring
+`environment: marketplace` uses no `actions/cache`, says `cache-disabled: true` on every
+`setup-gradle`, and asks `setup-java` for no `cache:`. It cannot see a cache restored by a shell
+step.
+
 ### The release checklist
 
 1. Version hand-bumped in `gradle.properties`; `CHANGELOG.md` has real content, no placeholder text,

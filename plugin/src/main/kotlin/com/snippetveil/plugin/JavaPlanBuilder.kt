@@ -77,15 +77,26 @@ internal object JavaPlanBuilder : PlanBuilder {
     }
 
     /**
-     * **What one token is, in Java: the leaf itself.** See [TokenOf].
+     * **What one token is, in Java: the javadoc block a leaf belongs to, or the leaf itself.** See
+     * [TokenOf].
      *
      * Java's token classes are the identifier, the string literal and the text block, and the
      * platform gives each of them a single leaf — a text block included, delimiters, newlines and
-     * all. So there is nothing to widen, and a snap onto a leaf boundary is already a snap onto a
-     * token boundary. Stated rather than defaulted, because *which classes those are* is a statement
-     * about a language, and the language's own walk is where such a statement belongs.
+     * all. A line comment and a block comment are single leaves too. For all of those there is
+     * nothing to widen, and a snap onto a leaf boundary is already a snap onto a token boundary.
+     *
+     * **Javadoc is the one container**, and it snaps as a whole for the reason every container does
+     * — see [fragmentsOf]. A `PsiDocComment` is a tree whose leaves are its lines, so a selection
+     * starting inside one used to snap to a *line* of it: that line came in whole, the block it
+     * belongs to was then contained by no fragment, [literalsAndCommentsIn] reported no comment, and
+     * the prose went out verbatim under `0 comments stripped`. Half a comment is not a comment the
+     * strip can remove, so there is never half of one in the analysed range.
+     *
+     * Stated rather than defaulted, because *which classes those are* is a statement about a
+     * language, and the language's own walk is where such a statement belongs.
      */
-    private fun tokenOf(leaf: PsiElement): PsiElement = leaf
+    private fun tokenOf(leaf: PsiElement): PsiElement =
+        PsiTreeUtil.getParentOfType(leaf, PsiDocComment::class.java, false) ?: leaf
 
     /**
      * Every identifier inside the analysed ranges, with what is known about the symbol it names.
@@ -183,7 +194,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * it does not fail the invocation closed.
      */
     private fun verdictOf(project: Project, comment: PsiComment): CommentVerdict {
-        val body = bodyOf(comment)
+        val body = commentBodyOf(comment)
         if (body.isBlank()) return CommentVerdict.PROSE
 
         return try {
@@ -198,28 +209,6 @@ internal object JavaPlanBuilder : PlanBuilder {
         } catch (refused: IncorrectOperationException) {
             CommentVerdict.PROSE
         }
-    }
-
-    /**
-     * The text inside a comment's delimiters, with the leading asterisks taken off the front of each
-     * line — which is what a reader of a javadoc block sees, and therefore what there is to parse.
-     *
-     * **The asterisks come off a block comment only.** A line comment has no such convention, so an
-     * asterisk at the front of one is text somebody wrote: `// * total = 3;` is a bullet in a list,
-     * and reading javadoc's line prefix off it would turn a line of prose into a statement that
-     * parses. The verdict is meant to be exact, and that is a way for it not to be.
-     *
-     * The closing delimiter is removed if it is there and not assumed to be: a block comment in red
-     * code runs to the end of the file, and the body is then everything after the opening.
-     */
-    private fun bodyOf(comment: PsiComment): String {
-        val text = comment.text
-        if (!text.startsWith(BLOCK_COMMENT_OPENING)) return text.removePrefix(LINE_COMMENT_OPENING)
-
-        return text.removePrefix(BLOCK_COMMENT_OPENING)
-            .removeSuffix(BLOCK_COMMENT_CLOSING)
-            .lineSequence()
-            .joinToString("\n") { it.trimStart().removePrefix(JAVADOC_LINE_PREFIX) }
     }
 
     /**
@@ -602,14 +591,6 @@ internal object JavaPlanBuilder : PlanBuilder {
      * [com.snippetveil.core.Occurrence.language].
      */
     private val LANGUAGE = SourceLanguage.JAVA
-
-    // What opens and closes a comment, and the asterisk a block comment's continuation lines are
-    // written with. Read only to find the body a parser is handed — never to decide anything about
-    // what the body says.
-    private const val LINE_COMMENT_OPENING = "//"
-    private const val BLOCK_COMMENT_OPENING = "/*"
-    private const val BLOCK_COMMENT_CLOSING = "*/"
-    private const val JAVADOC_LINE_PREFIX = "*"
 
     /** What opens and closes a text block, and the one thing that tells one from a string literal. */
     private const val TEXT_BLOCK_DELIMITER = "\"\"\""
