@@ -90,7 +90,7 @@
 
         <!-- **A reader of fragments injected into a literal**, registered from wherever its classes are
              safe to load. The query container reads through platform interfaces only and is not
-             registered: the Java walk names it directly. The SQL container links against the database
+             registered: `RegisteredContainers` names it directly, ahead of what is registered here. The SQL container links against the database
              plugin, so it is registered from that plugin's optional config file — present exactly
              where SQL can be injected at all. -->
         <extensionPoint qualifiedName="com.snippetveil.injectedContainer"

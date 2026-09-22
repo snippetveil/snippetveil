@@ -427,8 +427,10 @@ private val MAIN_DESCRIPTOR_NEVER_REACHES_KOTLIN: ArchRule =
 private val OUTSIDE_THE_SQL_HALF: DescribedPredicate<JavaClass> =
     object : DescribedPredicate<JavaClass>("loaded without the database plugin") {
         override fun test(javaClass: JavaClass): Boolean =
-            !javaClass.packageName.startsWith("com.snippetveil.plugin.sql")
+            javaClass.packageName != SQL_HALF && !javaClass.packageName.startsWith("$SQL_HALF.")
     }
+
+private const val SQL_HALF = "com.snippetveil.plugin.sql"
 
 /**
  * The database isolation rule, hoisted so that the test asserting it holds and the test demonstrating

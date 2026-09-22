@@ -11,7 +11,7 @@
   and a comment inside it is stripped and counted like any other comment. A query with any name that
   does not resolve is still replaced whole, and so is every query in an IDE that does not read the
   query language at all — IntelliJ IDEA Community among them.
-- **A SQL string is anonymized name by name**, where the IDE injects SQL into it — a JDBC call, a
+- **A SQL string in a Java file is anonymized name by name**, where the IDE injects SQL into it — a JDBC call, a
   native `@Query`, a `// language=SQL` literal. `"SELECT state FROM billing.customers"` used to come
   out as `"str1"`; it now comes out as `"SELECT col1 FROM schema2.table3"`. Tables, columns and
   schemas get placeholders of their own, `table`, `col` and `schema`, and nothing is looked up in a
@@ -19,7 +19,8 @@
   and built-in functions such as `count` and `upper` are kept. A query holding anything else — a
   parameter such as `?` or `:ref`, a string, a comment, an alias, a function of your own — is still
   replaced whole, and so is every SQL string in an IDE without the Database Tools and SQL plugin,
-  IntelliJ IDEA Community among them. Nothing tells you which of the two happened.
+  IntelliJ IDEA Community among them, and every SQL string in a Kotlin file. Nothing tells you which
+  of these happened.
 - **Comments in Kotlin files are stripped.** Since 1.3.0, Copy Anonymized and Anonymize with Preview
   on a `.kt` file left every comment in the output exactly as written — line comments, block
   comments and KDoc — and the notification showed no comment count, because none had been stripped.

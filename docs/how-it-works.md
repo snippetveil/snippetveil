@@ -270,9 +270,9 @@ Worth knowing before relying on it:
   becomes a `local`, and a string inside the query becomes its own `'str2'`. One name that does not
   resolve, and the whole query is `"str1"` as before — as it always is in an IDE that does not read
   the query language, IntelliJ IDEA Community among them. Nothing about the query is looked up in a
-  database. A SQL string the IDE injects SQL into is read by where each name sits instead: a table
-  becomes `table1`, a column `col2` and a schema `schema3`, while keywords, operators, numbers and
-  built-in functions are kept. A parameter, a string, a comment, an alias or a function of your own
+  database. A SQL string in a Java file that the IDE injects SQL into is read by where each name
+  sits instead: a table becomes `table1`, a column `col2` and a schema `schema3`, while keywords,
+  operators, numbers and built-in functions are kept. A parameter, a string, a comment, an alias or a function of your own
   anywhere in it, and the whole string is `"str1"` — silently, so a query that stopped being read
   looks exactly like one that never was.
 - **Structure and algorithm survive intact.** If your proprietary value *is* the algorithm,

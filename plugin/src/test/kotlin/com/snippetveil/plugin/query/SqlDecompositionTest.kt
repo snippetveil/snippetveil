@@ -99,10 +99,27 @@ internal class SqlDecompositionTest : QuerySnippetTestCase() {
     }
 
     /**
-     * **The precedence the ticket exists to state.** `state` is an identifier-keyword here — the
-     * harness asserts it, and asserts the language calls the word a keyword — so any reading that asks
-     * the leaf before the composite keeps it, or falls the fragment back for it, and either way `state`
-     * is no longer `col1` and this fails.
+     * **A native `@Query` rides the same trigger**, injected by Spring Data rather than by a comment —
+     * and reaches this container past the query container, which reads only the persistence query
+     * languages and answers nothing for SQL.
+     */
+    fun `test a native Query annotation decomposes like any injected SQL`() {
+        assertTheQueryHarnessHolds()
+        val query = "SELECT * FROM customers WHERE state = 1"
+        val plan = planFor("CustomerRepository.java", repository(query))
+        assertInjectedSql(myFixture.file, query)
+
+        assertTrue(
+            "the native query did not decompose: ${resultOf(plan).text}",
+            resultOf(plan).text.contains("@Query(value = \"SELECT * FROM table1 WHERE col2 = 1\", nativeQuery = true)"),
+        )
+    }
+
+    /**
+     * **The precedence the ticket exists to state.** `state` is an identifier-keyword here, a token type
+     * carrying the keyword `STATE` — the harness asserts both — so a reading that lets the leaf's
+     * keyword decide before the composite does keeps `state` as written, and `state` is no longer
+     * `col1`. Checked by doing exactly that to the container: every decomposing fixture here went red.
      */
     fun `test a column named state is anonymized though its leaf is an identifier-keyword`() {
         assertTheQueryHarnessHolds()
@@ -278,5 +295,18 @@ private fun twoQueries(first: String, second: String): String = """
             // language=SQL
             String second = "$second";
         }</selection>
+    }
+""".trimIndent()
+
+/** A Spring Data repository whose one method runs [query] natively, the annotation selected. */
+private fun repository(query: String): String = """
+    package com.acme.billing;
+
+    import org.springframework.data.jpa.repository.Query;
+    import org.springframework.data.repository.Repository;
+
+    public interface CustomerRepository extends Repository<Object, Long> {
+        <selection>@Query(value = "$query", nativeQuery = true)</selection>
+        java.util.List<Object> all();
     }
 """.trimIndent()

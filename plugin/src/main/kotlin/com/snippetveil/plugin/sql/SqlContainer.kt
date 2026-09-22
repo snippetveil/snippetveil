@@ -1,7 +1,6 @@
 package com.snippetveil.plugin.sql
 
 import com.intellij.database.model.ObjectKind
-import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.tree.IElementType
@@ -87,8 +86,10 @@ internal class SqlContainer : InjectedContainer {
          *  3. **A claimed position** — the name of a reference whose composite projects onto `table`,
          *     `col` or `schema`. Claimed **whatever the leaf's token type says**: this is the precedence
          *     the whole container exists to state.
-         *  4. **The residual preserve predicate** — see [isPreserved].
-         *  5. Anything else, and the fragment falls back.
+         *  4. **Any other reference's name** falls the fragment back, unless it names a function call
+         *     carrying a builtin definition: it is a name, so its token type is not asked.
+         *  5. **The residual preserve predicate** — see [isPreserved].
+         *  6. Anything else, and the fragment falls back.
          */
         fun decide(fragment: InjectedFragment): SqlDecision {
             val file = fragment.file as? SqlFile ?: return SqlDecision.FellBack(SqlFallback.NOT_SQL, fragment.file)
@@ -110,10 +111,15 @@ internal class SqlContainer : InjectedContainer {
                         names += nameOf(at, at.parent as SqlIdentifier, role)
                         continue
                     }
+                    // The name of a reference the projection does not know is never a keyword or an
+                    // operator, whatever its token type says; the one thing it may be kept as is the
+                    // name of a builtin function call.
+                    if (isBuiltinFunctionName(at)) continue
+                    return SqlDecision.FellBack(SqlFallback.UNPROJECTABLE_REFERENCE, at)
                 }
 
                 if (isPreserved(at)) continue
-                return SqlDecision.FellBack(fallbackFor(at, position), at)
+                return SqlDecision.FellBack(fallbackFor(at), at)
             }
             return SqlDecision.Decomposed(InjectedReading(names))
         }
@@ -236,10 +242,7 @@ internal class SqlContainer : InjectedContainer {
          */
         private fun isPreserved(leaf: PsiElement): Boolean {
             val type = PsiUtilCore.getElementType(leaf)
-            return type is SqlKeywordTokenType ||
-                type in OPERATORS_AND_PUNCTUATION ||
-                type in NUMBER_TOKENS ||
-                isBuiltinFunctionName(leaf)
+            return type is SqlKeywordTokenType || type in OPERATORS_AND_PUNCTUATION || type in NUMBER_TOKENS
         }
 
         private fun isBuiltinFunctionName(leaf: PsiElement): Boolean {
@@ -265,12 +268,13 @@ internal class SqlContainer : InjectedContainer {
             return false
         }
 
-        /** Why [leaf], which nothing claimed or kept, falls its fragment back. */
-        private fun fallbackFor(leaf: PsiElement, position: SqlReferenceExpression?): SqlFallback = when {
-            position != null -> SqlFallback.UNPROJECTABLE_REFERENCE
-            PsiUtilCore.getElementType(leaf) is SqlIdentifierKeywordTokenType -> SqlFallback.IDENTIFIER_KEYWORD_OUTSIDE_A_CLAIM
-            else -> SqlFallback.UNCLAIMED_TOKEN
-        }
+        /** Why [leaf], which names no reference and which nothing kept, falls its fragment back. */
+        private fun fallbackFor(leaf: PsiElement): SqlFallback =
+            if (PsiUtilCore.getElementType(leaf) is SqlIdentifierKeywordTokenType) {
+                SqlFallback.IDENTIFIER_KEYWORD_OUTSIDE_A_CLAIM
+            } else {
+                SqlFallback.UNCLAIMED_TOKEN
+            }
 
         /**
          * **The three kinds a composite can project onto**, by the target kind its element type
@@ -399,9 +403,6 @@ internal sealed class SqlDecision {
      * fragment itself when it was never read.
      */
     class FellBack(val reason: SqlFallback, val at: PsiElement) : SqlDecision() {
-
-        /** Where [at] lies in the injected document. */
-        val range: TextRange get() = at.textRange
 
         /** [at]'s element type, as the database plugin names it — what a triage list would group by. */
         val elementType: String get() = PsiUtilCore.getElementType(at).toString()
