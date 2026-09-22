@@ -73,6 +73,7 @@ internal class QueryDecompositionTest : QuerySnippetTestCase() {
     fun `test an entity name in a query and the entity class share one placeholder`() {
         assertTheQueryHarnessHolds()
         val plan = planFor("Customer.java", entity(RESOLVING_QUERY))
+        assertInjected(myFixture.file, "\"$RESOLVING_QUERY\"", JPQL)
         val result = resultOf(plan)
 
         val named = plan.symbols().filter { it.text == "Customer" }
@@ -207,6 +208,8 @@ internal class QueryDecompositionTest : QuerySnippetTestCase() {
             }</selection>
             """.trimIndent(),
         )
+        assertInjected(myFixture.file, "\"$RESOLVING_QUERY\"", JPQL)
+        assertInjected(myFixture.file, "\"$other\"", JPQL)
 
         val aliases = plan.symbols().filter { it.text == "c" }
         assertEquals("both queries' aliases should be names", 6, aliases.size)
@@ -248,6 +251,22 @@ internal class QueryDecompositionTest : QuerySnippetTestCase() {
     }
 
     /**
+     * **A string is a string whatever it holds.** One bearing no letter at all is still redacted — a
+     * number written in quotes is the value somebody searched for — while a number is shape and is kept,
+     * and keeps the fragment decomposing.
+     */
+    fun `test a string bearing no letter is still redacted, and a number is kept`() {
+        assertTheQueryHarnessHolds()
+        val query = "SELECT c FROM Customer c WHERE c.merchantRef = '555-12-3456' AND c.id > 42"
+        val plan = planFor("Customer.java", entity(query))
+        assertInjected(myFixture.file, "\"$query\"", JPQL)
+
+        val result = resultOf(plan)
+        assertFalse("a string with no letter in it survived: ${result.text}", result.text.contains("555"))
+        assertTrue("the query did not decompose, or its number did not survive: ${result.text}", Regex("""= 'str\d+' AND local\d+\.field\d+ > 42"""").containsMatchIn(result.text))
+    }
+
+    /**
      * **No query name is ever an `Unknown`, in any configuration** — the queries that bind and the ones
      * that do not, under every setting that changes what reaches the output. A position either resolves
      * or its fragment falls back; there is no third outcome.
@@ -269,6 +288,7 @@ internal class QueryDecompositionTest : QuerySnippetTestCase() {
 
         for (query in queries) {
             val plan = planFor("Customer.java", entity(query))
+            assertInjected(myFixture.file, "\"$query\"", JPQL)
             assertTrue(
                 "a query name reached the plan unresolved: $query",
                 plan.symbols().none { it.symbol.origin == SymbolOrigin.UNRESOLVED },
@@ -286,6 +306,7 @@ internal class QueryDecompositionTest : QuerySnippetTestCase() {
         assertTheQueryHarnessHolds()
         val query = "SELECT c FROM Customer c WHERE c.nothingCalledThis = :ref"
         myFixture.configureByText("Customer.java", entity(query))
+        assertInjected(myFixture.file, "\"$query\"", JPQL)
         val request = SnippetRequest(project, myFixture.file, selectedRangesOf(myFixture.editor))
 
         assertEquals(describe(JavaPlanBuilder.build(request, container = null)), describe(JavaPlanBuilder.build(request)))

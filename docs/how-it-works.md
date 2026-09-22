@@ -268,7 +268,8 @@ Worth knowing before relying on it:
   query is read name by name instead, but only when **every** name in it resolves: each entity and
   property takes the placeholder its class or field has everywhere else, an alias or a `:parameter`
   becomes a `local`, and a string inside the query becomes its own `'str2'`. One name that does not
-  resolve, and the whole query is `"str1"` as before. Nothing about the query is looked up in a
+  resolve, and the whole query is `"str1"` as before — as it always is in an IDE that does not read
+  the query language, IntelliJ IDEA Community among them. Nothing about the query is looked up in a
   database.
 - **Structure and algorithm survive intact.** If your proprietary value *is* the algorithm,
   SnippetVeil does nothing for you.

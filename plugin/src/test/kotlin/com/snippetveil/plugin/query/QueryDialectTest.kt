@@ -122,6 +122,43 @@ internal class SpringDataQueryTest : QuerySnippetTestCase() {
         val result = resultOf(plan)
         assertTrue("the query did not decompose: ${result.text}", Regex("""@Query\("SELECT (local\d+) FROM Type\d+ \1 WHERE \1\.field\d+ = :local\d+"\)""").containsMatchIn(result.text))
     }
+
+    fun `test a Spring Data query that does not bind is one redacted literal`() {
+        assertTheQueryHarnessHolds()
+        addProjectFile(
+            "com/acme/billing/Customer.java",
+            """
+            package com.acme.billing;
+
+            import jakarta.persistence.*;
+
+            @Entity
+            public class Customer {
+                @Id Long id;
+                String merchantRef;
+            }
+            """.trimIndent(),
+        )
+        val query = "SELECT c FROM Customer c WHERE c.nothingCalledThis = :ref"
+        val plan = planFor(
+            "CustomerRepository.java",
+            """
+            package com.acme.billing;
+
+            import org.springframework.data.jpa.repository.JpaRepository;
+            import org.springframework.data.jpa.repository.Query;
+
+            public interface CustomerRepository extends JpaRepository<Customer, Long> {
+                <selection>@Query("$query")
+                Customer findByRef(String ref);</selection>
+            }
+            """.trimIndent(),
+        )
+        assertInjected(myFixture.file, "\"$query\"", SPRING_DATA_QL)
+
+        assertEquals("the query was not one literal", listOf("\"$query\""), plan.literalTexts())
+        assertTrue("the query was not redacted whole: ${resultOf(plan).text}", resultOf(plan).text.startsWith("@Query(\"str"))
+    }
 }
 
 private const val HQL = "HQL"

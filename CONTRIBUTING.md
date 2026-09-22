@@ -737,9 +737,11 @@ never sees `.kt` offered; `KotlinSupportTest`, in the excluded package, asserts 
 and rejected: it tests a configuration the plugin declares unsupported by default, and it becomes a
 cell to defend forever.
 
-**One added leg, not a cross-product.** Contributor pinning varies per test class inside one JVM; the
-platform profiles are the only real multiplication, so counting configurations against tiers arrives
-at a much larger number than the three test legs this is.
+**One added leg, not a cross-product.** Contributor pinning varies per test class inside one JVM, or
+rides a cell the platform already runs — the query-language contributors are Ultimate's, so only the
+`latest` cell carries them, and `QueryContributorPinTest` asserts in every cell that what is pinned is
+what is loaded; the platform profiles are the only real multiplication, so counting configurations
+against tiers arrives at a much larger number than the three test legs this is.
 
 The legs do not all name the same product: IntelliJ IDEA Community stopped being published after
 2025.2, so the floor and the K2 cell are `IC` and latest stable is the unified `IU`. All are pinned
@@ -1268,6 +1270,11 @@ it is used unmodified. It was preferred over the Apache-2.0 alternative on weigh
 licence — it is a JUnit Platform engine with three small transitive dependencies, where the
 alternative brings a competing test framework and a coroutines runtime into a module that had two
 dependencies.
+
+Fixture jars are not among them, because they are on no classpath: the Kotlin standard library the
+Kotlin fixtures attach, and the persistence jars the query fixtures attach — the Jakarta Persistence
+API, Spring Data and Hibernate — reach a test only as file paths, and are read as PSI the way a
+user's own dependencies would be. Nothing loads a class out of them.
 
 ## Issues
 

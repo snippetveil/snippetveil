@@ -9,7 +9,8 @@
   = :local4"`, where `Type1` and `field3` are the placeholders the `Customer` class and its
   `merchantRef` field get everywhere else. A string inside the query is replaced by its own `'str5'`,
   and a comment inside it is stripped and counted like any other comment. A query with any name that
-  does not resolve is still replaced whole.
+  does not resolve is still replaced whole, and so is every query in an IDE that does not read the
+  query language at all — IntelliJ IDEA Community among them.
 - **Comments in Kotlin files are stripped.** Since 1.3.0, Copy Anonymized and Anonymize with Preview
   on a `.kt` file left every comment in the output exactly as written — line comments, block
   comments and KDoc — and the notification showed no comment count, because none had been stripped.

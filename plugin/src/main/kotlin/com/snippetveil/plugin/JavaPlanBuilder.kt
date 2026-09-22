@@ -72,7 +72,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
-        val injected = injectedNamesIn(file, fragments, container)
+        val injected = injectedOccurrencesIn(file, fragments, container)
         val occurrences = (
             symbolsIn(request.project, file, fragments) +
                 injected.occurrences +
@@ -208,7 +208,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * about injection at all: it is the cheap question, and most literals in a file are nowhere near
      * the selection.
      */
-    private fun injectedNamesIn(file: PsiFile, fragments: List<Fragment>, container: InjectedContainer?): Decomposition {
+    private fun injectedOccurrencesIn(file: PsiFile, fragments: List<Fragment>, container: InjectedContainer?): Decomposition {
         if (container == null) return Decomposition(emptyList(), emptySet())
 
         val occurrences = mutableListOf<Occurrence>()
@@ -223,34 +223,32 @@ internal object JavaPlanBuilder : PlanBuilder {
             if (hosts.any { host -> InjectedFragment.injectedInto(host).size != 1 || !injected.coversAllOf(host) }) continue
 
             val projected = injected.project(container.read(injected) ?: continue) ?: continue
+            val at = { offset: Int -> fragments.first { it.range.contains(offset) }.translate(offset) }
             for (name in projected.names) {
-                val fragment = fragments.first { it.range.contains(name.token) }
                 occurrences += SymbolOccurrence(
-                    start = fragment.translate(name.token.startOffset),
-                    end = fragment.translate(name.token.endOffset),
+                    start = at(name.token.startOffset),
+                    end = at(name.token.startOffset) + name.token.length,
                     text = name.token.substring(file.text),
                     symbol = name.injected.symbol,
                     language = name.injected.language,
-                    nameStart = fragment.translate(name.name.startOffset),
-                    nameEnd = fragment.translate(name.name.endOffset),
+                    nameStart = at(name.name.startOffset),
+                    nameEnd = at(name.name.startOffset) + name.name.length,
                 )
             }
             for (string in projected.literals) {
-                val fragment = fragments.first { it.range.contains(string.token) }
                 occurrences += LiteralOccurrence(
-                    start = fragment.translate(string.token.startOffset),
-                    end = fragment.translate(string.token.endOffset),
+                    start = at(string.token.startOffset),
+                    end = at(string.token.startOffset) + string.token.length,
                     kind = string.injected.kind,
-                    contentStart = fragment.translate(string.content.startOffset),
-                    contentEnd = fragment.translate(string.content.endOffset),
+                    contentStart = at(string.content.startOffset),
+                    contentEnd = at(string.content.startOffset) + string.content.length,
                     language = string.injected.language,
                 )
             }
             for (comment in projected.comments) {
-                val fragment = fragments.first { it.range.contains(comment.range) }
                 occurrences += CommentOccurrence(
-                    start = fragment.translate(comment.range.startOffset),
-                    end = fragment.translate(comment.range.endOffset),
+                    start = at(comment.range.startOffset),
+                    end = at(comment.range.startOffset) + comment.range.length,
                     verdict = comment.injected.verdict,
                     language = comment.injected.language,
                 )
@@ -268,7 +266,7 @@ internal object JavaPlanBuilder : PlanBuilder {
     private fun isWholeLiteralHere(host: PsiLanguageInjectionHost, file: PsiFile, fragments: List<Fragment>): Boolean =
         host is PsiLiteralExpression && host.containingFile == file && fragments.any { it.range.contains(host.textRange) }
 
-    /** What [injectedNamesIn] found: the occurrences it placed, and the literals they replace. */
+    /** What [injectedOccurrencesIn] found: the occurrences it placed, and the literals they replace. */
     private class Decomposition(val occurrences: List<Occurrence>, val hosts: Set<PsiElement>)
 
     /**

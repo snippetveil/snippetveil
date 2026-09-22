@@ -102,8 +102,11 @@ internal object QueryContainer : InjectedContainer {
          *     a property called `type` or `value` is a name wherever the lexer happens to call those
          *     words keywords.
          *  4. A keyword, as the language's own names validator says.
-         *  5. A literal of the language, as its [ParserDefinition] says: a string is reported, and one
-         *     bearing no letter — a number — is shape and is kept.
+         *  5. A literal of the language, as its [ParserDefinition] says. **A delimited one is a string
+         *     and is always reported**, whatever it holds — `'555-12-3456'` bears no letter and is still
+         *     the most directly sensitive text in the query. An undelimited one bearing no letter is a
+         *     number, which is shape and is kept; an undelimited one bearing a letter is reported whole,
+         *     the fail-closed direction.
          *  6. **A name the fragment declares** — an alias — which no reference sits over, because it is
          *     the thing the references point at.
          *  7. What bears no letter or digit — punctuation and operators — which carries no word.
@@ -125,7 +128,7 @@ internal object QueryContainer : InjectedContainer {
             if (isKeyword(leaf.text)) return true
 
             if (grammar.stringLiteralElements.contains(type)) {
-                if (leaf.text.none(Char::isLetter)) return true
+                if (!isDelimited(leaf.text) && leaf.text.none(Char::isLetter)) return true
                 literals += InjectedLiteral(leaf.textRange, contentOf(leaf), LiteralKind.STRING, LANGUAGE)
                 return true
             }
@@ -173,16 +176,26 @@ internal object QueryContainer : InjectedContainer {
          *    persistent property reaches the field it is. One hop, not a chain: what it lands on is
          *    taken as it is, and it has to be a **project** declaration. Landing anywhere else — a
          *    library class's field, or not a declaration at all — is a position that has not resolved.
+         *
+         * **Either way the symbol has to be named what the query calls it.** A property of an entity
+         * whose persistence is on its getters can land on `getMerchantRef()`; its placeholder would then
+         * be the getter's, and a reply reversed through it would restore `getMerchantRef` where the query
+         * said `merchantRef`. A symbol that answers to another name is not the name at this position, so
+         * the position has not resolved.
          */
         private fun bindingOf(reference: PsiReference, written: String): SymbolEvidence? {
             val target = reference.resolve() ?: return null
             if (target.containingFile == fragment.file) return fragmentLocal(target, written)
-            if (isJavaDeclaration(target)) return JavaPlanBuilder.evidenceOf(project, target, written)
+            if (isJavaDeclaration(target)) return javaSymbol(target, written)
 
             val landed = target.navigationElement
             if (landed === target || !isJavaDeclaration(landed)) return null
-            return JavaPlanBuilder.evidenceOf(project, landed, written).takeIf { it.origin == SymbolOrigin.IN_CONTENT }
+            return javaSymbol(landed, written)?.takeIf { it.origin == SymbolOrigin.IN_CONTENT }
         }
+
+        /** [declaration]'s evidence by the existing key rule, when the symbol is named [written]. */
+        private fun javaSymbol(declaration: PsiElement, written: String): SymbolEvidence? =
+            JavaPlanBuilder.evidenceOf(project, declaration, written).takeIf { it.declaredName == written }
 
         /**
          * **A name the fragment declares, as the query says it**: a [LOCAL][SymbolRole.LOCAL], keyed by
@@ -267,10 +280,12 @@ internal object QueryContainer : InjectedContainer {
      */
     private fun contentOf(literal: PsiElement): TextRange {
         val range = literal.textRange
-        val text = literal.text
-        val delimited = text.length >= 2 && text.first() == text.last() && !text.first().isLetterOrDigit()
-        return if (delimited) TextRange(range.startOffset + 1, range.endOffset - 1) else range
+        return if (isDelimited(literal.text)) TextRange(range.startOffset + 1, range.endOffset - 1) else range
     }
+
+    /** Whether [text] opens and closes on the same delimiter — a quote, in every query language read here. */
+    private fun isDelimited(text: String): Boolean =
+        text.length >= 2 && text.first() == text.last() && !text.first().isLetterOrDigit()
 
     /** A class, a member or a package: what [JavaPlanBuilder.evidenceOf] keys by the existing rule. */
     private fun isJavaDeclaration(element: PsiElement): Boolean = element is PsiPackage || element is PsiMember
