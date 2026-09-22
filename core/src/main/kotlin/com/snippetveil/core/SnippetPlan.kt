@@ -69,13 +69,23 @@ sealed class Occurrence {
  * spellings, and `:core` cannot spell one without knowing which it is looking at. The walk is the
  * only thing that knows, so the walk is what records it.
  *
- * **This is not a language-policy extension point.** It is a closed set of the two languages this
- * product walks, and it stays closed until there is a language that is not on the JVM — at which
- * point what changes is the rendering, not the shape of this tag.
+ * **This is not a language-policy extension point.** It is a closed set of the languages this
+ * product walks, and a value is added when there is a token whose rendering depends on it — which is
+ * what changes, rather than the shape of this tag.
  */
 enum class SourceLanguage {
     JAVA,
     KOTLIN,
+
+    /**
+     * **A SQL name** — a table, a column or a schema, written in SQL wherever the walk met it.
+     *
+     * Its rendering differs from the JVM languages' in one place, and it is carried by the occurrence
+     * rather than decided from this tag: a SQL identifier can be **delimited** — `"customers"`,
+     * backtick-quoted, `[customers]` — and the placeholder is written into the name inside the
+     * delimiters, never over them. See [SymbolOccurrence.nameStart].
+     */
+    SQL,
 }
 
 /**
@@ -83,6 +93,16 @@ enum class SourceLanguage {
  *
  * @param text the identifier exactly as it is written at this position
  * @param language the language this identifier is written in; see [Occurrence.language]
+ * @param nameStart where the identifier's **name** starts, which is where its placeholder is
+ *   written. The whole token for a Java or Kotlin identifier, and so the default; after the opening
+ *   delimiter for a **delimited SQL identifier** — `"customers"`, backtick-quoted, `[customers]`.
+ *
+ *   The delimiters are not decoration, which is why they survive: in most dialects a delimited
+ *   identifier is case-sensitive and a bare one is case-folded, so `"Customers"` and `customers` name
+ *   **different tables**. `"customers"` renders `"table2"`; normalising it to a bare `table2` would
+ *   silently rewrite what the query means. The token as a whole is still [start]–[end], so ranges
+ *   still never split a token and a word inside the delimiters is still the token's own.
+ * @param nameEnd where the name ends — before the closing delimiter. See [nameStart].
  */
 class SymbolOccurrence(
     override val start: Int,
@@ -90,7 +110,16 @@ class SymbolOccurrence(
     val text: String,
     val symbol: SymbolEvidence,
     override val language: SourceLanguage,
-) : Occurrence()
+    val nameStart: Int = start,
+    val nameEnd: Int = end,
+) : Occurrence() {
+
+    init {
+        require(start <= nameStart && nameStart <= nameEnd && nameEnd <= end) {
+            "the name range [$nameStart, $nameEnd) does not lie inside the token [$start, $end)"
+        }
+    }
+}
 
 /**
  * A literal, and everything the coverage rule needs in order to decide what becomes of it.
@@ -423,10 +452,11 @@ enum class SymbolOrigin {
  * is map the AI's reply back onto real code by hand, and `Repository2` is far cheaper to map than
  * `Class7`.
  *
- * Every constant here is a statement about Java's grammar, which is why there is no `UNKNOWN`
- * among them: a name that did not resolve has no grammatical role to report, and the engine reads
- * [SymbolOrigin.UNRESOLVED] for that namespace instead. Whatever role a plan reports alongside that
- * origin is a value the builder had to invent, and nothing reads it.
+ * Every constant here is a statement about the grammar of the language the name is written in —
+ * Java's, or for [TABLE], [COLUMN] and [SCHEMA] SQL's — which is why there is no `UNKNOWN` among them: a name that
+ * did not resolve has no grammatical role to report, and the engine reads [SymbolOrigin.UNRESOLVED]
+ * for that namespace instead. Whatever role a plan reports alongside that origin is a value the
+ * builder had to invent, and nothing reads it.
  */
 enum class SymbolRole(val placeholderPrefix: String) {
     /** A class, interface, enum or record. */
@@ -489,4 +519,30 @@ enum class SymbolRole(val placeholderPrefix: String) {
      * the prefixes are for.
      */
     LABEL("label"),
+
+    /**
+     * **A SQL rowset** — a table, a view, a CTE: whatever a `FROM` names.
+     *
+     * The three SQL kinds are lowercase because, unlike [TYPE] and [ANNOTATION], they never occupy a
+     * type position; and they are words of their own rather than borrowed ones. `str` was refused
+     * for them because it throws away the point — a table name is plainly a name, and its identity is
+     * what a reader needs — and `Type`/`field` because they assert a binding to a Java entity that
+     * does not exist.
+     *
+     * **The number is the shared counter's, never a count of tables.** `table3` is the third
+     * *symbol* in the output, so a two-table join does not read `table1, table2`.
+     *
+     * No SQL key is ever persisted. A SQL name is unqualified — there is no declaration for it to
+     * belong to — so the rule that keeps a [LOCAL] out of the ledger keeps it out too. See [SqlKeys].
+     */
+    TABLE("table"),
+
+    /**
+     * **A value in a rowset** — a column. `col` rather than `column`, on the house style the other
+     * kinds already write in: `param`, `pkg`, `attr`, `str`. See [TABLE].
+     */
+    COLUMN("col"),
+
+    /** **A namespace qualifier** — `billing` in `billing.invoices`. See [TABLE]. */
+    SCHEMA("schema"),
 }

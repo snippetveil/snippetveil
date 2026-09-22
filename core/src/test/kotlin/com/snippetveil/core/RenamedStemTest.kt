@@ -595,14 +595,14 @@ class RenamedStemTest {
     }
 
     /**
-     * The rule the dialog mirrors, stated once here: what a stem may be, and the two reasons it may
+     * The rule the dialog mirrors, stated once here: what a stem may be, and the three reasons it may
      * not be. Empty is not a rejection — it is the way back to the default stem.
      */
     @Test
-    fun `a stem has to be a Java identifier that does not end in a digit`() {
+    fun `a stem has to be an identifier without a dollar that does not end in a digit`() {
         assertNull(stemRejection(""))
         assertNull(stemRejection("FilterType"))
-        assertNull(stemRejection("_filter\$"))
+        assertNull(stemRejection("_filter"))
         // Surrounding whitespace is not part of a stem, so it is not a reason to refuse one.
         assertNull(stemRejection("  FilterType  "))
         // The language's definition of an identifier rather than ASCII's — including the half of it
@@ -614,6 +614,8 @@ class RenamedStemTest {
         assertEquals(StemRejection.NOT_AN_IDENTIFIER, stemRejection("9Filter"))
         assertEquals(StemRejection.NOT_AN_IDENTIFIER, stemRejection("my filter"))
         assertEquals(StemRejection.NOT_AN_IDENTIFIER, stemRejection("filter-type"))
+        // Legal in a Java identifier and illegal in an unquoted SQL one. See [SqlNameTest].
+        assertEquals(StemRejection.CARRIES_A_DOLLAR, stemRejection("_filter\$"))
     }
 
     /** The settings one invocation runs under when the only thing it does is rename. */

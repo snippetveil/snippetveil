@@ -385,7 +385,11 @@ fun anonymize(
                 val symbol = occurrence.symbol
                 namedSymbols += symbol
                 if (isReplaced(symbol)) {
-                    splice(occurrence.language, occurrence.start, occurrence.end, symbol)
+                    // Into the **name** range rather than over the token, which is the same range for
+                    // every JVM identifier and the inside of the delimiters for a delimited SQL one —
+                    // `"customers"` renders `"table2"`, and a delimited name stays delimited. See
+                    // [SymbolOccurrence.nameStart] for why that is semantics rather than cosmetics.
+                    splice(occurrence.language, occurrence.nameStart, occurrence.nameEnd, symbol)
                 } else if (isPreserved(symbol)) {
                     // Preserved by the one reduction the design authorises, and a row *because* it
                     // was preserved — see [MappedName]. A row that vanished when ticked could not
@@ -958,6 +962,9 @@ private fun kindOf(symbol: SymbolEvidence): MappedKind =
             SymbolRole.ATTRIBUTE -> MappedKind.ATTRIBUTE
             SymbolRole.LOCAL -> MappedKind.LOCAL
             SymbolRole.LABEL -> MappedKind.LABEL
+            SymbolRole.TABLE -> MappedKind.TABLE
+            SymbolRole.COLUMN -> MappedKind.COLUMN
+            SymbolRole.SCHEMA -> MappedKind.SCHEMA
         }
     }
 

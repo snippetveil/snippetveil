@@ -21,6 +21,11 @@
   made the IDE fetch that image's address. The same applies to the package prefix table in Settings
   and to the list of words not restored.
 
+- A placeholder you rename in the preview can no longer contain `$`. It is legal in a Java name
+  but not in an unquoted SQL one, and a placeholder may be written into SQL. The editor says so
+  when you type one, and a name with `$` in it that reaches SnippetVeil anyway is ignored: the
+  placeholder keeps its usual name.
+
 ## [1.4.0] - 2026-09-17
 
 - De-anonymize Clipboard restores a getter or setter the snippet never showed. A field copied without
