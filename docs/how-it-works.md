@@ -211,7 +211,8 @@ cannot end in a digit, because stem `Filter2` with number 1 and stem `Filter` wi
 both spell `Filter21`, and two symbols spelling one word is what reverse mapping forbids. Nor can it
 spell one of SnippetVeil's own namespaces — `Unknown`, `str`, `Type` and the rest — because a
 placeholder is read as a claim about what it stands for, and `Unknown1` on a name the IDE resolved
-fine would be a false one.
+fine would be a false one. And it cannot contain `$`: that is legal in a Java name and not in an
+unquoted SQL one, so `my$table1` would not be a name at all in a query it was written into.
 
 **Renaming is not a reduction.** Your real name never leaves the machine; the symbol is still
 replaced. What does go out is the alias you typed, which is a small disclosure you chose — see

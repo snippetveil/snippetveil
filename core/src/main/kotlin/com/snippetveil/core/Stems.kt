@@ -75,6 +75,10 @@ enum class StemRejection(val message: String) {
      * **Not a Java identifier**, as the language defines one rather than as ASCII would — a stem is
      * pasted straight into source, so anything the compiler would not accept makes the snippet stop
      * compiling, which is a fidelity loss the reader has no way to attribute.
+     *
+     * The message does not list `$` among what a name may hold, though this test lets it through:
+     * [CARRIES_A_DOLLAR] refuses it next, and a message offering a character the next rule refuses
+     * would be two statements that disagree.
      */
     NOT_AN_IDENTIFIER("A name has to be an identifier: letters, digits or _, not starting with a digit."),
 

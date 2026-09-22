@@ -453,7 +453,7 @@ enum class SymbolOrigin {
  * `Class7`.
  *
  * Every constant here is a statement about the grammar of the language the name is written in —
- * Java's, or for the last three SQL's — which is why there is no `UNKNOWN` among them: a name that
+ * Java's, or for [TABLE], [COLUMN] and [SCHEMA] SQL's — which is why there is no `UNKNOWN` among them: a name that
  * did not resolve has no grammatical role to report, and the engine reads [SymbolOrigin.UNRESOLVED]
  * for that namespace instead. Whatever role a plan reports alongside that origin is a value the
  * builder had to invent, and nothing reads it.

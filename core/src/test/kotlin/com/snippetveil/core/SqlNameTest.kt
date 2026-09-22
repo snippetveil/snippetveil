@@ -173,6 +173,11 @@ class SqlNameTest {
 
         assertEquals("SELECT * FROM table1", result.text)
         assertEquals(emptySet<String>(), result.delta.mintedStems)
+
+        // The control: a stem without the `$` does reach a SQL key, so the fallback above is the
+        // refusal and not a rename that never applied to SQL names at all.
+        val renamed = anonymize(plan, AnonymizationSettings(renamedStems = mapOf(key to "myTable")), LedgerSnapshot.EMPTY)
+        assertEquals("SELECT * FROM myTable1", renamed.text)
     }
 
     /** One SQL token: the text written at it, which occurrence of that text it is, and its symbol. */

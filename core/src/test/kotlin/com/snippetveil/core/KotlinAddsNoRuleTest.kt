@@ -82,6 +82,11 @@ class KotlinAddsNoRuleTest {
      * the list and a test that checked only for kinds it knew about would pass on a list that grew.
      * The prefixes are here too: they are what a reader maps an AI's reply back with, and a namespace
      * that changed spelling would decode nothing while looking untouched.
+     *
+     * **The three SQL kinds at the end arrived with SQL, not with Kotlin** — a rowset, a value in a
+     * rowset and a namespace qualifier have no JVM kind to be an instance of, which is exactly the
+     * case this list is closed against for Kotlin. They are in the table because the table is the
+     * whole list; a Kotlin change that adds a fourth still fails here.
      */
     @Test
     fun `the placeholder kinds and their prefixes are unchanged`() {
@@ -97,6 +102,9 @@ class KotlinAddsNoRuleTest {
                 "ATTRIBUTE/attr",
                 "LOCAL/local",
                 "LABEL/label",
+                "TABLE/table",
+                "COLUMN/col",
+                "SCHEMA/schema",
             ),
             SymbolRole.entries.map { it.name + "/" + it.placeholderPrefix },
             "a placeholder kind arrived or changed spelling; Kotlin was to add none",
@@ -105,7 +113,8 @@ class KotlinAddsNoRuleTest {
         assertEquals(
             listOf(
                 "TYPE", "METHOD", "FIELD", "PARAMETER", "LOCAL", "PACKAGE",
-                "TYPE_PARAMETER", "LABEL", "ANNOTATION", "ATTRIBUTE", "LITERAL", "UNKNOWN",
+                "TYPE_PARAMETER", "LABEL", "ANNOTATION", "ATTRIBUTE", "TABLE", "COLUMN", "SCHEMA",
+                "LITERAL", "UNKNOWN",
             ),
             MappedKind.entries.map { it.name },
             "a mapping-table kind arrived; Kotlin was to add none",
