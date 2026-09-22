@@ -294,8 +294,11 @@ internal object QueryContainer : InjectedContainer {
      * **The languages this container reads**, by the ids their plugins register them under — JPQL,
      * HQL and Spring Data QL. A fragment in any other language is not a query this container can say
      * anything about, and falls back.
+     *
+     * Read by the corpus instrument's query half as well, so that *which fragments are queries at all*
+     * — the denominator every rate it reports is over — is this list rather than a copy of it.
      */
-    private val QUERY_LANGUAGES = setOf("JPAQL", "HQL", "SpringDataQL")
+    internal val QUERY_LANGUAGES = setOf("JPAQL", "HQL", "SpringDataQL")
 
     /**
      * The language a query's tokens are tagged with in the plan. A query names Java symbols, and each

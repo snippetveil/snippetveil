@@ -1991,6 +1991,106 @@ tasks.test {
     filter { excludeTestsMatching(corpusSweepClass) }
 }
 
+// ---------------------------------------------------------------------------------------------
+// The corpus sweep's query half
+//
+// The same instrument pointed at a different question: it runs the query containers over the
+// fragments the IDE injects into a real project's Java literals and writes a triage list of the
+// reasons they fell back, with four rates that gate nothing. It is a local instrument like the
+// half above — never a merge gate, never in CI — and it has a corpus of its own because a corpus
+// worth sweeping for queries is a project that holds them.
+//
+// See `com.snippetveil.sweep.QuerySweep` and CONTRIBUTING.md.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * **The query half's test class, spelled once**, for the reason `corpusSweepClass` is: `querySweep`
+ * includes it and `test` excludes it, and two literals would let a rename break the second silently.
+ * `assertTheSweepIsExcludedFromTheMergeGate` above reads both names and keeps them agreeing with the
+ * source tree.
+ */
+val querySweepClass = "com.snippetveil.sweep.QuerySweep"
+
+/**
+ * **The corpora, by the `.ipr` files that open them.** More than one is separated the way a classpath
+ * is. **Absent means skipped**, so public CI cannot demand it.
+ */
+val querySweepCorpus = providers.gradleProperty("querySweepCorpus")
+
+/** Where the report goes. Defaulted by the sweep itself, and refused if it lands in any swept tree. */
+val querySweepReportDirectory = providers.gradleProperty("querySweepReportDir")
+
+intellijPlatformTesting {
+    // The name comes from the root build, where `assertTheSweepIsNeverRunInCi` guards it — one
+    // spelling, so that a rename cannot leave that check guarding a task nobody registers.
+    testIde.register(rootProject.extra["querySweepTask"] as String) {
+        // Declared again rather than inherited, exactly as the half above declares them: test-framework
+        // dependencies are added to the `test` task's own configuration, and a custom test task gets
+        // its own.
+        testFramework(TestFrameworkType.Platform)
+        testFramework(TestFrameworkType.Plugin.Java)
+
+        task {
+            // Read out of the script here, so that the specs below close over plain values — a spec
+            // that reached back to a script-level property would carry a reference to the build
+            // script itself, which the configuration cache cannot serialize.
+            val corpus = querySweepCorpus.orNull
+            val reportDirectory = querySweepReportDirectory.orNull
+            val repository = rootProject.projectDir.absolutePath
+
+            group = LifecycleBasePlugin.VERIFICATION_GROUP
+            description = "Runs the query containers over the injected fragments of the corpora named by -PquerySweepCorpus."
+
+            testClassesDirs += sourceSets["test"].output.classesDirs
+            classpath += sourceSets["test"].runtimeClasspath
+            useJUnitPlatform()
+            filter { includeTestsMatching(querySweepClass) }
+
+            // Where neither the corpus nor the report may be, handed in rather than guessed at by the
+            // process. The corpus is checked against it too: what goes in stays outside this tree as
+            // surely as what comes out.
+            systemProperty("snippetveil.sweep.repository", repository)
+            corpus?.let { systemProperty("snippetveil.query.sweep.corpus", it) }
+            reportDirectory?.let { systemProperty("snippetveil.query.sweep.reportDirectory", it) }
+
+            // **Skipped, not failed**, when there is no corpus to point it at — so a contributor
+            // without one is never blocked and public CI cannot demand it. The test class assumes the
+            // same thing, for the case where somebody runs it straight from the IDE.
+            onlyIf("-PquerySweepCorpus names the corpora to sweep; without it there is nothing to run") {
+                corpus != null
+            }
+
+            // **The second layer of "never in CI"**, as on the half above: the first says CI never
+            // asks, and this says the sweep would refuse if asked — which covers the routes that check
+            // cannot see, a `dependsOn` somebody adds or a shell script on a runner that is not
+            // GitHub's. It sits behind the `onlyIf`, so a mis-wiring with no corpus still merely skips.
+            doFirst {
+                val ci = listOf("CI", "GITHUB_ACTIONS", "BUILD_NUMBER").filter { System.getenv(it) != null }
+                check(ci.isEmpty()) {
+                    "The query sweep opens somebody's real code and writes the table spellings and paths " +
+                        "it found in it. It is run by a human, deliberately, on a machine that already " +
+                        "holds that code — and $ci says this is CI."
+                }
+            }
+
+            // An instrument is run to be read. A cached "up-to-date" would print a path to yesterday's
+            // report and look like it had just swept.
+            outputs.upToDateWhen(Specs.satisfyNone())
+            testLogging { showStandardStreams = true }
+
+            // A corpus is a real project's worth of PSI, index and injected documents.
+            maxHeapSize = "4g"
+        }
+    }
+}
+
+tasks.test {
+    // **The query half is not part of the merge gate either**, and for the same reason: it lives in
+    // the test source set, so without an exclusion `check` would run it — where it would skip, and
+    // teach everyone reading the build that it is a test that happens to be skipped.
+    filter { excludeTestsMatching(querySweepClass) }
+}
+
 /**
  * Fails if the class both filters above name is not the class that is actually there.
  *
@@ -2004,29 +2104,34 @@ tasks.test {
  */
 val assertTheSweepIsExcludedFromTheMergeGate = tasks.register("assertTheSweepIsExcludedFromTheMergeGate") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
-    description = "Fails if the corpus sweep class the test filters name is not the one in the source tree."
+    description = "Fails if an instrument class the test filters name is not the one in the source tree."
 
     // Read out of the script here, so that the action below closes over plain values: an action
     // that reached back to a script-level property would carry a reference to the build script
     // itself, which the configuration cache cannot serialize.
-    val named = corpusSweepClass
-    val simpleName = named.substringAfterLast('.')
-    val source = layout.projectDirectory.file("src/test/kotlin/${named.replace('.', '/')}.kt")
-    val declaration = Regex("""(?m)^\s*class\s+$simpleName\b""")
+    //
+    // **Both halves, by one rule.** Each is excluded from `test` by a filter of its own, and each
+    // would rejoin `check` silently if its class were renamed or moved.
+    val named = listOf(corpusSweepClass, querySweepClass)
+    val sources = named.associateWith { layout.projectDirectory.file("src/test/kotlin/${it.replace('.', '/')}.kt") }
 
-    inputs.file(source).withPropertyName("source")
-    inputs.property("corpusSweepClass", named)
+    sources.values.forEachIndexed { index, source -> inputs.file(source).withPropertyName("source$index") }
+    inputs.property("instrumentClasses", named)
 
     doLast {
-        val file = source.asFile
-        check(file.isFile) {
-            "`$named` is what `test` excludes and `corpusSweep` includes, but $file does not exist. " +
-                "A filter that matches nothing excludes nothing, so the sweep would be back in the " +
-                "merge gate with the build still green."
-        }
-        check(declaration.containsMatchIn(file.readText())) {
-            "$file exists but declares no `class $simpleName`, so the filters naming `$named` match " +
-                "nothing and the sweep is back in the merge gate."
+        sources.forEach { (className, source) ->
+            val simpleName = className.substringAfterLast('.')
+            val declaration = Regex("""(?m)^\s*class\s+$simpleName\b""")
+            val file = source.asFile
+            check(file.isFile) {
+                "`$className` is what `test` excludes and an instrument task includes, but $file does " +
+                    "not exist. A filter that matches nothing excludes nothing, so the instrument would " +
+                    "be back in the merge gate with the build still green."
+            }
+            check(declaration.containsMatchIn(file.readText())) {
+                "$file exists but declares no `class $simpleName`, so the filters naming `$className` " +
+                    "match nothing and the instrument is back in the merge gate."
+            }
         }
     }
 }

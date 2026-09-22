@@ -623,19 +623,83 @@ a name, for the same reason.
 Two layers, because they cover different routes:
 
 - **`assertTheSweepIsNeverRunInCi`**, in the root `build.gradle.kts` and wired into `check`, reads
-  every `./gradlew` line in `.github/workflows/` and fails if one names the sweep task or either of
-  its properties. This is readable only because of the thin-CI-over-thick-Gradle rule: *what CI runs*
-  is a list, so it is a list that can be tested. Like the other workflow check it proves it can fail
-  over fixtures first, and fails outright if it read no `./gradlew` line at all.
-- **The task refuses.** `corpusSweep` fails if `CI`, `GITHUB_ACTIONS` or `BUILD_NUMBER` is set —
-  which covers the routes the first layer cannot see: a `dependsOn` somebody adds to `check`, or a
-  shell script on a runner that is not GitHub's.
+  every `./gradlew` line in `.github/workflows/` and fails if one names either instrument's task or
+  any of their properties. This is readable only because of the thin-CI-over-thick-Gradle rule:
+  *what CI runs* is a list, so it is a list that can be tested. Like the other workflow check it
+  proves it can fail over fixtures first, and fails outright if it read no `./gradlew` line at all.
+- **The task refuses.** `corpusSweep` — and `querySweep` below — fails if `CI`, `GITHUB_ACTIONS` or
+  `BUILD_NUMBER` is set, which covers the routes the first layer cannot see: a `dependsOn` somebody
+  adds to `check`, or a shell script on a runner that is not GitHub's.
 
-The task name is spelled once, as an `extra` in the root build that `plugin/build.gradle.kts` reads,
-so that a rename cannot leave the first layer guarding a task nobody registers. A deliberate absence:
-there is no assertion over the Gradle task graph, because the configuration cache means a
+Each task name is spelled once, as an `extra` in the root build that `plugin/build.gradle.kts`
+reads, so that a rename cannot leave the first layer guarding a task nobody registers. A deliberate
+absence: there is no assertion over the Gradle task graph, because the configuration cache means a
 `whenReady` listener does not run on a cache hit — a graph check written here would be one that
 quietly stops checking on the second run.
+
+## The query sweep: the same instrument, pointed at queries
+
+```
+./gradlew querySweep -PplatformProfile=latest -PquerySweepCorpus=/path/to/a/corpus.ipr
+```
+
+It opens each corpus, runs the query containers over every fragment the IDE injects into its Java
+literals, and writes a **triage list of the reasons fragments fell back**, with four rates. More
+than one corpus is separated the way a classpath is, and all of them are swept in one run. With no
+`-PquerySweepCorpus` the task is **skipped, not failed**, exactly as the leak half is.
+
+**The `latest` profile is not decoration.** The plugins that inject SQL and the persistence query
+languages are the unified IDE's, and the run refuses without them — a corpus full of queries nobody
+injected into reads exactly like a corpus with no queries in it.
+
+**Two mechanism facts it carries so that nobody rediscovers them**, each of which has already cost a
+session once:
+
+- **A corpus project is opened by its `.ipr` file, never by the directory.** A directory-opened
+  project comes up with zero content roots and reports no source file at all, *silently*, so
+  `queryCorpusFile` refuses a directory outright and says why.
+- **The JPA plugin id is `com.intellij.javaee.jpa`**, not `com.intellij.jpa`; no plugin with the
+  latter id exists. It is spelled in `queryContributors` in `plugin/build.gradle.kts`.
+
+### Every rate is reported and gates nothing
+
+Four rates are there because four decisions asked for them: the **unprojectable-position share**,
+the **identifier-keyword share**, the **bind-parameter share**, and whether **two spellings of one
+table** ever occur. Each is a cost the public copy carries, and this is the only instrument pointed
+at real fragments — which makes it look like the place to *judge* them. It is the place to
+**measure** them.
+
+**A rate threshold is refused**, on the denominator rather than on taste: the literal-level
+denominator these rates are over is the wrong one, the right one — *files a developer would actually
+paste* — cannot be measured without telemetry this product refuses to collect, and a number written
+over the wrong denominator gets argued down the first time it fails. `QuerySweepReportTest` holds
+that a run with every rate at its worst still passes.
+
+### What it does assert
+
+> **Zero host-range violations across every swept corpus.** A single occurrence whose host range
+> does not map back to its identifier holds the release. It is a design failure, not a tuning
+> problem.
+
+And **one coverage floor, which is a floor rather than a threshold**: if the containers decompose
+*no* fragment in any swept corpus, the release waits — not on tuning, but because there is nothing
+to describe. Any non-zero result is a copy problem, not a release problem.
+
+### It reports its own denominator, and that is not bookkeeping
+
+An instrument that sweeps a corpus, finds **zero injected fragments** and reports zero failures is a
+fail-green harness one level out: every assertion under it holds vacuously. **A run reporting zero
+injected fragments is a failed run rather than a clean one** — and that is not hypothetical, because
+a sweep pointed at a well-known sample application got zero hosts with SQL, and that was the
+finding. So the denominator is asserted before the pass condition, and the harness asserts in
+addition that the database plugin is loaded, that a host yielded an injected file, and that the run
+produced both claimed occurrences and at least one fallback.
+
+The report goes where the leak report goes and is refused in the same trees, and **the corpus is
+refused inside this repository too**: what goes in stays outside the tree as surely as what comes
+out. `QueryPassTest` runs the harness in `check`, in every cell, over fragments injected with
+IntelliLang's `// language=` comment — including the corpus with no injected fragment in it that
+proves a zero fails.
 
 ## Continuous integration
 
