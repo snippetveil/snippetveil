@@ -264,7 +264,12 @@ Worth knowing before relying on it:
 - **Stack traces are not anonymized at all** — the richest source of real package and class names any
   snippet can carry.
 - **String literal text is destroyed, not mapped** — a literal becomes `"str1"` unless it carries
-  resolvable references, in which case it renames in lockstep with them.
+  resolvable references, in which case it renames in lockstep with them. A JPQL, HQL or Spring Data
+  query is read name by name instead, but only when **every** name in it resolves: each entity and
+  property takes the placeholder its class or field has everywhere else, an alias or a `:parameter`
+  becomes a `local`, and a string inside the query becomes its own `'str2'`. One name that does not
+  resolve, and the whole query is `"str1"` as before. Nothing about the query is looked up in a
+  database.
 - **Structure and algorithm survive intact.** If your proprietary value *is* the algorithm,
   SnippetVeil does nothing for you.
 - **The prompt you type around the snippet** is yours to write. SnippetVeil anonymizes the code, not

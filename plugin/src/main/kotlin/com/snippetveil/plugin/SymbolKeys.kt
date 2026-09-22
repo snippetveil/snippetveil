@@ -149,6 +149,18 @@ internal object SymbolKeys {
     fun localKeyOf(symbol: PsiElement): String = "local:" + anchorOf(symbol)
 
     /**
+     * The key of a name **an injected fragment declares** — an alias, a bind parameter — identified by
+     * the literal the fragment is injected into and by where the declaration sits in the fragment.
+     *
+     * It belongs to that fragment and to nothing else, so two queries each declaring `c` are two
+     * symbols. **Ephemeral, like [localKeyOf]**: [keyIsQualified] has no branch for it, so it is never
+     * written down. Its own prefix rather than [localKeyOf]'s, because an offset into an injected
+     * document is not an offset into the file [anchorOf] names.
+     */
+    fun fragmentLocalKeyOf(host: PsiElement, offsetInFragment: Int): String =
+        "fragment-local:" + anchorOf(host) + "#" + offsetInFragment
+
+    /**
      * **This file, at this offset** — the identity of a symbol the language gives no stable name to.
      *
      * Exposed rather than private because the Kotlin half needs the same fallback for the same
