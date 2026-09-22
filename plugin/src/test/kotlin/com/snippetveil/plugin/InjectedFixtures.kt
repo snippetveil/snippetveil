@@ -43,7 +43,7 @@ import org.junit.Assert.fail
  * ticket does not make it.
  */
 internal val IDENTIFIERS_AS_TABLES = InjectedContainer { fragment ->
-    PsiTreeUtil.findChildrenOfType(fragment.file, PsiIdentifier::class.java).map { nameOf(it.textRange, it.text) }
+    InjectedReading(PsiTreeUtil.findChildrenOfType(fragment.file, PsiIdentifier::class.java).map { nameOf(it.textRange, it.text) })
 }
 
 /** One table name over [range] of an injected document, spelled [written] — the whole token its own name. */

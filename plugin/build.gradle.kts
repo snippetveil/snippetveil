@@ -46,6 +46,19 @@ val (platformType, platformVersion) = when (platformProfile) {
     else -> error("platformProfile is '$platformProfile'; it has to be 'floor', 'k2' or 'latest'.")
 }
 
+/**
+ * **The query-language reference contributors this cell carries, pinned** — the JPA plugin, which
+ * injects and resolves JPQL and HQL, and Spring Data, which does the same for a repository's `@Query`.
+ *
+ * Both are Ultimate's, so only the `latest` cell, which runs the unified IDE, can have them; the IC
+ * cells carry none. A query decomposes in one and is one redacted literal in the other, and both are
+ * correct — the edition split `LiteralEditionTest` describes, run in the safe direction. The pin is
+ * handed to the fixtures, and `QueryContributorPinTest` asserts it is exactly the set present, in
+ * every cell: a query fixture that ran without its contributors would be measuring their absence.
+ */
+val queryContributors: List<String> =
+    if (platformProfile == "latest") listOf("com.intellij.javaee.jpa", "com.intellij.spring.data") else emptyList()
+
 dependencies {
     // A plain project dependency, not a plugin module: core.jar stays a separate jar in the
     // distribution's lib/, which is the directory `scanDistributionForBannedReferences` walks.
@@ -94,6 +107,9 @@ dependencies {
         } else {
             testBundledPlugin("org.intellij.intelliLang")
         }
+
+        // **The query-language contributors, pinned per cell** — see `queryContributors` above.
+        queryContributors.forEach { testBundledPlugin(it) }
     }
 
     // Test-scope only, and it stays that way: `assertNothingThirdPartyIsShipped` below fails the
@@ -2533,4 +2549,65 @@ val assertTheKotlinDisabledBootIsExcludedFromTheMergeGate =
 
 tasks.named("check") {
     dependsOn(assertTheKotlinDisabledBootIsExcludedFromTheMergeGate)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The query fixture cell
+//
+// A query written in JPQL, HQL or Spring Data QL decomposes only where the IDE injects those
+// languages, and the plugins that do are Ultimate's. Which of them a cell has is the cell's fact, so
+// it is stated here and handed to the fixtures rather than discovered by them.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * **The libraries a query fixture resolves against, as real jars** — the persistence API, Spring Data
+ * and Hibernate, attached to the fixture's module exactly as a user's build would attach them.
+ *
+ * Real jars for the reason `kotlinFixtureStdlib` is one: what is under test includes *where a symbol
+ * lives*, and a stub written into project content would make every `@Entity` a project annotation. And
+ * because the injections themselves are keyed on these classes — the platform injects JPQL into
+ * `jakarta.persistence.NamedQuery.query` and HQL into Hibernate's, and nowhere if neither is there.
+ *
+ * Non-transitive: a fixture reads annotations and a superclass, and nothing it reads needs the rest.
+ */
+val queryFixtureLibraries: Configuration = configurations.create("queryFixtureLibraries") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+
+dependencies {
+    // Test-scope by construction, like the stdlib above: in no source set's classpath, and handed to
+    // the fixtures as file paths.
+    queryFixtureLibraries("jakarta.persistence:jakarta.persistence-api:3.1.0")
+    queryFixtureLibraries("org.springframework.data:spring-data-jpa:3.3.5")
+    queryFixtureLibraries("org.springframework.data:spring-data-commons:3.3.5")
+    queryFixtureLibraries("org.hibernate.orm:hibernate-core:6.5.3.Final")
+}
+
+/** The jars, as a lazy value the configuration cache can carry into the test task. */
+val queryFixtureLibraryJars: Provider<String> =
+    queryFixtureLibraries.elements.map { elements -> elements.joinToString(File.pathSeparator) { it.asFile.absolutePath } }
+
+/**
+ * **The query fixtures run where the query contributors are pinned, and nowhere else.**
+ *
+ * In a cell with none of them, no query is ever injected, so every fixture in the package would be
+ * asserting a decomposition the IDE cannot produce. Excluded in the build rather than skipped in the
+ * test, for the reason the Kotlin fixtures are: a skip is silent exactly where silence is the failure.
+ * And it cannot go quiet the way a stale filter can — a fixture that ran here anyway asserts the pin it
+ * needs, and there is none to find.
+ */
+val queryFixturePackage = "com.snippetveil.plugin.query"
+
+tasks.test {
+    val jars = queryFixtureLibraryJars
+    inputs.files(queryFixtureLibraries).withPropertyName("queryFixtureLibraries")
+
+    // The pin is an input like any other: a cell that changes which contributors it carries reruns.
+    val pinned = queryContributors.joinToString(",")
+    inputs.property("queryContributors", pinned)
+    systemProperty("snippetveil.query.contributors", pinned)
+    doFirst { systemProperty("snippetveil.query.libraryJars", jars.get()) }
+
+    if (queryContributors.isEmpty()) filter { excludeTestsMatching("$queryFixturePackage.*") }
 }

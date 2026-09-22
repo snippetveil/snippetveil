@@ -2,8 +2,11 @@ package com.snippetveil.plugin
 
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.util.TextRange
+import com.intellij.psi.ElementManipulators
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiLanguageInjectionHost
+import com.snippetveil.core.CommentVerdict
+import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.SourceLanguage
 import com.snippetveil.core.SymbolEvidence
 
@@ -87,6 +90,21 @@ internal class InjectedFragment(val file: PsiFile, val shreds: List<PsiLanguageI
             return local.shiftRight(part.inFile.startOffset - part.inHost.startOffset)
         }
         return null
+    }
+
+    /**
+     * Whether this fragment's shreds carry **every character of [host]'s own text** — everything
+     * inside its delimiters.
+     *
+     * A decomposition stands in for the host's literal occurrence, and what the container does not
+     * report goes out as written. So host text that no shred carries would go out as written too,
+     * read by nothing: an injector that injected into part of a literal leaves the rest of that literal
+     * to no rule at all. Such a fragment falls back.
+     */
+    fun coversAllOf(host: PsiLanguageInjectionHost): Boolean {
+        val text = ElementManipulators.getValueTextRange(host)
+        val carried = shreds.filter { it.host == host }.map { it.rangeInsideHost }
+        return (text.startOffset until text.endOffset).all { offset -> carried.any { it.contains(offset) } }
     }
 
     /**
@@ -205,53 +223,138 @@ internal class InjectedName(
     val language: SourceLanguage,
 )
 
+/**
+ * **A string a container read in an injected document** — a literal of the fragment's own language,
+ * which becomes a literal occurrence of its own rather than text the fragment copies through.
+ *
+ * @param token the whole literal, delimiters included
+ * @param content the literal's own text inside its delimiters — the only part a placeholder replaces
+ * @param kind what the literal is; see [com.snippetveil.core.LiteralKind]
+ * @param language the language the plan tags it with
+ */
+internal class InjectedLiteral(
+    val token: TextRange,
+    val content: TextRange,
+    val kind: LiteralKind,
+    val language: SourceLanguage,
+)
+
+/**
+ * **A comment a container read in an injected document** — a comment like any other, so it goes
+ * through the ordinary strip default and is counted where every stripped comment is.
+ *
+ * @param range the whole comment, delimiters included
+ * @param verdict what the fragment's own language makes of the comment's body
+ * @param language the language the plan tags it with
+ */
+internal class InjectedComment(
+    val range: TextRange,
+    val verdict: CommentVerdict,
+    val language: SourceLanguage,
+)
+
+/**
+ * **Everything a container read in one fragment** that is not copied through as written: its names,
+ * and the strings and comments it holds.
+ *
+ * Strings and comments are here because *copied through as written* is exactly what must not happen
+ * to them. A string inside a query is literal text in the query's own language, and a comment is
+ * prose; neither is a keyword or an operator, so a container that left one out would be vouching for
+ * domain text it never looked at.
+ */
+internal class InjectedReading(
+    val names: List<InjectedName>,
+    val literals: List<InjectedLiteral> = emptyList(),
+    val comments: List<InjectedComment> = emptyList(),
+)
+
 /** One [InjectedName], together with where its token and its name lie in the host file. */
 internal class ProjectedName(val injected: InjectedName, val token: TextRange, val name: TextRange)
+
+/** One [InjectedLiteral], together with where its token and its content lie in the host file. */
+internal class ProjectedLiteral(val injected: InjectedLiteral, val token: TextRange, val content: TextRange)
+
+/** One [InjectedComment], together with where it lies in the host file. */
+internal class ProjectedComment(val injected: InjectedComment, val range: TextRange)
+
+/** An [InjectedReading] with every part of it placed in the host file. */
+internal class ProjectedReading(
+    val names: List<ProjectedName>,
+    val literals: List<ProjectedLiteral>,
+    val comments: List<ProjectedComment>,
+)
 
 /**
  * **A reader of injected documents** — what the two containers are, and what this file is built for.
  *
- * It answers with the names one fragment holds, or `null` when it cannot say what the fragment is,
- * which falls the fragment back.
+ * It answers with what one fragment holds, or `null` when it cannot say what the fragment is, which
+ * falls the fragment back.
  *
- * **What it does not name goes out as the host wrote it**, so answering is vouching for every other
+ * **What it does not report goes out as the host wrote it**, so answering is vouching for every other
  * character of the fragment. A container that cannot say a token is safe to keep — a keyword, an
- * operator — answers `null` for the whole fragment rather than leaving the token out. None ships yet: the mapping comes first, because a container built on
- * a wrong mapping is not a container with a bug in it — it is a corruption engine, and the corruption
- * is invisible.
+ * operator — answers `null` for the whole fragment rather than leaving the token out. That is why a
+ * string and a comment are part of the answer rather than left to be copied: neither is safe to keep.
  */
 internal fun interface InjectedContainer {
-    fun namesIn(fragment: InjectedFragment): List<InjectedName>?
+    fun read(fragment: InjectedFragment): InjectedReading?
 }
 
 /**
  * Every one of [names], with where it lies in the host file — or `null` when any of them is
+ * unprojectable, which falls **the whole fragment** back. See the [InjectedReading] overload, which
+ * this is the names-only case of.
+ */
+internal fun InjectedFragment.project(
+    names: List<InjectedName>,
+    hostRangeOf: (TextRange) -> TextRange? = this::hostRangeOf,
+): List<ProjectedName>? = project(InjectedReading(names), hostRangeOf)?.names
+
+/**
+ * Every part of [reading], with where it lies in the host file — or `null` when any of them is
  * unprojectable, which falls **the whole fragment** back.
  *
  * All or nothing: a fragment decomposed in part would leave its other part to a rule nobody stated.
  * Falling back is not building something and then unbuilding it — the fragment produces exactly what
  * it produces today, one redacted-literal occurrence per host literal.
  *
- * The range identity is asserted over every name projected, token and name range alike, before any of
- * them is handed back, so no injected occurrence reaches a plan without it.
+ * The range identity is asserted over every range projected — a name's token and name, a string's
+ * token and content, a comment — before any of them is handed back, so no injected occurrence reaches
+ * a plan without it.
  *
  * @param hostRangeOf the mapping — [InjectedFragment.hostRangeOf], and nothing else in shipped code. A
  *   parameter so that a test can hand in the union projection and watch the assertion refuse it.
  */
 internal fun InjectedFragment.project(
-    names: List<InjectedName>,
+    reading: InjectedReading,
     hostRangeOf: (TextRange) -> TextRange? = this::hostRangeOf,
-): List<ProjectedName>? {
-    val projected = names.map { name ->
+): ProjectedReading? {
+    val names = reading.names.map { name ->
         ProjectedName(
             injected = name,
             token = hostRangeOf(name.token) ?: return null,
             name = hostRangeOf(name.name) ?: return null,
         )
     }
-    for (name in projected) {
+    val literals = reading.literals.map { literal ->
+        ProjectedLiteral(
+            injected = literal,
+            token = hostRangeOf(literal.token) ?: return null,
+            content = hostRangeOf(literal.content) ?: return null,
+        )
+    }
+    val comments = reading.comments.map { comment ->
+        ProjectedComment(comment, hostRangeOf(comment.range) ?: return null)
+    }
+
+    for (name in names) {
         assertMapsBack(name.injected.token, name.token)
         assertMapsBack(name.injected.name, name.name)
     }
-    return projected
+    for (literal in literals) {
+        assertMapsBack(literal.injected.token, literal.token)
+        assertMapsBack(literal.injected.content, literal.content)
+    }
+    for (comment in comments) assertMapsBack(comment.injected.range, comment.range)
+
+    return ProjectedReading(names, literals, comments)
 }

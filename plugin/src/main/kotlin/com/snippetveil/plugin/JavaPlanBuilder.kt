@@ -57,15 +57,14 @@ import com.snippetveil.core.SymbolOccurrence
  */
 internal object JavaPlanBuilder : PlanBuilder {
 
-    override fun build(request: SnippetRequest): SnippetPlan = build(request, container = null)
+    override fun build(request: SnippetRequest): SnippetPlan = build(request, QueryContainer)
 
     /**
      * The walk, with [container] reading whatever fragments are injected into the snippet's literals.
      *
-     * **No container ships**, so [build] passes `null` and the walk never asks the platform about
-     * injection at all. The parameter is the seam the two containers plug into, and it is here now
-     * because what a fragment that falls back produces is a claim about *this* walk: exactly what it
-     * produced before there was a seam.
+     * [build] passes [QueryContainer], the reader of queries written in the persistence query
+     * languages. `null` is the walk that never asks the platform about injection at all, which is what
+     * every fragment that falls back produces: exactly what the walk produced before there was a seam.
      */
     internal fun build(request: SnippetRequest, container: InjectedContainer?): SnippetPlan {
         val file = request.file
@@ -73,7 +72,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
-        val injected = injectedNamesIn(file, fragments, container)
+        val injected = injectedOccurrencesIn(file, fragments, container)
         val occurrences = (
             symbolsIn(request.project, file, fragments) +
                 injected.occurrences +
@@ -193,39 +192,65 @@ internal object JavaPlanBuilder : PlanBuilder {
             }
 
     /**
-     * **The names read inside fragments injected into the snippet's literals**, placed in the plan —
-     * and the literals they were read from, which then report no literal occurrence of their own.
+     * **What was read inside fragments injected into the snippet's literals** — names, strings and
+     * comments, placed in the plan — and the literals they were read from, which then report no
+     * literal occurrence of their own.
      *
-     * A fragment is decomposed only when all of it is here to decompose: exactly one fragment is
-     * injected into the literal, every literal it is laid over is in this file and whole inside the
-     * analysed ranges, [container] can say what names it holds, and every one of those names projects
-     * onto the host — see [project]. **Anything short of that falls the fragment back**, and falling
-     * back is not a path of its own: the fragment's literals are simply not in the set returned, so
-     * they are reported by [literalsAndCommentsIn] exactly as they were before this seam existed.
+     * A fragment is decomposed only when all of it is here to decompose: every literal it is laid over
+     * is in this file and whole inside the analysed ranges, exactly one fragment is injected into each
+     * of them and it covers the whole of each one's text, [container] can say what the fragment holds,
+     * and every part of that projects onto the host — see [project]. **Anything short of that falls the
+     * fragment back**, and falling back is not a path of its own: the fragment's literals are simply
+     * not in the set returned, so they are reported by [literalsAndCommentsIn] exactly as they were
+     * before this seam existed.
+     *
+     * Whether a literal is whole inside the analysed ranges is asked first, before the platform is asked
+     * about injection at all: it is the cheap question, and most literals in a file are nowhere near
+     * the selection.
      */
-    private fun injectedNamesIn(file: PsiFile, fragments: List<Fragment>, container: InjectedContainer?): Decomposition {
+    private fun injectedOccurrencesIn(file: PsiFile, fragments: List<Fragment>, container: InjectedContainer?): Decomposition {
         if (container == null) return Decomposition(emptyList(), emptySet())
 
         val occurrences = mutableListOf<Occurrence>()
         val decomposed = mutableSetOf<PsiElement>()
         for (literal in PsiTreeUtil.findChildrenOfType(file, PsiLiteralExpression::class.java)) {
             if (literal !is PsiLanguageInjectionHost || literal in decomposed) continue
+            if (!isWholeLiteralHere(literal, file, fragments)) continue
 
             val injected = InjectedFragment.injectedInto(literal).singleOrNull() ?: continue
             val hosts = injected.hosts ?: continue
             if (hosts.any { host -> !isWholeLiteralHere(host, file, fragments) }) continue
+            if (hosts.any { host -> InjectedFragment.injectedInto(host).size != 1 || !injected.coversAllOf(host) }) continue
 
-            val projected = injected.project(container.namesIn(injected) ?: continue) ?: continue
-            for (name in projected) {
-                val fragment = fragments.first { it.range.contains(name.token) }
+            val projected = injected.project(container.read(injected) ?: continue) ?: continue
+            val at = { offset: Int -> fragments.first { it.range.contains(offset) }.translate(offset) }
+            for (name in projected.names) {
                 occurrences += SymbolOccurrence(
-                    start = fragment.translate(name.token.startOffset),
-                    end = fragment.translate(name.token.endOffset),
+                    start = at(name.token.startOffset),
+                    end = at(name.token.startOffset) + name.token.length,
                     text = name.token.substring(file.text),
                     symbol = name.injected.symbol,
                     language = name.injected.language,
-                    nameStart = fragment.translate(name.name.startOffset),
-                    nameEnd = fragment.translate(name.name.endOffset),
+                    nameStart = at(name.name.startOffset),
+                    nameEnd = at(name.name.startOffset) + name.name.length,
+                )
+            }
+            for (string in projected.literals) {
+                occurrences += LiteralOccurrence(
+                    start = at(string.token.startOffset),
+                    end = at(string.token.startOffset) + string.token.length,
+                    kind = string.injected.kind,
+                    contentStart = at(string.content.startOffset),
+                    contentEnd = at(string.content.startOffset) + string.content.length,
+                    language = string.injected.language,
+                )
+            }
+            for (comment in projected.comments) {
+                occurrences += CommentOccurrence(
+                    start = at(comment.range.startOffset),
+                    end = at(comment.range.startOffset) + comment.range.length,
+                    verdict = comment.injected.verdict,
+                    language = comment.injected.language,
                 )
             }
             decomposed += hosts
@@ -241,7 +266,7 @@ internal object JavaPlanBuilder : PlanBuilder {
     private fun isWholeLiteralHere(host: PsiLanguageInjectionHost, file: PsiFile, fragments: List<Fragment>): Boolean =
         host is PsiLiteralExpression && host.containingFile == file && fragments.any { it.range.contains(host.textRange) }
 
-    /** What [injectedNamesIn] found: the occurrences it placed, and the literals they replace. */
+    /** What [injectedOccurrencesIn] found: the occurrences it placed, and the literals they replace. */
     private class Decomposition(val occurrences: List<Occurrence>, val hosts: Set<PsiElement>)
 
     /**
@@ -479,9 +504,11 @@ internal object JavaPlanBuilder : PlanBuilder {
      *
      * Asked of an identifier and of a reference inside a literal alike, because a reference into a
      * literal names a symbol in exactly the way an identifier does — which is the whole of what
-     * *renames in lockstep with the symbols those references name* means.
+     * *renames in lockstep with the symbols those references name* means. [QueryContainer] asks it
+     * too, for the same reason: an entity name in a query names the entity class, so it has to reach
+     * the key the class's own identifier reaches.
      */
-    private fun evidenceOf(project: Project, declaration: PsiElement?, writtenName: String): SymbolEvidence {
+    internal fun evidenceOf(project: Project, declaration: PsiElement?, writtenName: String): SymbolEvidence {
         val declaredName = (declaration as? PsiNameIdentifierOwner)?.name ?: writtenName
 
         // A name that resolved to nothing is reported as unresolved rather than dropped, and the
