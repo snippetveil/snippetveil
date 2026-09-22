@@ -276,16 +276,6 @@ internal class SqlDecompositionTest : QuerySnippetTestCase() {
         SnippetPlan(plan.text, plan.occurrences.filter { it.start !in range }, plan.rootPackage, plan.selectionExpanded)
 }
 
-/** One `// language=SQL` literal holding [query], and only that literal selected. */
-private fun oneQuery(query: String, injected: Boolean = true): String = """
-    class Repository {
-        void run() {
-            ${if (injected) "// language=SQL" else "// a query"}
-            String query = <selection>"$query"</selection>;
-        }
-    }
-""".trimIndent()
-
 /** Two `// language=SQL` literals, and the Java around both selected. */
 private fun twoQueries(first: String, second: String): String = """
     class Repository {

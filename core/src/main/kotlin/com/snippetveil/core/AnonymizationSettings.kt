@@ -550,7 +550,12 @@ enum class MappedKind(val label: String) {
     ANNOTATION("annotation"),
     ATTRIBUTE("attribute"),
     TABLE("table"),
-    COLUMN("column"),
+
+    /**
+     * `col`, as the placeholder is written, rather than `column`: the three SQL kinds read the same
+     * in the `Kind` column as in the `Placeholder` column beside it.
+     */
+    COLUMN("col"),
     SCHEMA("schema"),
     LITERAL("literal"),
     UNKNOWN("Unknown"),

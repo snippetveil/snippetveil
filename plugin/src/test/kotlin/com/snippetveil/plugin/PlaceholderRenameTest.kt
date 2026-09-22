@@ -2,8 +2,6 @@ package com.snippetveil.plugin
 
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.EditorTextField
-import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBTextField
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerDelta
 import com.snippetveil.core.LedgerSnapshot
@@ -17,7 +15,6 @@ import com.snippetveil.core.stemOf
 import com.snippetveil.core.plus
 import java.awt.Container
 import javax.swing.JTable
-import javax.swing.table.TableCellEditor
 
 /**
  * **Renaming a placeholder's stem in the preview — which rows offer it, and what the number does.**
@@ -321,37 +318,6 @@ class PlaceholderRenameTest : JavaSnippetTestCase() {
         }
     }
 
-    /**
-     * Types [stem] into the row's editor and commits it the way `JTable` does — stop the edit, then
-     * set the cell to what the editor hands back. A test that called `setValueAt` alone would skip
-     * the half of this that validates.
-     */
-    private fun commitStem(table: JTable, row: Int, stem: String) {
-        val opened = openEditor(table, row)
-        opened.stem.text = stem
-        assertTrue("the editor refused `$stem`", opened.editor.stopCellEditing())
-        table.setValueAt(opened.editor.cellEditorValue, row, PLACEHOLDER_COLUMN)
-    }
-
-    /** The editor as a user opens it: the column's own, over the cell they double-clicked. */
-    private fun openEditor(table: JTable, row: Int): OpenEditor {
-        val editor = table.columnModel.getColumn(PLACEHOLDER_COLUMN).cellEditor
-        val component = editor.getTableCellEditorComponent(
-            table,
-            table.getValueAt(row, PLACEHOLDER_COLUMN),
-            false,
-            row,
-            PLACEHOLDER_COLUMN,
-        )
-        return OpenEditor(
-            editor,
-            descendantsOf(component as Container).filterIsInstance<JBTextField>().single(),
-            descendantsOf(component).filterIsInstance<JBLabel>().single(),
-        )
-    }
-
-    /** One open cell editor, and the two halves of it a test reads: the stem, and the fixed number. */
-    private class OpenEditor(val editor: TableCellEditor, val stem: JBTextField, val number: JBLabel)
 
     private fun codeIn(component: Container): EditorTextField =
         descendantsOf(component).filterIsInstance<EditorTextField>().single()

@@ -395,7 +395,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
         withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
             val panel = dialog.createCenterPanel()
             val table = tableIn(panel)
-            val unknown = (0 until table.rowCount).single { table.getValueAt(it, 2) == "Unknown" }
+            val unknown = (0 until table.rowCount).single { table.getValueAt(it, KIND_COLUMN) == MappedKind.UNKNOWN.label }
             val before = PlaceholderLedger.getInstance().snapshotOf(project)
 
             table.setValueAt(true, unknown, PRESERVE_COLUMN)

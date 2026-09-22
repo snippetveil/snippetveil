@@ -21,6 +21,11 @@
   replaced whole, and so is every SQL string in an IDE without the Database Tools and SQL plugin,
   IntelliJ IDEA Community among them, and every SQL string in a Kotlin file. Nothing tells you which
   of these happened.
+- **A query read name by name shows its names in the preview and in Show mapping**, as `table`,
+  `col` and `schema` rows. You can rename one, like any name the snippet introduced; the new name
+  lasts for that snippet, and in the next one the table is a plain `table` again. You can preserve
+  one only after `Unlock Preserve for resolved names…`, like any other resolved name. No count is
+  added: query names are counted with every other name, and nothing says how many came from a query.
 - **Comments in Kotlin files are stripped.** Since 1.3.0, Copy Anonymized and Anonymize with Preview
   on a `.kt` file left every comment in the output exactly as written — line comments, block
   comments and KDoc — and the notification showed no comment count, because none had been stripped.

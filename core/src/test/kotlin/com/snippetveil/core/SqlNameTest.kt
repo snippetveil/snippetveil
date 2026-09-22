@@ -180,6 +180,141 @@ class SqlNameTest {
         assertEquals("SELECT * FROM myTable1", renamed.text)
     }
 
+    /**
+     * **The kind column says `table`, `col` and `schema`** — the words the placeholders are written
+     * in, so a row reads the same in the `Kind` column as in the `Placeholder` column beside it.
+     * `column` would be a fourth spelling of a thing the product already calls `col`.
+     */
+    @Test
+    fun `a query row's kind reads table, col and schema`() {
+        val result = anonymize(
+            threeKinds(),
+            AnonymizationSettings.DEFAULTS,
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals(listOf("col", "schema", "table"), result.names.map { it.kind.label })
+    }
+
+    /**
+     * **A query row is minted by this invocation against a key of its own, so it takes the ordinary
+     * editable state** — and nothing new: its key is unqualified, so the rename lasts the invocation
+     * and the next snippet re-mints `table` under the default stem, which is the trade a renamed
+     * local already makes. The word is recorded all the same, which is what the return leg reads.
+     */
+    @Test
+    fun `a renamed query row lasts the invocation and the next snippet re-mints the default stem`() {
+        val plan = ordersPlan()
+        val key = ORDERS
+
+        val first = anonymize(plan, AnonymizationSettings(renamedStems = mapOf(key to "OrdersTable")), LedgerSnapshot.EMPTY)
+        val second = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY + first.delta)
+
+        assertEquals(Renaming.OFFERED, anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY).names.single().renaming)
+        assertEquals("SELECT * FROM OrdersTable1", first.text)
+        assertEquals(setOf("OrdersTable"), first.delta.mintedStems)
+        assertEquals(emptyMap<String, MintedName>(), first.delta.placeholders, "a query row's key was ledgered")
+        assertEquals("SELECT * FROM table2", second.text)
+        assertEquals(Renaming.OFFERED, second.names.single().renaming)
+    }
+
+    /**
+     * **The return leg admits `table` by its namespace alone.** Nothing in either table holds it —
+     * a SQL key is never ledgered and the sidecar here has forgotten the snippet — so the only thing
+     * that can tell the reply's `table4` from a word of the model's own is the shape recogniser, and
+     * it does so because the namespace exists. Above the counter it is foreign; below, evicted.
+     */
+    @Test
+    fun `the shape recogniser admits a table placeholder`() = assertAdmitted(SymbolRole.TABLE)
+
+    /** See the `table` case above. */
+    @Test
+    fun `the shape recogniser admits a col placeholder`() = assertAdmitted(SymbolRole.COLUMN)
+
+    /** See the `table` case above. */
+    @Test
+    fun `the shape recogniser admits a schema placeholder`() = assertAdmitted(SymbolRole.SCHEMA)
+
+    /**
+     * **A renamed query row round-trips through the minted-stems set, and through nothing else.**
+     * The key was never ledgered and the sidecar has forgotten the snippet, so `OrdersTable1` is in
+     * neither table — and it is still recognised as this project's, because the word it was minted
+     * under was written down. Without that set it would be a word nobody recognises, and `Paste`
+     * would write it into source.
+     *
+     * The control is the set itself: the same reply against a mapping that never recorded the stem
+     * reports nothing at all.
+     */
+    @Test
+    fun `a renamed query row is recognised from a fresh invocation with the sidecar empty`() {
+        val plan = ordersPlan()
+        val key = ORDERS
+        val renamed = anonymize(plan, AnonymizationSettings(renamedStems = mapOf(key to "OrdersTable")), LedgerSnapshot.EMPTY)
+        val committed = LedgerSnapshot.EMPTY + renamed.delta
+
+        // A fresh invocation of the same snippet, committed after it: the stem survives it.
+        val fresh = anonymize(plan, AnonymizationSettings.DEFAULTS, committed)
+        val later = committed + fresh.delta
+
+        val reply = "Add an index on OrdersTable1 before the join."
+        val back = deanonymize(reply, Sidecar.EMPTY, later)
+
+        assertEquals("SELECT * FROM OrdersTable1", renamed.text)
+        assertEquals(reply, back.text)
+        assertEquals(listOf(Unrestored("OrdersTable1", UnrestoredReason.EVICTED)), back.unrestored)
+
+        val unrecorded = LedgerSnapshot(later.placeholders, later.nextNumber, mintedStems = emptySet())
+        assertEquals(emptyList<Unrestored>(), deanonymize(reply, Sidecar.EMPTY, unrecorded).unrestored)
+    }
+
+    /**
+     * **A query placeholder has no sibling spellings, so none is written.** Sibling rows exist
+     * because a field's accessors are derived from its placeholder; nothing derives an accessor from
+     * a table name, so the closure obligation does not grow. Asserted on both tables a reversal
+     * reads: no ledger row at all, and a sidecar table holding the three placeholders and nothing
+     * spelled from them.
+     */
+    @Test
+    fun `a query placeholder writes no sibling-spelling rows`() {
+        val result = anonymize(
+            threeKinds(),
+            AnonymizationSettings.DEFAULTS,
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals(emptyMap<String, MintedName>(), result.delta.placeholders)
+        assertEquals(mapOf("col1" to "total", "schema2" to "billing", "table3" to "invoices"), result.mapping)
+    }
+
+    /**
+     * A reply naming a [role] placeholder that neither table holds: below the counter it is evicted,
+     * at or above it foreign — reported either way, which is what *admitted* means.
+     */
+    private fun assertAdmitted(role: SymbolRole) {
+        val prefix = role.placeholderPrefix
+        val mapping = LedgerSnapshot(emptyMap(), nextNumber = 10)
+
+        // `rows4` ends in digits and is in no namespace — the control that this is about [role]'s
+        // namespace and not about any word with a number on it.
+        val back = deanonymize("Join on ${prefix}4, not ${prefix}12 or rows4.", Sidecar.EMPTY, mapping)
+
+        assertEquals(
+            listOf(Unrestored("${prefix}4", UnrestoredReason.EVICTED), Unrestored("${prefix}12", UnrestoredReason.FOREIGN)),
+            back.unrestored,
+        )
+    }
+
+    /** A column, a schema and a table, in that order. */
+    private fun threeKinds() = sqlPlan(
+        "SELECT total FROM billing.invoices",
+        sql("total", column("total")),
+        sql("billing", schema("billing")),
+        sql("invoices", table("invoices")),
+    )
+
+    /** One table, `orders`, keyed [ORDERS]. */
+    private fun ordersPlan() = sqlPlan("SELECT * FROM orders", sql("orders", table("orders")))
+
     /** One SQL token: the text written at it, which occurrence of that text it is, and its symbol. */
     private class SqlToken(val written: String, val ordinal: Int, val symbol: SymbolEvidence)
 
@@ -227,3 +362,6 @@ class SqlNameTest {
     private fun declaredTable(fragment: String, name: String) =
         symbol(name, SymbolRole.TABLE, SymbolOrigin.IN_CONTENT, key = SqlKeys.declared(fragment, SymbolRole.TABLE, name))
 }
+
+/** The key of the table spelled `orders`. */
+private val ORDERS = SqlKeys.named(SymbolRole.TABLE, "orders")
