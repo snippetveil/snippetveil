@@ -60,9 +60,7 @@ internal class SweepReport(
         appendLine()
         appendLine("!! This file lists REAL IDENTIFIERS read out of $targetProject.")
         appendLine("!! It is the single most sensitive file this project can produce.")
-        appendLine("!! DO NOT PASTE it into an issue, a pull request, a chat or a screenshot.")
-        appendLine("!! A bug found here earns a SYNTHETIC fixture reproducing its shape — never the")
-        appendLine("!! real code that revealed it. Real code in, findings out, code never moves.")
+        append(doNotPasteThis())
         appendLine()
         appendLine("Target project  : $targetProject")
         appendLine("Files swept     : ${swept.java + swept.kotlin} (${swept.java} Java and ${swept.kotlin} Kotlin), anonymised whole-file")
@@ -137,6 +135,20 @@ internal class SweepReport(
             appendLine("        ${failure.summary}")
         }
     }
+}
+
+/**
+ * **What every report either half of the corpus instrument writes says about itself**, spelled once.
+ *
+ * Both reports are read out of somebody's real code, and the instinct on reading a row of either is to
+ * paste it into an issue to ask about it. That is the instinct these three lines exist to interrupt,
+ * and a second copy of them is one that goes stale silently — on the safety text the instrument stands
+ * on. Each report says what it holds in its own words above this; what to do about it is one answer.
+ */
+internal fun doNotPasteThis(): String = buildString {
+    appendLine("!! DO NOT PASTE it into an issue, a pull request, a chat or a screenshot.")
+    appendLine("!! A bug found here earns a SYNTHETIC fixture reproducing its shape — never the")
+    appendLine("!! real code that revealed it. Real code in, findings out, code never moves.")
 }
 
 /**

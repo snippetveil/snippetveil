@@ -101,9 +101,12 @@ class QuerySweep : BareTestFixtureTestCase() {
         val report = sweepReportPath(
             reportDirectory = Paths.get(System.getProperty(REPORT_DIRECTORY_PROPERTY) ?: defaultReportDirectory()),
             fileName = "snippetveil-query-sweep-${LocalDateTime.now().format(STAMP)}.txt",
+            // **Keyed by the tree rather than by its name.** Two corpora are often two checkouts of
+            // `project.ipr`, and a map keyed by that name would keep one of them and silently let the
+            // report be written inside the other.
             forbidden = buildMap {
                 put("the SnippetVeil repository", repository)
-                corpora.forEach { put("the swept corpus ${it.fileName}", it.parent) }
+                corpora.forEach { put("the swept corpus at ${it.parent}", it.parent) }
             },
         )
 
@@ -136,12 +139,12 @@ class QuerySweep : BareTestFixtureTestCase() {
         }
 
         val root = corpus.parent
+
+        // **A corpus with no source file in its content is not refused here**, though it is the shape a
+        // directory-opened project comes up in: it is a zero like any other, and it fails where every
+        // zero fails — in [assertTheRunHolds], after the report is written. Refusing it here would lose
+        // the triage list of every corpus swept before it.
         val files = sourceFilesOf(project, root, SOURCE_EXTENSIONS)
-        check(files.isNotEmpty()) {
-            "No Java source file was found in the content of $corpus. A corpus project is opened by its " +
-                "`.ipr` and not by its directory, and a project that came up with no content root reports " +
-                "exactly this — no files, and no complaint."
-        }
         say("${files.size} Java source file(s) in project content.")
 
         val swept = QueryPass(project, ContainersWithReasons).over(
@@ -170,6 +173,12 @@ class QuerySweep : BareTestFixtureTestCase() {
      * ships in an optional descriptor that the platform loads only where `com.intellij.database` is,
      * so a plugin that is present but not loaded and a descriptor that did not load look the same from
      * here — a sweep that reads no SQL at all. Both are named so that a refusal says which happened.
+     *
+     * **Neither refusal is shown red by a fixture, and that residue is written down rather than left
+     * to be assumed away.** What they are about is which plugins an IDE loaded, which no fixture can
+     * make untrue without being an IDE with the plugin missing — the one cell shape this build does not
+     * have. What stands behind them is the denominator: an IDE that injected nothing reports zero
+     * fragments, and a zero is a failed run.
      */
     private fun assertTheInjectingPluginsAreHere() {
         val database = PluginManagerCore.getPlugin(PluginId.getId(DATABASE_PLUGIN))
@@ -242,8 +251,9 @@ private object ContainersWithReasons : FragmentReader {
         return when (val decision = SqlContainer.decide(fragment)) {
             // The SQL container read a fragment the registered containers did not, which can only mean
             // it is not among them — a wiring failure, and one that would otherwise be reported as a
-            // corpus that decomposed nothing.
-            is SqlDecision.Decomposed -> error(
+            // corpus that decomposed nothing. Thrown as the one thing the pass does not turn into a
+            // row: a run that is not measuring what it says it measures stops.
+            is SqlDecision.Decomposed -> throw SweepWiringFailure(
                 "The SQL container read this fragment and the registered containers did not, so it is not " +
                     "registered in this IDE and nothing measured here is what a user would get.",
             )

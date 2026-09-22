@@ -70,6 +70,11 @@ internal class QueryPass(
                         ?: error("The IDE handed over no PSI for this file, so nothing in it could be read.")
                     read(psi, path, tally)
                 }
+            } catch (wiring: SweepWiringFailure) {
+                // **Not a finding, so not a row.** A wiring failure says this run is not measuring what
+                // it says it measures, and the one place that must not end up is a line in a report
+                // beside the shapes it was supposed to find.
+                throw wiring
             } catch (failure: Throwable) {
                 tally.failures += SweepFailure(path, "${failure::class.java.name}: ${failure.message}")
             }
@@ -88,7 +93,7 @@ internal class QueryPass(
      * this report's coverage that the product was never going to read.
      */
     private fun read(file: PsiFile, path: String, tally: Tally) {
-        val read = mutableSetOf<List<Pair<PsiLanguageInjectionHost?, TextRange>>>()
+        val seen = mutableSetOf<FragmentIdentity>()
         val literals = PsiTreeUtil.findChildrenOfType(file, PsiLiteralExpression::class.java)
         for (host in literals.filterIsInstance<PsiLanguageInjectionHost>()) {
             val fragments = InjectedFragment.injectedInto(host)
@@ -98,12 +103,7 @@ internal class QueryPass(
                 // A fragment laid over a concatenation is injected into each of its hosts, and the
                 // walk meets it once per host. Counted once: it is one fragment, and a denominator
                 // that counted it twice would make every rate depend on how a query was written.
-                //
-                // **Identified by its shreds rather than by its injected file**, which is the same
-                // fragment described the same way from either host — where the platform is free to
-                // hand out a file instance per enumeration, and a set of those would count a
-                // concatenated query once per literal it is written over.
-                if (read.add(fragment.shreds.map { it.host to it.rangeInsideHost })) read(fragment, path, tally)
+                if (seen.add(identityOf(fragment))) read(fragment, path, tally)
             }
         }
     }
@@ -217,6 +217,29 @@ internal class QueryPass(
         const val RANGE_IDENTITY = "maps back to"
     }
 }
+
+/**
+ * **The same fragment however many hosts it is laid over**: its shreds, each as the host it lies in and
+ * the range it takes of that host.
+ *
+ * Identity by shreds rather than by the injected file, because the platform is free to hand out a file
+ * instance per enumeration — and a walk that told two of those apart would count a concatenated query
+ * once per literal it is written over.
+ */
+private typealias FragmentIdentity = List<Pair<PsiLanguageInjectionHost?, TextRange>>
+
+private fun identityOf(fragment: InjectedFragment): FragmentIdentity =
+    fragment.shreds.map { it.host to it.rangeInsideHost }
+
+/**
+ * **A wiring failure**: the run is not measuring what it says it measures — a container that is not
+ * registered, an IDE that is not the one the instrument needs.
+ *
+ * Its own type because [QueryPass] turns every other throw into a row in the report, which is right for
+ * a shape nobody thought of and exactly wrong for this: a report that listed *the container is not
+ * registered* beside its findings would read as a corpus that decomposed nothing.
+ */
+internal class SweepWiringFailure(message: String) : Exception(message)
 
 /**
  * **A SQL name as a dialect that folds unquoted names would see it**: delimiters off, case folded.

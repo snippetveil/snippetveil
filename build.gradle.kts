@@ -283,7 +283,7 @@ val assertTheSweepIsNeverRunInCi = tasks.register("assertTheSweepIsNeverRunInCi"
     description = "Fails if a workflow asks Gradle to run either half of the corpus instrument."
 
     val workflows = layout.projectDirectory.dir(".github/workflows")
-    val report = layout.buildDirectory.file("reports/trust/corpus-sweep-is-not-in-ci.txt")
+    val report = layout.buildDirectory.file("reports/trust/corpus-instrument-is-not-in-ci.txt")
 
     // Named here rather than spelled twice: see the `corpusSweepTask` extra above. The property
     // names are belt and braces — neither half can run without its task being named, so the two task

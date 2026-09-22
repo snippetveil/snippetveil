@@ -5,8 +5,9 @@ import java.nio.file.Path
 import java.util.Locale
 
 /**
- * **What the query sweep reports, and what it holds the release on** — both here, and both pure
- * functions of the counts, so that either can be asserted without a corpus to sweep.
+ * **What the query sweep reports, what it refuses to read or write, and what it holds the release on**
+ * — all of it here, and all of it a pure function of its arguments, so that any of it can be asserted
+ * without a corpus to sweep.
  *
  * ### Every rate is reported and gates nothing
  *
@@ -46,18 +47,16 @@ internal class QuerySweepReport(
     /**
      * The report, whole.
      *
-     * The header is the leak report's header with one line changed, for the same reason that one has
-     * it: **this file holds real identifiers out of a real codebase** — the table spellings it groups,
-     * and the paths of the files a fragment fell back in. A corpus is somebody's checkout whether or
-     * not it is a public one, and the instinct on reading a row is to paste it into an issue.
+     * The header says what this file holds — **real identifiers out of a real codebase**, the table
+     * spellings it groups and the paths of the files a fragment fell back in — and then what not to do
+     * about it, in the words both halves of the instrument say it in: see [doNotPasteThis]. A corpus is
+     * somebody's checkout whether or not it is a public one.
      */
     fun render(): String = buildString {
         appendLine("SnippetVeil query sweep — $startedAt")
         appendLine()
         appendLine("!! This file lists REAL IDENTIFIERS and REAL PATHS read out of the corpora below.")
-        appendLine("!! DO NOT PASTE it into an issue, a pull request, a chat or a screenshot.")
-        appendLine("!! A bug found here earns a SYNTHETIC fixture reproducing its shape — never the")
-        appendLine("!! real code that revealed it. Real code in, findings out, code never moves.")
+        append(doNotPasteThis())
         appendLine()
 
         swept.forEach { appendCorpus(it) }

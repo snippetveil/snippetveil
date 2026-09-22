@@ -143,6 +143,21 @@ class QueryPassTest : JavaSnippetTestCase() {
         assertTrue("a host-range violation did not fail the run: $refused", refused is IllegalStateException)
     }
 
+    /**
+     * **A wiring failure is not a finding, so it is not a row.** Every other throw becomes one — that is
+     * the shape nobody thought of arriving as a stack trace — and a run that is not measuring what it
+     * says it measures is the one thing that must not be written down beside the findings.
+     */
+    fun `test a wiring failure stops the run rather than becoming a row`() {
+        val misregistered = FragmentReader { throw SweepWiringFailure("the container is not registered here") }
+
+        val refused = runCatching {
+            pass(misregistered).over("corpus", listOf(queries().virtualFile), pathOf = { it.name })
+        }.exceptionOrNull()
+
+        assertTrue("a wiring failure was turned into a report row: $refused", refused is SweepWiringFailure)
+    }
+
     /** A file the pass throws on is a row in the report rather than the end of the run. */
     fun `test a file that throws is reported and the pass carries on`() {
         val thrown = FragmentReader { error("the reader threw on this fragment") }

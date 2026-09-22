@@ -117,7 +117,9 @@ class CorpusSweep : BareTestFixtureTestCase() {
 
         say("Opening $targetPath …")
         val project = PlatformTestUtil.loadAndOpenProject(targetPath, testRootDisposable)
-        attachTheRunningJdk(project)
+        attachTheRunningJdkUnderTheNameTheProjectExpects(project, testRootDisposable)?.let {
+            say("Attached the running JDK as '$it'; the project's own SDK is not configured in this process.")
+        }
 
         val rendered = sweep(project, targetPath)
 
@@ -241,16 +243,6 @@ class CorpusSweep : BareTestFixtureTestCase() {
                     cache.getMethodsByName(spelling, libraries).isNotEmpty()
             }
         }
-    }
-
-    /**
-     * The running JDK, under the name this project asks for — see
-     * [attachTheRunningJdkUnderTheNameTheProjectExpects], which both halves of this instrument attach
-     * it through, and which says why a sweep without it is a sweep of a codebase nobody runs.
-     */
-    private fun attachTheRunningJdk(project: Project) {
-        val attached = attachTheRunningJdkUnderTheNameTheProjectExpects(project, testRootDisposable) ?: return
-        say("Attached the running JDK as '$attached'; the project's own SDK is not configured in this process.")
     }
 
     private fun relativeTo(root: Path, file: VirtualFile): String =
