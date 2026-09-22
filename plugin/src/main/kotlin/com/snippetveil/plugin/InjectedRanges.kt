@@ -1,6 +1,7 @@
 package com.snippetveil.plugin
 
 import com.intellij.lang.injection.InjectedLanguageManager
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.ElementManipulators
 import com.intellij.psi.PsiFile
@@ -297,6 +298,28 @@ internal class ProjectedReading(
  */
 internal fun interface InjectedContainer {
     fun read(fragment: InjectedFragment): InjectedReading?
+}
+
+/**
+ * **Every container this IDE has**: [QueryContainer], which reads through platform interfaces and is
+ * always here, then whatever is registered on `com.snippetveil.injectedContainer` — the SQL container,
+ * where the database plugin is.
+ *
+ * Each container reads only the languages it knows and answers `null` for every other, so the first
+ * answer is the only one there can be. A fragment none of them answers for falls back.
+ *
+ * The registrations are read here, per fragment, rather than held: a container registered from an
+ * optional descriptor is one whose classes may not link, and asking the extension point is what keeps
+ * this file from naming them.
+ */
+internal object RegisteredContainers : InjectedContainer {
+
+    override fun read(fragment: InjectedFragment): InjectedReading? =
+        (sequenceOf<InjectedContainer>(QueryContainer) + INJECTED_CONTAINERS.extensionList.asSequence())
+            .firstNotNullOfOrNull { it.read(fragment) }
+
+    /** Where a container that may not link is registered from its own descriptor. */
+    internal val INJECTED_CONTAINERS = ExtensionPointName<InjectedContainer>("com.snippetveil.injectedContainer")
 }
 
 /**

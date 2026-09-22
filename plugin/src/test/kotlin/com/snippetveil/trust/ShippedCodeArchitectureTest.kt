@@ -1,6 +1,7 @@
 package com.snippetveil.trust
 
 import com.snippetveil.plugin.kotlin.LivesInTheKotlinSubPackage
+import com.snippetveil.plugin.sql.LivesInTheSqlSubPackage
 import com.tngtech.archunit.base.DescribedPredicate
 import com.tngtech.archunit.core.domain.JavaAccess
 import com.tngtech.archunit.core.domain.JavaClass
@@ -148,6 +149,49 @@ class ShippedCodeArchitectureTest {
         assertTrue(LivesInTheKotlinSubPackage::class.java.name !in violations) {
             "The isolation rule flagged the Kotlin sub-package, which is the one place a Kotlin type " +
                 "is correct rather than fatal — an implementer would have to suppress it: $violations"
+        }
+    }
+
+    /**
+     * **Nothing reachable without the database plugin names one of its types.**
+     *
+     * The SQL container links against `com.intellij.sql.*` and `com.intellij.database.*`, and it is
+     * registered from `com.snippetveil-withDatabase.xml`, which the platform reads only where Database
+     * Tools and SQL is running. Every other class — the main descriptor's, and the Kotlin half's, which
+     * loads without the database plugin — is loaded on IDEs that have no such types, IntelliJ IDEA
+     * Community first among them, and a class naming one would fail to link there and take Java
+     * anonymization down with it.
+     *
+     * Static, like the Kotlin rule, and for a sharper reason: the IC cells of the test matrix do run
+     * without the plugin, but only a class somebody loads fails to link, and nothing guarantees a test
+     * reaches the one that would. So this is demonstrated red below rather than trusted.
+     */
+    @Test
+    fun `nothing outside the SQL sub-package reaches for database plugin classes`() {
+        NOTHING_OUTSIDE_THE_SQL_HALF_REACHES_THE_DATABASE_PLUGIN.check(SHIPPED_CLASSES)
+    }
+
+    /**
+     * **The database isolation rule, pointed at code written to violate it** — both directions, for the
+     * reason the Kotlin demonstration gives: [ReachesForSqlFromTheMainPackage] must be flagged, and
+     * [LivesInTheSqlSubPackage], which names the same type from the one package the rule leaves out,
+     * must not.
+     */
+    @Test
+    fun `the database isolation rule flags a SQL reference outside the SQL sub-package`() {
+        val violations = NOTHING_OUTSIDE_THE_SQL_HALF_REACHES_THE_DATABASE_PLUGIN.violationsIn(
+            classesOf(ReachesForSqlFromTheMainPackage::class.java, LivesInTheSqlSubPackage::class.java)
+        )
+
+        assertTrue(ReachesForSqlFromTheMainPackage::class.java.name in violations) {
+            "The database isolation rule did not flag a database-plugin type named from the main package: $violations"
+        }
+        assertTrue("SqlFile" in violations) {
+            "The database isolation rule flagged something other than the SQL type: $violations"
+        }
+        assertTrue(LivesInTheSqlSubPackage::class.java.name !in violations) {
+            "The database isolation rule flagged the SQL sub-package, which is the one place a database-plugin " +
+                "type is correct rather than fatal: $violations"
         }
     }
 
@@ -372,6 +416,30 @@ private val MAIN_DESCRIPTOR_NEVER_REACHES_KOTLIN: ArchRule =
         .because(
             "the Kotlin dependency is optional, so a class naming a Kotlin type fails to link " +
                 "on an IDE with Kotlin disabled — and it takes Java anonymization down with it"
+        )
+
+/**
+ * **Everything that loads without the database plugin**: every shipped class outside the SQL half.
+ *
+ * The SQL half is registered only from the database plugin's optional descriptor, so its classes are
+ * loaded only where that plugin is. Expressed as *not in that package*, like [MAIN_DESCRIPTOR_CODE].
+ */
+private val OUTSIDE_THE_SQL_HALF: DescribedPredicate<JavaClass> =
+    object : DescribedPredicate<JavaClass>("loaded without the database plugin") {
+        override fun test(javaClass: JavaClass): Boolean =
+            !javaClass.packageName.startsWith("com.snippetveil.plugin.sql")
+    }
+
+/**
+ * The database isolation rule, hoisted so that the test asserting it holds and the test demonstrating
+ * it can fail check the same object.
+ */
+private val NOTHING_OUTSIDE_THE_SQL_HALF_REACHES_THE_DATABASE_PLUGIN: ArchRule =
+    noClasses().that(OUTSIDE_THE_SQL_HALF)
+        .should().dependOnClassesThat().resideInAnyPackage("com.intellij.sql..", "com.intellij.database..")
+        .because(
+            "the database plugin is an optional dependency, so a class naming one of its types fails to link " +
+                "on an IDE without it — IntelliJ IDEA Community among them — and takes Java anonymization down with it"
         )
 
 /**
