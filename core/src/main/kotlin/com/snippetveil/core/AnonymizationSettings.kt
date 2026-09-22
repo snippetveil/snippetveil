@@ -549,6 +549,9 @@ enum class MappedKind(val label: String) {
     LABEL("label"),
     ANNOTATION("annotation"),
     ATTRIBUTE("attribute"),
+    TABLE("table"),
+    COLUMN("column"),
+    SCHEMA("schema"),
     LITERAL("literal"),
     UNKNOWN("Unknown"),
 }

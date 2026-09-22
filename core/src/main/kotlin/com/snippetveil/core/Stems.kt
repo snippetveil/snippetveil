@@ -1,7 +1,7 @@
 package com.snippetveil.core
 
 /**
- * **What a custom placeholder stem has to be — and the three things it may never be.**
+ * **What a custom placeholder stem has to be — and the four things it may never be.**
  *
  * A rename in the preview replaces the *namespace* half of a placeholder and never the number:
  * `Type1` may become `FilterType1`, and it may never become `Filter`. The number is what makes the
@@ -29,6 +29,7 @@ fun stemRejection(stem: String): StemRejection? {
         codePoints.isEmpty() -> null
         !Character.isJavaIdentifierStart(codePoints.first()) -> StemRejection.NOT_AN_IDENTIFIER
         codePoints.any { !Character.isJavaIdentifierPart(it) } -> StemRejection.NOT_AN_IDENTIFIER
+        '$'.code in codePoints -> StemRejection.CARRIES_A_DOLLAR
         Character.isDigit(codePoints.last()) -> StemRejection.ENDS_WITH_A_DIGIT
         trimmed in NAMESPACES -> StemRejection.RESERVED_NAMESPACE
         else -> null
@@ -75,7 +76,19 @@ enum class StemRejection(val message: String) {
      * pasted straight into source, so anything the compiler would not accept makes the snippet stop
      * compiling, which is a fidelity loss the reader has no way to attribute.
      */
-    NOT_AN_IDENTIFIER("A name has to be a Java identifier: letters, digits, _ or $, not starting with a digit."),
+    NOT_AN_IDENTIFIER("A name has to be an identifier: letters, digits or _, not starting with a digit."),
+
+    /**
+     * **Carries `$`** — the one character that passes the Java test and fails the same test one
+     * language over. `$` is legal in a Java identifier and illegal in an unquoted SQL one, so
+     * `my$table1` would not be a legal placeholder in the output it is spliced into.
+     *
+     * Refused on every row rather than only on a SQL one, because a stem is a word rather than a word
+     * for one language: one rule for every row is one a user can learn, and it costs a character no
+     * placeholder needs. The engine refuses it like every other rejection here — it falls back to the
+     * default namespace — so no text field is trusted to have validated anything.
+     */
+    CARRIES_A_DOLLAR("A name cannot contain $: it is not legal in every language a placeholder is written into."),
 
     /**
      * **Ends with a digit**, which is the one rule that is about injectivity rather than about
