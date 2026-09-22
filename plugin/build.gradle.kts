@@ -84,7 +84,16 @@ dependencies {
         // the *injector* — the `// language=` comment in Java and Kotlin, and the way it lays a
         // concatenation or a template out as shreds — so that the mapping is measured against the
         // shred layout real code produces rather than against one a test injector imagined.
-        testBundledPlugin("org.intellij.intelliLang")
+        //
+        // **Named differently per profile, because the IDE packages it differently.** Up to the `k2`
+        // cell IntelliLang is a bundled *plugin*; in the unified IDE the `latest` cell runs it is a
+        // bundled *module*, and naming it the old way there fails resolving the test classpath. The
+        // id is the same in both, so the profile picks only which of the two it is declared as.
+        if (platformProfile == "latest") {
+            testBundledModule("org.intellij.intelliLang")
+        } else {
+            testBundledPlugin("org.intellij.intelliLang")
+        }
     }
 
     // Test-scope only, and it stays that way: `assertNothingThirdPartyIsShipped` below fails the
