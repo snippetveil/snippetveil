@@ -180,6 +180,41 @@ class ShippedCodeArchitectureTest {
         }
     }
 
+    /**
+     * **An injected range is mapped per shred, never through the single-range host projection.**
+     *
+     * `InjectedLanguageManager.injectedToHost` answers any range with one range, so across a shred
+     * boundary it answers with the union — which takes in the host text between two concatenated
+     * literals, and a placeholder written there eats the `" + tableVar + "` while leaving valid Java
+     * and well-formed SQL behind. Nothing that reads output can see that, which is why it is a rule
+     * over bytecode rather than something a fixture is trusted to notice. Every overload is banned by
+     * name: the offset overloads are the same plain arithmetic, and the one map shipped code uses is
+     * the per-shred one in `InjectedRanges.kt`.
+     */
+    @Test
+    fun `nothing shipped maps an injected range through the union projection`() {
+        NOTHING_CALLS_THE_UNION_PROJECTION.check(SHIPPED_CLASSES)
+    }
+
+    /**
+     * **The rule, pointed at code written to violate it** — and at code that maps the way shipped code
+     * does, which it must leave alone. Nothing shipped calls the projection today, so a rule that had
+     * stopped matching would report nothing, exactly as it does when it works.
+     */
+    @Test
+    fun `the union-projection rule flags a call to it and nothing else`() {
+        val violations = NOTHING_CALLS_THE_UNION_PROJECTION.violationsIn(
+            classesOf(CallsTheUnionProjection::class.java, MapsPerShred::class.java)
+        )
+
+        assertTrue(CallsTheUnionProjection::class.java.name in violations) {
+            "The union-projection rule did not flag a call to injectedToHost: $violations"
+        }
+        assertTrue(MapsPerShred::class.java.name !in violations) {
+            "The union-projection rule flagged the per-shred query shipped code is meant to use: $violations"
+        }
+    }
+
     /** The claim on the Marketplace listing, checked. */
     @Test
     fun `nothing shipped can open a socket`() {
@@ -348,6 +383,26 @@ private val NOTHING_REACHES_FOR_THE_SWEEP: ArchRule =
         .because(
             "the leak check derives its spellings from declaration text so that it cannot share the " +
                 "anonymiser's blind spots, and an anonymiser reading it would make the check green by construction"
+        )
+
+/**
+ * Every `injectedToHost` the platform offers — on the injection manager and on the utility classes
+ * that spell the same map — matched by name so that no overload has to be enumerated.
+ */
+private val CALL_THE_UNION_PROJECTION =
+    object : ArchCondition<JavaClass>("call injectedToHost") {
+        override fun check(item: JavaClass, events: ConditionEvents) {
+            item.accessesFromSelf
+                .filter { it.targetOwner.name.startsWith("com.intellij.") && it.target.name == "injectedToHost" }
+                .forEach { events.add(SimpleConditionEvent.satisfied(it, it.description)) }
+        }
+    }
+
+private val NOTHING_CALLS_THE_UNION_PROJECTION: ArchRule =
+    noClasses().should(CALL_THE_UNION_PROJECTION)
+        .because(
+            "across a shred boundary the single-range projection answers with the union, and a placeholder " +
+                "written into it eats the host text between two literals while every output check stays green"
         )
 
 private val NOTHING_STARTS_A_PROCESS: ArchRule =

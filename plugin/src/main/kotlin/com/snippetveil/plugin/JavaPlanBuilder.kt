@@ -13,6 +13,7 @@ import com.intellij.psi.PsiIdentifier
 import com.intellij.psi.PsiImportStaticReferenceElement
 import com.intellij.psi.PsiJavaCodeReferenceElement
 import com.intellij.psi.PsiJavaFile
+import com.intellij.psi.PsiLanguageInjectionHost
 import com.intellij.psi.PsiLiteralExpression
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNameIdentifierOwner
@@ -56,13 +57,28 @@ import com.snippetveil.core.SymbolOccurrence
  */
 internal object JavaPlanBuilder : PlanBuilder {
 
-    override fun build(request: SnippetRequest): SnippetPlan {
+    override fun build(request: SnippetRequest): SnippetPlan = build(request, container = null)
+
+    /**
+     * The walk, with [container] reading whatever fragments are injected into the snippet's literals.
+     *
+     * **No container ships**, so [build] passes `null` and the walk never asks the platform about
+     * injection at all. The parameter is the seam the two containers plug into, and it is here now
+     * because what a fragment that falls back produces is a claim about *this* walk: exactly what it
+     * produced before there was a seam.
+     */
+    internal fun build(request: SnippetRequest, container: InjectedContainer?): SnippetPlan {
         val file = request.file
         val snapped = snappedRangesOf(file, request.selections, ::tokenOf)
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
-        val occurrences = (symbolsIn(request.project, file, fragments) + literalsAndCommentsIn(request.project, file, fragments))
+        val injected = injectedNamesIn(file, fragments, container)
+        val occurrences = (
+            symbolsIn(request.project, file, fragments) +
+                injected.occurrences +
+                literalsAndCommentsIn(request.project, file, fragments, injected.hosts)
+            )
             .sortedBy { it.start }
 
         return SnippetPlan(
@@ -138,11 +154,17 @@ internal object JavaPlanBuilder : PlanBuilder {
      * escaped. Reading a delimiter is reading *form*; the prohibition is on deciding a literal's
      * rewrite from its *content*.
      */
-    private fun literalsAndCommentsIn(project: Project, file: PsiFile, fragments: List<Fragment>): List<Occurrence> =
+    private fun literalsAndCommentsIn(
+        project: Project,
+        file: PsiFile,
+        fragments: List<Fragment>,
+        decomposed: Set<PsiElement>,
+    ): List<Occurrence> =
         // Typed at PsiElement explicitly: left to inference, Kotlin picks the nearest common
         // supertype of the two, which today is an `@Experimental` interface — and the Plugin
         // Verifier then reports this plugin as depending on API that can change under it.
         PsiTreeUtil.findChildrenOfAnyType<PsiElement>(file, PsiComment::class.java, PsiLiteralExpression::class.java)
+            .filter { it !in decomposed }
             .flatMap { element ->
                 val fragment = fragments.firstOrNull { it.range.contains(element.textRange) }
                     ?: return@flatMap emptyList()
@@ -169,6 +191,58 @@ internal object JavaPlanBuilder : PlanBuilder {
                     )
                 }
             }
+
+    /**
+     * **The names read inside fragments injected into the snippet's literals**, placed in the plan —
+     * and the literals they were read from, which then report no literal occurrence of their own.
+     *
+     * A fragment is decomposed only when all of it is here to decompose: exactly one fragment is
+     * injected into the literal, every literal it is laid over is in this file and whole inside the
+     * analysed ranges, [container] can say what names it holds, and every one of those names projects
+     * onto the host — see [project]. **Anything short of that falls the fragment back**, and falling
+     * back is not a path of its own: the fragment's literals are simply not in the set returned, so
+     * they are reported by [literalsAndCommentsIn] exactly as they were before this seam existed.
+     */
+    private fun injectedNamesIn(file: PsiFile, fragments: List<Fragment>, container: InjectedContainer?): Decomposition {
+        if (container == null) return Decomposition(emptyList(), emptySet())
+
+        val occurrences = mutableListOf<Occurrence>()
+        val decomposed = mutableSetOf<PsiElement>()
+        for (literal in PsiTreeUtil.findChildrenOfType(file, PsiLiteralExpression::class.java)) {
+            if (literal !is PsiLanguageInjectionHost || literal in decomposed) continue
+
+            val injected = InjectedFragment.injectedInto(literal).singleOrNull() ?: continue
+            val hosts = injected.hosts ?: continue
+            if (hosts.any { host -> !isWholeLiteralHere(host, file, fragments) }) continue
+
+            val projected = injected.project(container.namesIn(injected) ?: continue) ?: continue
+            for (name in projected) {
+                val fragment = fragments.first { it.range.contains(name.token) }
+                occurrences += SymbolOccurrence(
+                    start = fragment.translate(name.token.startOffset),
+                    end = fragment.translate(name.token.endOffset),
+                    text = name.token.substring(file.text),
+                    symbol = name.injected.symbol,
+                    language = name.injected.language,
+                    nameStart = fragment.translate(name.name.startOffset),
+                    nameEnd = fragment.translate(name.name.endOffset),
+                )
+            }
+            decomposed += hosts
+        }
+        return Decomposition(occurrences, decomposed)
+    }
+
+    /**
+     * Whether [host] is a literal of [file] lying whole inside the analysed ranges — the only kind of
+     * host whose occurrence a decomposition can stand in for. A fragment laid over anything else, or
+     * cut by the selection, falls back.
+     */
+    private fun isWholeLiteralHere(host: PsiLanguageInjectionHost, file: PsiFile, fragments: List<Fragment>): Boolean =
+        host is PsiLiteralExpression && host.containingFile == file && fragments.any { it.range.contains(host.textRange) }
+
+    /** What [injectedNamesIn] found: the occurrences it placed, and the literals they replace. */
+    private class Decomposition(val occurrences: List<Occurrence>, val hosts: Set<PsiElement>)
 
     /**
      * **What a Java parser makes of one comment's body: a code block, or not.**
