@@ -77,6 +77,14 @@ dependencies {
         // fails the build if that ever stops being true.
         testFramework(TestFrameworkType.Platform)
         testFramework(TestFrameworkType.Plugin.Java)
+
+        // **Language injection, for the fixtures and never for the product.** Nothing shipped reads
+        // an IntelliLang type: the injected-range mapping asks only the platform's own
+        // `InjectedLanguageManager` and each host's literal escaper. What IntelliLang is here for is
+        // the *injector* — the `// language=` comment in Java and Kotlin, and the way it lays a
+        // concatenation or a template out as shreds — so that the mapping is measured against the
+        // shred layout real code produces rather than against one a test injector imagined.
+        testBundledPlugin("org.intellij.intelliLang")
     }
 
     // Test-scope only, and it stays that way: `assertNothingThirdPartyIsShipped` below fails the
