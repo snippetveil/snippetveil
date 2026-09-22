@@ -386,8 +386,8 @@ private val NOTHING_REACHES_FOR_THE_SWEEP: ArchRule =
         )
 
 /**
- * Every `injectedToHost`, on the platform's injection manager or on any helper spelling the same map,
- * matched by name so that no overload has to be enumerated.
+ * Every `injectedToHost` the platform offers — on the injection manager and on the utility classes
+ * that spell the same map — matched by name so that no overload has to be enumerated.
  */
 private val CALL_THE_UNION_PROJECTION =
     object : ArchCondition<JavaClass>("call injectedToHost") {

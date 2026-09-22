@@ -3,6 +3,7 @@ package com.snippetveil.plugin.kotlin
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
 import com.snippetveil.plugin.InjectedFragment
+import com.snippetveil.plugin.assertFailsTheRun
 import com.snippetveil.plugin.identifier
 import com.snippetveil.plugin.injectedFragmentIn
 import com.snippetveil.plugin.nameOf
@@ -98,16 +99,6 @@ internal class KotlinInjectedRangeTest : KotlinSnippetTestCase() {
     }
 
     private fun templates(): PsiFile = myFixture.configureByText("Templates.kt", TEMPLATES)
-
-    private fun assertFailsTheRun(projection: () -> Unit) {
-        try {
-            projection()
-        } catch (mismatch: IllegalStateException) {
-            assertTrue("the run failed, but not on the range identity: ${mismatch.message}", mismatch.message!!.contains("maps back to"))
-            return
-        }
-        fail("a host range that does not map back to its name passed the range identity")
-    }
 }
 
 /** A `$` for the fixtures, which a Kotlin string cannot otherwise write before a name. */

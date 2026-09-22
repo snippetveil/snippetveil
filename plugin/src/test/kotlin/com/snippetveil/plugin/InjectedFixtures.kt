@@ -17,6 +17,8 @@ import com.snippetveil.core.SymbolOrigin
 import com.snippetveil.core.SymbolRole
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 
 /*
  * **Injected fragments as real code lays them out.**
@@ -110,3 +112,17 @@ private fun evidence(symbol: SymbolEvidence): String = listOf(
     symbol.accessor?.let { "${it.fieldKey}/${it.fieldName}/${it.prefix}/${it.fieldKeyIsQualified}" },
     symbol.siblingAccessors.map(::evidence),
 ).joinToString(" ")
+
+/**
+ * Runs [projection] and asserts it failed **on the range identity** — not merely that it threw, since
+ * a mapping that crashed on its way to a wrong range would otherwise pass for one the identity caught.
+ */
+internal fun assertFailsTheRun(projection: () -> Unit) {
+    try {
+        projection()
+    } catch (mismatch: IllegalStateException) {
+        assertTrue("the run failed, but not on the range identity: ${mismatch.message}", mismatch.message!!.contains("maps back to"))
+        return
+    }
+    fail("a host range that does not map back to its name passed the range identity")
+}

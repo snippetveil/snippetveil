@@ -39,15 +39,18 @@ class InjectedRangeTest : JavaSnippetTestCase() {
 
         val host = fragment.hostRangeOf(injected)
 
-        assertEquals("the host range is not the name's span", TextRange(file.text.indexOf("customers"), file.text.indexOf("customers") + 9), host)
+        val written = file.text.indexOf("customers")
+        assertEquals("the host range is not the name's span", TextRange(written, written + "customers".length), host)
         assertEquals("the host range does not map back to the name", injected, fragment.injectedRangeOf(host!!))
     }
 
     /**
      * **An escaped name maps to its whole escaped span, and the range identity holds over it — where a
      * text comparison would fire.** `cust\157mers` means `customers`, so the host span is three
-     * characters wider than the name's spelling, and a check comparing the two texts would call a
-     * correct splice a corruption. Ranges round-trip; text does not.
+     * characters wider than the name's spelling — its spelling as the fragment's language reads it,
+     * which is what a container compares against. (The injected file itself keeps the host's escapes,
+     * so its text is no help either way.) A check comparing the two texts would call a correct splice a
+     * corruption. Ranges round-trip; text does not.
      */
     fun `test the identity is a range identity, because a text comparison fires on a correct splice`() {
         val file = queries()
@@ -178,16 +181,6 @@ class InjectedRangeTest : JavaSnippetTestCase() {
 
     private fun identifierAt(fragment: InjectedFragment, range: TextRange) =
         fragment.file.findElementAt(range.startOffset)!!
-
-    private fun assertFailsTheRun(projection: () -> Unit) {
-        try {
-            projection()
-        } catch (mismatch: IllegalStateException) {
-            assertTrue("the run failed, but not on the range identity: ${mismatch.message}", mismatch.message!!.contains("maps back to"))
-            return
-        }
-        fail("a host range that does not map back to its name passed the range identity")
-    }
 }
 
 private const val CLEAN = "\"class customers {}\""

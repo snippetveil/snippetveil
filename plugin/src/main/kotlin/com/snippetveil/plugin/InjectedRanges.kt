@@ -118,7 +118,8 @@ internal class InjectedFragment(val file: PsiFile, val shreds: List<PsiLanguageI
 
     /**
      * Each shred as a part of [file], or `null` when the file is not laid out the way this mapping
-     * reads it: each shred's prefix, then the host text of its range inside the host, character for
+     * reads it. Both directions of the mapping read this one table, so it is checked against the file
+     * rather than trusted — a layout the two directions agreed on wrongly would pass the identity: each shred's prefix, then the host text of its range inside the host, character for
      * character, then its suffix, and nothing after the last one.
      *
      * Checked rather than assumed, because a document built some other way is one where nothing here
@@ -211,7 +212,11 @@ internal class ProjectedName(val injected: InjectedName, val token: TextRange, v
  * **A reader of injected documents** — what the two containers are, and what this file is built for.
  *
  * It answers with the names one fragment holds, or `null` when it cannot say what the fragment is,
- * which falls the fragment back. None ships yet: the mapping comes first, because a container built on
+ * which falls the fragment back.
+ *
+ * **What it does not name goes out as the host wrote it**, so answering is vouching for every other
+ * character of the fragment. A container that cannot say a token is safe to keep — a keyword, an
+ * operator — answers `null` for the whole fragment rather than leaving the token out. None ships yet: the mapping comes first, because a container built on
  * a wrong mapping is not a container with a bug in it — it is a corruption engine, and the corruption
  * is invisible.
  */
