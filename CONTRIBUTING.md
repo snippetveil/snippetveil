@@ -743,6 +743,19 @@ rides a cell the platform already runs — the query-language contributors are U
 what is loaded; the platform profiles are the only real multiplication, so counting configurations
 against tiers arrives at a much larger number than the three test legs this is.
 
+**The database plugin is the one contributor compiled against**, because the SQL container reads its
+types — a reference's target kind, the identifier-keyword token type — and nothing in the platform
+spells them. The `latest` cell compiles against the one its IDE bundles. The IC cells have none, so
+they compile against the 2024.2 build of it from the Marketplace, `databasePluginFloorApi` in
+`plugin/build.gradle.kts` — compile-time only, in both source sets and on no runtime classpath, for the
+reason the floor compiles the platform: an API the oldest plugin lacks cannot be used by accident.
+The plugin is an optional dependency exactly as Kotlin is, registered from
+`com.snippetveil-withDatabase.xml`, and `ShippedCodeArchitectureTest` keeps every class naming its
+types in `com.snippetveil.plugin.sql`. A test fixture naming one of its types has to hold it in a
+private field rather than behind an accessor: the IC cells' test engine lists every test-scope class's
+methods while discovering tests, and one method returning a type the running IDE lacks fails the
+whole suite before a test runs.
+
 The legs do not all name the same product: IntelliJ IDEA Community stopped being published after
 2025.2, so the floor and the K2 cell are `IC` and latest stable is the unified `IU`. All are pinned
 in gradle.properties rather than looked up, so that a run is reproducible and a bump is a reviewable
@@ -1274,7 +1287,9 @@ dependencies.
 Fixture jars are not among them, because they are on no classpath: the Kotlin standard library the
 Kotlin fixtures attach, and the persistence jars the query fixtures attach — the Jakarta Persistence
 API, Spring Data and Hibernate — reach a test only as file paths, and are read as PSI the way a
-user's own dependencies would be. Nothing loads a class out of them.
+user's own dependencies would be. Nothing loads a class out of them. Nor is the database plugin's API
+jar the IC cells compile against: the IDE provides the plugin wherever the code naming it runs, and
+`assertNothingThirdPartyIsShipped` would fail the build if its jars reached the distribution.
 
 ## Issues
 

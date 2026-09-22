@@ -51,7 +51,13 @@ internal fun pinnedQueryContributors(): Set<String> {
 private fun presentQueryContributors(): Set<String> =
     KNOWN_QUERY_CONTRIBUTORS.filter { PluginManagerCore.getPlugin(PluginId.getId(it))?.isEnabled == true }.toSet()
 
-/** Every contributor the pin can name: JPA, which injects JPQL and HQL, and Spring Data. */
-private val KNOWN_QUERY_CONTRIBUTORS = listOf("com.intellij.javaee.jpa", "com.intellij.spring.data")
+/**
+ * Every contributor the pin can name: JPA, which injects JPQL and HQL, Spring Data, and the database
+ * plugin, which injects SQL.
+ */
+private val KNOWN_QUERY_CONTRIBUTORS = listOf("com.intellij.javaee.jpa", "com.intellij.spring.data", DATABASE_PLUGIN_ID)
+
+/** The database plugin — Database Tools and SQL — which injects SQL and parses it. */
+internal const val DATABASE_PLUGIN_ID = "com.intellij.database"
 
 private const val QUERY_CONTRIBUTORS_PROPERTY = "snippetveil.query.contributors"

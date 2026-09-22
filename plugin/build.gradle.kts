@@ -1,5 +1,6 @@
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.specs.Specs
+import org.gradle.kotlin.dsl.support.serviceOf
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.intellij.platform.gradle.Constants
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
@@ -47,17 +48,72 @@ val (platformType, platformVersion) = when (platformProfile) {
 }
 
 /**
- * **The query-language reference contributors this cell carries, pinned** — the JPA plugin, which
- * injects and resolves JPQL and HQL, and Spring Data, which does the same for a repository's `@Query`.
+ * **The database plugin** — Database Tools and SQL, which injects SQL into a JDBC call, a native
+ * `@Query` or a `// language=SQL` literal, and whose PSI is what the SQL container reads.
  *
- * Both are Ultimate's, so only the `latest` cell, which runs the unified IDE, can have them; the IC
- * cells carry none. A query decomposes in one and is one redacted literal in the other, and both are
- * correct — the edition split `LiteralEditionTest` describes, run in the safe direction. The pin is
- * handed to the fixtures, and `QueryContributorPinTest` asserts it is exactly the set present, in
+ * Unlike the two query contributors below it is **compiled against**, because what the SQL container
+ * reads — a reference's target kind, the identifier-keyword token type, a function call's builtin
+ * definition — is spelled only in its types. It is depended on optionally, from
+ * `com.snippetveil-withDatabase.xml`, exactly as Kotlin is: the plugin loads and anonymizes Java
+ * where it is absent, and a tier-1 arch rule keeps every class naming its types in the one
+ * sub-package that descriptor registers.
+ */
+val databasePlugin = "com.intellij.database"
+
+/**
+ * **The oldest database plugin the SQL container is compiled against**, in the cells whose IDE does
+ * not bundle one — the build published for 2024.2, taken from the Marketplace, where the `floor`
+ * compiles the platform. It is the floor half of the same honesty: an API the 2024.2 plugin did not
+ * have cannot be used by accident, and `verifyPlugin` checks what was compiled against every unified
+ * IDE, each of which bundles its own.
+ */
+val databasePluginFloorApi = "242.21829.149"
+
+/**
+ * **The query-language reference contributors this cell carries, pinned** — the JPA plugin, which
+ * injects and resolves JPQL and HQL, Spring Data, which does the same for a repository's `@Query`,
+ * and the database plugin, which injects SQL.
+ *
+ * All three are Ultimate's, so only the `latest` cell, which runs the unified IDE, can have them; the
+ * IC cells carry none. A query decomposes in one and is one redacted literal in the other, and both
+ * are correct — the edition split `LiteralEditionTest` describes, run in the safe direction. The pin
+ * is handed to the fixtures, and `QueryContributorPinTest` asserts it is exactly the set present, in
  * every cell: a query fixture that ran without its contributors would be measuring their absence.
  */
 val queryContributors: List<String> =
-    if (platformProfile == "latest") listOf("com.intellij.javaee.jpa", "com.intellij.spring.data") else emptyList()
+    if (platformProfile == "latest") {
+        listOf("com.intellij.javaee.jpa", "com.intellij.spring.data", databasePlugin)
+    } else {
+        emptyList()
+    }
+
+/**
+ * **The floor's database plugin, as a Marketplace artifact** — resolved only by the cells that compile
+ * against it, and non-transitive: its `lib/` holds everything the SQL container names.
+ */
+val databasePluginApi: Configuration = configurations.create("databasePluginApi") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+
+dependencies {
+    databasePluginApi("com.jetbrains.plugins:$databasePlugin:$databasePluginFloorApi@zip")
+}
+
+/** The jars inside [databasePluginApi]'s archive, laid out flat for the compile classpath. */
+val unpackDatabasePluginApi = tasks.register<Sync>("unpackDatabasePluginApi") {
+    // A local rather than the script's own `zipTree`, which the configuration cache cannot carry.
+    val unzip = project.serviceOf<ArchiveOperations>()
+    from(databasePluginApi.elements.map { archives -> archives.map { unzip.zipTree(it.asFile) } }) {
+        include("*/lib/*.jar")
+        eachFile { path = name }
+    }
+    includeEmptyDirs = false
+    into(layout.buildDirectory.dir("databasePluginApi"))
+}
+
+val databasePluginApiJars: ConfigurableFileTree =
+    fileTree(layout.buildDirectory.dir("databasePluginApi")) { include("*.jar") }.builtBy(unpackDatabasePluginApi)
 
 dependencies {
     // A plain project dependency, not a plugin module: core.jar stays a separate jar in the
@@ -108,8 +164,19 @@ dependencies {
             testBundledPlugin("org.intellij.intelliLang")
         }
 
-        // **The query-language contributors, pinned per cell** — see `queryContributors` above.
-        queryContributors.forEach { testBundledPlugin(it) }
+        // **The query-language contributors, pinned per cell** — see `queryContributors` above. The
+        // database plugin is the one of them compiled against, so where the cell's IDE bundles it it
+        // is a compile dependency as well; where it does not, the floor's API stands in below.
+        queryContributors.filter { it != databasePlugin }.forEach { testBundledPlugin(it) }
+        if (databasePlugin in queryContributors) bundledPlugin(databasePlugin)
+    }
+
+    // **The database plugin's API, where the cell's IDE has none** — compile-time only, in both
+    // source sets, and never on a runtime classpath: an IC test JVM must not see a plugin its IDE
+    // cannot load. See `databasePluginFloorApi` above and `unpackDatabasePluginApi` below.
+    if (databasePlugin !in queryContributors) {
+        compileOnly(databasePluginApiJars)
+        testCompileOnly(databasePluginApiJars)
     }
 
     // Test-scope only, and it stays that way: `assertNothingThirdPartyIsShipped` below fails the

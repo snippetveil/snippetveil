@@ -39,6 +39,16 @@
          beside this file. -->
     <depends optional="true" config-file="com.snippetveil-withKotlin.xml">org.jetbrains.kotlin</depends>
 
+    <!-- **The database plugin is optional in exactly the way Kotlin is**, and for the same JVM reason.
+         It is what injects SQL and what parses it, and the SQL container reads its types — a
+         reference's target kind, the identifier-keyword token type, a call's builtin definition — so
+         every class naming them is registered from the config file below and nowhere else. Where the
+         plugin is absent (IntelliJ IDEA Community, or the plugin switched off) nothing injects SQL in
+         the first place, and a SQL string is one redacted literal, as it always was. A tier-1 arch rule
+         over shipped bytecode asserts that no class outside the SQL sub-package names a database-plugin
+         type, and is demonstrated red. -->
+    <depends optional="true" config-file="com.snippetveil-withDatabase.xml">com.intellij.database</depends>
+
     <!-- **The K2 declaration, and it is in the main descriptor on purpose.**
          From 2024.2 to 2026.1 the Kotlin plugin reads this to decide whether a plugin's Kotlin path
          may load: without `supportsK2="true"` the optional config file above is silently skipped in
@@ -77,6 +87,15 @@
                         dynamic="true">
             <with attribute="implementationClass" implements="com.snippetveil.plugin.LanguageSupport"/>
         </extensionPoint>
+
+        <!-- **A reader of fragments injected into a literal**, registered from wherever its classes are
+             safe to load. The query container reads through platform interfaces only and is not
+             registered: `RegisteredContainers` names it directly, ahead of what is registered here. The SQL container links against the database
+             plugin, so it is registered from that plugin's optional config file — present exactly
+             where SQL can be injected at all. -->
+        <extensionPoint qualifiedName="com.snippetveil.injectedContainer"
+                        interface="com.snippetveil.plugin.InjectedContainer"
+                        dynamic="true"/>
     </extensionPoints>
 
     <extensions defaultExtensionNs="com.snippetveil">

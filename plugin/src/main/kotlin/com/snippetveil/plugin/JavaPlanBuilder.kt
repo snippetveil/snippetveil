@@ -57,14 +57,15 @@ import com.snippetveil.core.SymbolOccurrence
  */
 internal object JavaPlanBuilder : PlanBuilder {
 
-    override fun build(request: SnippetRequest): SnippetPlan = build(request, QueryContainer)
+    override fun build(request: SnippetRequest): SnippetPlan = build(request, RegisteredContainers)
 
     /**
      * The walk, with [container] reading whatever fragments are injected into the snippet's literals.
      *
-     * [build] passes [QueryContainer], the reader of queries written in the persistence query
-     * languages. `null` is the walk that never asks the platform about injection at all, which is what
-     * every fragment that falls back produces: exactly what the walk produced before there was a seam.
+     * [build] passes [RegisteredContainers]: the reader of queries written in the persistence query
+     * languages, and the SQL reader where the database plugin is. `null` is the walk that never asks
+     * the platform about injection at all, which is what every fragment that falls back produces:
+     * exactly what the walk produced before there was a seam.
      */
     internal fun build(request: SnippetRequest, container: InjectedContainer?): SnippetPlan {
         val file = request.file

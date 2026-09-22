@@ -1,0 +1,17 @@
+<!-- **The SQL half of SnippetVeil, loaded only where the database plugin is.**
+
+     `plugin.xml` declares `com.intellij.database` as an optional dependency naming this file, so what
+     is registered here is present exactly when Database Tools and SQL is installed and enabled — which
+     is also exactly when anything can inject SQL into a literal. Everywhere else a SQL string is one
+     redacted literal, and nothing says so: which plugins an IDE has is not something the output may
+     tell anyone.
+
+     **The boundary is a JVM one**, as it is for Kotlin. The class named below links against
+     `com.intellij.sql.*` and `com.intellij.database.*`, so it is loaded only from here, and no class
+     reachable from the main descriptor may name those types. `ShippedCodeArchitectureTest` asserts that
+     over shipped bytecode and demonstrates it red. -->
+<idea-plugin>
+    <extensions defaultExtensionNs="com.snippetveil">
+        <injectedContainer implementation="com.snippetveil.plugin.sql.SqlContainer"/>
+    </extensions>
+</idea-plugin>
