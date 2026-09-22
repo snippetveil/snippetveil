@@ -118,3 +118,13 @@ private const val HIBERNATE_JAR = "hibernate-core"
 private val PERSISTENCE_CLASSPATH: LightProjectDescriptor = PersistenceClasspath()
 
 private val HIBERNATE_CLASSPATH: LightProjectDescriptor = HibernateClasspath()
+
+/** One `// language=SQL` literal holding [query], and only that literal selected. */
+internal fun oneQuery(query: String, injected: Boolean = true): String = """
+    class Repository {
+        void run() {
+            ${if (injected) "// language=SQL" else "// a query"}
+            String query = <selection>"$query"</selection>;
+        }
+    }
+""".trimIndent()

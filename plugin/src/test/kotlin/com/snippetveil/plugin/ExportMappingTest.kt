@@ -4,6 +4,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.snippetveil.core.LedgerDelta
+import com.snippetveil.core.MappedKind
 import com.snippetveil.core.MintedName
 import java.awt.event.ActionEvent
 import java.io.IOException
@@ -131,7 +132,7 @@ class ExportMappingTest : JavaSnippetTestCase() {
 
         withDialog(PreviewDialog.forCopy(project, analysis, files)) { dialog ->
             val table = tableIn(dialog)
-            val unknown = (0 until table.rowCount).single { table.getValueAt(it, 2) == "Unknown" }
+            val unknown = (0 until table.rowCount).single { table.getValueAt(it, KIND_COLUMN) == MappedKind.UNKNOWN.label }
             table.setValueAt(true, unknown, PRESERVE_COLUMN)
 
             export(dialog)

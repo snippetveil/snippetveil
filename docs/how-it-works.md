@@ -197,6 +197,14 @@ out as `com.pkg1.pkg2.PaymentFilter`, because preserving a name is not a decisio
 Neither reduction is persisted. Both live for one invocation, so nothing you tick here can quietly
 apply to a snippet next week.
 
+**A query read name by name has rows like any other**, with `table`, `col` and `schema` in the Kind
+column. A name in a query always resolves or makes the whole query fall back, so a query never
+produces an `Unknown` row, and its rows gain a Preserve checkbox only through the unlock — which is
+what the unlock is for when the table name is what your question is about. A query that fell back is
+one `literal` row, and that row never gains one. The counts do not say how many of the names came
+from a query: a count that did would be missing in every IDE that cannot read queries, and its
+absence would be the one thing telling you a query went out whole.
+
 ## Renaming a placeholder
 
 Double-click a cell in the **Placeholder** column and you can replace the stem with a word of your
@@ -231,7 +239,9 @@ says why when you hover it:
 **The stem is stored; which row you typed it on is not.** A rename is input to one invocation, and
 what makes `FilterType1` come back on next week's paste is the mapping row this invocation was
 already going to write — so a renamed class stays renamed, while a renamed local, parameter or type
-parameter lasts for the snippet it mattered in and re-mints under the default stem next time.
+parameter lasts for the snippet it mattered in and re-mints under the default stem next time. So
+does a renamed `table`, `col` or `schema`: a SQL name is never written to the mapping, so a table
+renamed `OrdersTable1` is a plain `table` placeholder again in the next snippet.
 
 What *is* written down beside the mapping is the **word**: a set of the stems this project has
 minted under, filed under no key and standing for no symbol. It is there because

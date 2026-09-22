@@ -5,11 +5,15 @@ import com.intellij.openapi.ui.TestDialog
 import com.intellij.openapi.ui.TestDialogManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.components.ActionLink
+import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBTextField
 import com.snippetveil.core.MappedName
+import junit.framework.TestCase.assertTrue
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JComponent
 import javax.swing.JTable
+import javax.swing.table.TableCellEditor
 
 /**
  * What every test that reaches into the preview dialog needs — held once, because two files reaching
@@ -23,6 +27,9 @@ internal const val PRESERVE_COLUMN = 3
 
 /** The `Placeholder` column, which is the one the rename edits. See [PRESERVE_COLUMN]. */
 internal const val PLACEHOLDER_COLUMN = 1
+
+/** The `Kind` column, which says what a row is. See [PRESERVE_COLUMN]. */
+internal const val KIND_COLUMN = 2
 
 /**
  * The table model over [names], with both callbacks inert — what a test asserting *which cells the
@@ -123,3 +130,35 @@ internal fun headerTooltipsIn(table: JTable): List<String?> {
     columns.forEach { render(it) }
     return columns.map { (render(it) as? JComponent)?.toolTipText }
 }
+
+/**
+ * Types [stem] into the row's editor and commits it the way `JTable` does — stop the edit, then
+ * set the cell to what the editor hands back. A test that called `setValueAt` alone would skip
+ * the half of this that validates.
+ */
+internal fun commitStem(table: JTable, row: Int, stem: String) {
+    val opened = openEditor(table, row)
+    opened.stem.text = stem
+    assertTrue("the editor refused `$stem`", opened.editor.stopCellEditing())
+    table.setValueAt(opened.editor.cellEditorValue, row, PLACEHOLDER_COLUMN)
+}
+
+/** The editor as a user opens it: the column's own, over the cell they double-clicked. */
+internal fun openEditor(table: JTable, row: Int): OpenEditor {
+    val editor = table.columnModel.getColumn(PLACEHOLDER_COLUMN).cellEditor
+    val component = editor.getTableCellEditorComponent(
+        table,
+        table.getValueAt(row, PLACEHOLDER_COLUMN),
+        false,
+        row,
+        PLACEHOLDER_COLUMN,
+    )
+    return OpenEditor(
+        editor,
+        descendantsOf(component as Container).filterIsInstance<JBTextField>().single(),
+        descendantsOf(component).filterIsInstance<JBLabel>().single(),
+    )
+}
+
+/** One open cell editor, and the two halves of it a test reads: the stem, and the fixed number. */
+internal class OpenEditor(val editor: TableCellEditor, val stem: JBTextField, val number: JBLabel)

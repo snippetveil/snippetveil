@@ -543,6 +543,11 @@ internal object PreviewDialogs : Previews {
  * select, and the pane beside this line is where they can see what. It stays a clause of this line
  * rather than a third notice because it is a fact about how the snippet was *cut*, which the pane
  * beside it shows in full; the notices are about what is missing from that pane.
+ *
+ * **No count is split by where its names came from**, and `(n from SQL)` is refused rather than
+ * missing. It would appear for a user whose IDE decomposes queries and not for one whose IDE does
+ * not, which makes its *absence* the only in-product signal that a query went out whole — the
+ * availability tell this product declines to build.
  */
 internal fun stripOf(analysis: Analysis): String {
     val counts = analysis.result.counts
@@ -563,6 +568,12 @@ internal fun stripOf(analysis: Analysis): String {
  * reduction is offered** — on `Unknown` rows while [unlocked] is false, and on every keyed row once
  * it is true. A literal row never has one: it has no key, and literal text is the most directly
  * sensitive content the product handles.
+ *
+ * **A query row is not a literal row, and the exclusion does not reach it** — which is the exclusion
+ * working rather than an exception to it. Both of its reasons are about the whole literal as one
+ * opaque blob; a `table1` row is a decomposed part with a role and a key of its own, so it takes the
+ * keyed-row path like any other, locked behind the unlock because there is no query `Unknown` for the
+ * default tick to sit on. A query that fell back is still one literal row, and still has no box.
  *
  * **The `Placeholder` column is editable on the rows this invocation minted**, and the editor edits
  * the stem while the number stays fixed beside it — see [StemEditor]. Which rows those are is
