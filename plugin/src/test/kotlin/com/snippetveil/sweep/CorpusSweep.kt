@@ -1,12 +1,7 @@
 package com.snippetveil.sweep
 
 import com.intellij.ide.highlighter.JavaFileType
-import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.projectRoots.JavaSdk
-import com.intellij.openapi.projectRoots.ProjectJdkTable
-import com.intellij.openapi.roots.ProjectRootManager
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.search.ProjectScope
 import com.intellij.psi.search.PsiShortNamesCache
@@ -122,7 +117,9 @@ class CorpusSweep : BareTestFixtureTestCase() {
 
         say("Opening $targetPath …")
         val project = PlatformTestUtil.loadAndOpenProject(targetPath, testRootDisposable)
-        attachTheRunningJdkUnderTheNameTheProjectExpects(project)
+        attachTheRunningJdkUnderTheNameTheProjectExpects(project, testRootDisposable)?.let {
+            say("Attached the running JDK as '$it'; the project's own SDK is not configured in this process.")
+        }
 
         val rendered = sweep(project, targetPath)
 
@@ -201,33 +198,10 @@ class CorpusSweep : BareTestFixtureTestCase() {
     /**
      * Every Java and Kotlin file in the target's **own source content** — which is what the oracle's
      * universe is built from and what the sweep anonymizes, so the two can never be about different
-     * trees.
-     *
-     * **Found on disk rather than by walking the project index**, because the sweep is pointed at a
-     * live working tree: the VFS serves a directory listing it cached the last time something looked,
-     * and a file written since is invisible to `iterateContent`. Reporting on a checkout as it stood
-     * an hour ago is the one kind of wrong answer this instrument must not give. What the *project*
-     * says is still authoritative for whether a file counts — hence the source-content filter, which
-     * is what keeps build output, generated sources and `.git` out of the universe.
+     * trees. See [sourceFilesOf], which both halves of this instrument find their files through.
      */
     private fun sourcesOf(project: Project, targetPath: Path): List<VirtualFile> {
-        // The disk walk and the refresh happen **outside a read action**: a synchronous VFS refresh
-        // under the read lock deadlocks, and the platform says so out loud. Only the question of
-        // whether a file is source content needs the lock, so only that part takes it.
-        val fileSystem = LocalFileSystem.getInstance()
-        val onDisk = Files.walk(targetPath).use { paths ->
-            paths.filter { Files.isRegularFile(it) && SOURCE_EXTENSIONS.any(it.toString()::endsWith) }
-                .filter { path -> generateSequence(path.parent) { it.parent }.none { it.fileName?.toString() == ".git" } }
-                .toList()
-        }
-        // Asked of the VFS one path at a time. `refreshAndFindFileByNioFile` refreshes exactly the
-        // path it is given, so a file written since the IDE last looked at its directory is found —
-        // where a recursive refresh of the root is not enough, because a directory whose listing is
-        // already cached is not necessarily re-read.
-        val known = onDisk.mapNotNull { fileSystem.refreshAndFindFileByNioFile(it) }
-
-        val index = ProjectRootManager.getInstance(project).fileIndex
-        val inContent = smartly(project) { known.filter { index.isInSourceContent(it) } }
+        val inContent = sourceFilesOf(project, targetPath, SOURCE_EXTENSIONS)
 
         // **Refused rather than dropped** where the name and the IDE's type disagree: a `.kt` file this
         // IDE does not type as Kotlin — the Kotlin plugin switched off — would otherwise leave the
@@ -237,7 +211,7 @@ class CorpusSweep : BareTestFixtureTestCase() {
             "$untyped source file(s) named .java or .kt are not typed Java or Kotlin by this IDE, so they " +
                 "could be neither read nor swept. Is the Kotlin plugin enabled in this IDE?"
         }
-        return inContent.sortedBy { it.path }
+        return inContent
     }
 
     /**
@@ -269,30 +243,6 @@ class CorpusSweep : BareTestFixtureTestCase() {
                     cache.getMethodsByName(spelling, libraries).isNotEmpty()
             }
         }
-    }
-
-    /**
-     * **The running JDK, attached to the application's SDK table under the name the project already
-     * asks for — and never to the target project itself.**
-     *
-     * A real `.idea` names its SDK by a name the IDE's own configuration resolves, and this process
-     * has no such configuration — so without this every `java.lang` reference resolves to nothing.
-     * That is not a leak (an unresolved name fails closed and is anonymized) but it is a sweep of a
-     * codebase the anonymiser could not see the JDK in, which is not the codebase anybody runs.
-     *
-     * The SDK goes into [ProjectJdkTable], which is application state, under the name the project
-     * already asks for. **The target project is never written to** — it is somebody's real checkout,
-     * and an instrument that dirtied `.idea/misc.xml` while reading would be one nobody runs twice.
-     */
-    private fun attachTheRunningJdkUnderTheNameTheProjectExpects(project: Project) {
-        val wanted = ProjectRootManager.getInstance(project).projectSdkName ?: return
-        if (ProjectJdkTable.getInstance().findJdk(wanted) != null) return
-
-        WriteAction.runAndWait<RuntimeException> {
-            val jdk = JavaSdk.getInstance().createJdk(wanted, System.getProperty("java.home"), false)
-            ProjectJdkTable.getInstance().addJdk(jdk, testRootDisposable)
-        }
-        say("Attached the running JDK as '$wanted'; the project's own SDK is not configured in this process.")
     }
 
     private fun relativeTo(root: Path, file: VirtualFile): String =

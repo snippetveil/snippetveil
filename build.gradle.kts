@@ -57,6 +57,16 @@ val corpusSweepTask = "corpusSweep"
 extra.set("corpusSweepTask", corpusSweepTask)
 
 /**
+ * **The query sweep's task name, spelled once**, for the reason above it.
+ *
+ * It is the same instrument's other half — it opens somebody's real code by path and writes what the
+ * query containers made of the fragments in it — so it is guarded by the same check, under a name
+ * that reaches it the same way.
+ */
+val querySweepTask = "querySweep"
+extra.set("querySweepTask", querySweepTask)
+
+/**
  * **The Kotlin-disabled boot's task name, spelled once**, for the reason above it.
  *
  * `assertTheReleaseGateRunsTheKotlinDisabledBoot` below reads this `val` to find the invocation in
@@ -247,12 +257,13 @@ val assertWorkflowsAreHardened = tasks.register("assertWorkflowsAreHardened") {
 }
 
 /**
- * Fails if any workflow asks Gradle to run the corpus sweep.
+ * Fails if any workflow asks Gradle to run either half of the corpus instrument.
  *
- * **The sweep is never run in CI, and this is what says so rather than a convention.** It opens a
- * real proprietary codebase by path and writes a list of the real identifiers it found surviving —
- * so a CI run of it is either a no-op on a runner that has no such checkout, or a leak onto a
- * machine nobody chose. Neither is a thing to leave to habit.
+ * **Neither half is ever run in CI, and this is what says so rather than a convention.** Each opens
+ * somebody's real code by path and writes real identifiers out of it — the names that survived
+ * anonymisation, or the table spellings and paths a query sweep found — so a CI run of either is
+ * either a no-op on a runner that has no such checkout, or a leak onto a machine nobody chose.
+ * Neither is a thing to leave to habit.
  *
  * The rule is readable because of a rule the workflows already follow: **thin CI over thick
  * Gradle** — every check CI runs is a Gradle task, invoked from a `./gradlew` line. So *what CI
@@ -269,15 +280,22 @@ val assertWorkflowsAreHardened = tasks.register("assertWorkflowsAreHardened") {
  */
 val assertTheSweepIsNeverRunInCi = tasks.register("assertTheSweepIsNeverRunInCi") {
     group = LifecycleBasePlugin.VERIFICATION_GROUP
-    description = "Fails if a workflow asks Gradle to run the corpus sweep."
+    description = "Fails if a workflow asks Gradle to run either half of the corpus instrument."
 
     val workflows = layout.projectDirectory.dir(".github/workflows")
-    val report = layout.buildDirectory.file("reports/trust/corpus-sweep-is-not-in-ci.txt")
+    val report = layout.buildDirectory.file("reports/trust/corpus-instrument-is-not-in-ci.txt")
 
-    // Named here rather than spelled twice: see the `corpusSweepTask` extra above. The two property
-    // names are belt and braces — the sweep cannot run without its task being named, so the task
-    // name is the load-bearing half.
-    val forbidden = listOf(corpusSweepTask, "sweepProject", "sweepReportDir")
+    // Named here rather than spelled twice: see the `corpusSweepTask` extra above. The property
+    // names are belt and braces — neither half can run without its task being named, so the two task
+    // names are the load-bearing ones.
+    val forbidden = listOf(
+        corpusSweepTask,
+        "sweepProject",
+        "sweepReportDir",
+        querySweepTask,
+        "querySweepCorpus",
+        "querySweepReportDir",
+    )
     val pattern = gradleInvocationPattern
 
     inputs.dir(workflows).withPropertyName("workflows")
@@ -299,7 +317,7 @@ val assertTheSweepIsNeverRunInCi = tasks.register("assertTheSweepIsNeverRunInCi"
             val invocations = gradleInvocation.findAll(text).map { it.value }.toList()
             val violations = invocations.flatMap { line ->
                 forbidden.filter { it in line }.map {
-                    "$name runs Gradle with `$it` in it, which is the corpus sweep: ${line.trim()}"
+                    "$name runs Gradle with `$it` in it, which is the corpus instrument: ${line.trim()}"
                 }
             }
             return violations to invocations.size
