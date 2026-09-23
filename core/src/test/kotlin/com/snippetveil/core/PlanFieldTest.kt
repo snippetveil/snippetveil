@@ -75,6 +75,30 @@ class PlanFieldTest {
     }
 
     /**
+     * **A parameter list whose shape this reader does not recognise is one redacted literal, whole.**
+     *
+     * The rule's teeth are here rather than in the happy path. A walk that looked for the parts it
+     * knew and stepped over the rest would emit *nothing* for a list from a release that prints one
+     * differently — and emitting nothing means the values reach the clipboard verbatim, which is the
+     * residual running toward preservation in the one field whose rule is *or one redacted literal*.
+     */
+    @Test
+    fun `a parameter list whose shape is unrecognised is redacted whole`() {
+        val text = anonymizedText(
+            """
+            |Seq Scan on visits  (cost=0.00..1.00 rows=1 width=4)
+            |  Query Parameters: 'acme-holdings', 42
+            """.trimMargin(),
+        )
+
+        assertFalse("acme-holdings" in text, "a parameter list nothing recognised was passed through:\n$text")
+        assertTrue(
+            Regex("""Query Parameters: str\d+$""", RegexOption.MULTILINE).containsMatchIn(text),
+            "the unrecognised parameter list was not redacted whole:\n$text",
+        )
+    }
+
+    /**
      * **An identifying number is masked, and two printings of one share a token.**
      *
      * PostgreSQL's query id is a hash of the statement, so preserving it would let a receiver

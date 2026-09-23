@@ -68,10 +68,10 @@ fun parsePlan(text: String): PlanReading {
     // is cheaper than it looks — the walk allocates a token per name and resolves nothing — and it is
     // the whole of what makes the two keys agree.
     val declared = mutableSetOf<String>()
-    val declarations = PlanReader(declared)
+    val declarations = PlanReader(declared, POSTGRES)
     lines.forEach(declarations::readStructure)
 
-    val reader = PlanReader(declared)
+    val reader = PlanReader(declared, POSTGRES)
     lines.forEach(reader::readStructure)
     lines.forEach(reader::readFields)
 
@@ -130,8 +130,10 @@ private const val COST = "  (cost="
  *
  * @param declared the names the plan itself introduces — an alias, a CTE. [readStructure] fills it,
  *   and everything keyed as a relation reads it. See [PlanKeys].
+ * @param vocabulary the engine whose printer wrote this plan, passed in rather than read out of a
+ *   global anywhere below — so the second engine is a second argument here and not a second reader.
  */
-private class PlanReader(private val declared: MutableSet<String>) {
+private class PlanReader(private val declared: MutableSet<String>, private val vocabulary: PlanVocabulary) {
 
     val occurrences = mutableListOf<Occurrence>()
 
@@ -149,24 +151,26 @@ private class PlanReader(private val declared: MutableSet<String>) {
         if (field != null) {
             // `Subplan Name: CTE recent` names a CTE on a field line, which is the one declaration
             // that does not arrive on a line of its own.
-            if (field.label == SUBPLAN_NAME) readCteHeader(line, field.from)
+            if (field.label == SUBPLAN_NAME) readCteHeader(line, line.start + field.from)
             return
         }
 
         val label = labelOf(line.body)
         if (label == null) {
             // `CTE recent`, sitting above the subtree that computes it.
-            readCteHeader(line, line.bodyAt)
+            readCteHeader(line, line.start + line.bodyAt)
             return
         }
 
+        // **The head alone is scanned**, never the parenthetical behind it — which is the whole
+        // reason a plan is pasted, and is out of reach of every rule here by not being read at all.
         val head = line.body.substringBefore(TAIL)
-        var at = label.length
+        val from = line.start + line.bodyAt
+        val tokens = scanOf(PlanSlot(line.text, from, from + head.length, line.start)).tokens
 
+        var at = label.length
         val using = head.indexOf(USING, at)
-        if (using >= 0) {
-            at = readQualified(line, head, line.bodyAt, using + USING.length, SymbolRole.INDEX)
-        }
+        if (using >= 0) at = readQualified(tokens, from + using + USING.length, SymbolRole.INDEX) - from
 
         // **Where the relation begins, which is one of two places.** `Seq Scan on visits` carries the
         // keyword in the middle of the line; `Insert on visits`, `Update on`, `Delete on` and
@@ -174,7 +178,7 @@ private class PlanReader(private val declared: MutableSet<String>) {
         // second one would walk past the relation and leave a table name on the clipboard. The
         // suffix is ` on` rather than `on` so that `Recursive Union` is not read as one of them.
         val relation = if (label.endsWith(ON.trimEnd())) {
-            skippingSpaces(head, label.length)
+            label.length
         } else {
             head.indexOf(ON, at).takeIf { it >= 0 }?.plus(ON.length)
         }
@@ -184,24 +188,38 @@ private class PlanReader(private val declared: MutableSet<String>) {
         // is the one node whose `on` means something else. Reading it as a relation would put a
         // `table` placeholder on an access path and assert a rowset that is not there.
         val scanned = if (label == BITMAP_INDEX_SCAN) SymbolRole.INDEX else SymbolRole.TABLE
-        at = readQualified(line, head, line.bodyAt, relation, scanned)
+        val after = readQualified(tokens, from + relation, scanned)
 
         // The alias, where the engine printed one — `Seq Scan on visits v`. It is a name the **plan**
         // declares: two plans each calling something `v` are not talking about one thing, and
         // `visits_1` is an alias this engine invented rather than a relation anybody named.
-        val alias = tokenAt(head, skippingSpaces(head, at), line.bodyAt) ?: return
-        declared += alias.spelling
-        occurrences += alias.anonymized(line, SymbolRole.TABLE, PlanKeys.declared(SymbolRole.TABLE, alias.spelling))
+        val alias = nameAt(tokens, after) ?: return
+        declare(tokens[alias])
     }
 
     /** `CTE recent` — the name after the keyword, declared by the plan that computes it. */
     private fun readCteHeader(line: PlanLine, from: Int) {
-        val at = skippingSpaces(line.text, from)
-        if (!line.text.startsWith(CTE, at)) return
+        val tokens = scanOf(PlanSlot(line.text, from, line.start + line.text.length, line.start)).tokens
+        if (tokens.size < 2 || tokens[0].text != CTE || !tokens[1].isName) return
+        declare(tokens[1])
+    }
 
-        val name = tokenAt(line.text, at + CTE.length, 0) ?: return
-        declared += name.spelling
-        occurrences += name.anonymized(line, SymbolRole.TABLE, PlanKeys.declared(SymbolRole.TABLE, name.spelling))
+    /**
+     * **A name the plan itself introduced** — an alias, a CTE — filed as the plan's own.
+     *
+     * It goes into [declared] before it is keyed, which is what the two passes in [parsePlan] are
+     * for: a name the plan declares is the plan's wherever it is written afterwards, whether that is
+     * above the declaration or below it.
+     */
+    private fun declare(token: PlanToken) {
+        declared += token.text
+        occurrences += PlanOccurrence(
+            token.start,
+            token.end,
+            PlanDisposition.Anonymize(SymbolRole.TABLE, PlanKeys.declared(SymbolRole.TABLE, token.text)),
+            token.nameStart,
+            token.nameEnd,
+        )
     }
 
     /**
@@ -231,7 +249,7 @@ private class PlanReader(private val declared: MutableSet<String>) {
 
             field.label in MEASURED_FIELDS -> occurrences += PlanTreatments.measured()
             field.label in ECHOED_QUERY_FIELDS -> occurrences += PlanTreatments.echoedQuery(slot)
-            field.label in PARAMETER_FIELDS -> occurrences += PlanTreatments.parameters(slot, POSTGRES)
+            field.label in PARAMETER_FIELDS -> occurrences += PlanTreatments.parameters(slot, vocabulary)
             field.label in IDENTIFYING_FIELDS -> occurrences += PlanTreatments.identifying(slot)
 
             else -> readExpression(slot)
@@ -239,26 +257,24 @@ private class PlanReader(private val declared: MutableSet<String>) {
     }
 
     /**
-     * The dotted chain starting at [at] — `billing.invoices`, `v`, `"Customers"` — with [last] the
-     * kind of its final segment and every segment before it a schema.
+     * The dotted chain that begins at or after [at] — `billing.invoices`, `v`, `"Customers"` — with
+     * [last] the kind of its final segment and every segment before it a schema.
      *
      * **A qualified name is several symbols and not one**, so each segment is keyed and replaced on
      * its own: `billing.invoices` renders `schema1.table2`, and the reader keeps the fact that the
      * two are different things in different namespaces.
      *
-     * @param within the string the offsets are read in — a node line's head, or the whole line
-     * @param offset where [within] begins in the line, so a token's offsets are the line's own
-     * @return where the chain ended in [within], so the caller can go on reading the line from there
+     * @return where the chain ended in the plan, so the caller can go on reading the line from
+     *   there — and [at] itself where nothing identifier-shaped was waiting
      */
-    private fun readQualified(line: PlanLine, within: String, offset: Int, at: Int, last: SymbolRole): Int {
-        val chain = chainAt(within, at, offset)
-        if (chain.isEmpty()) return at
+    private fun readQualified(tokens: List<PlanToken>, at: Int, last: SymbolRole): Int {
+        val index = nameAt(tokens, at) ?: return at
+        val chain = chainOf(tokens, index).tokens
 
-        for ((index, token) in chain.withIndex()) {
-            val kind = if (index == chain.lastIndex) last else SymbolRole.SCHEMA
-            occurrences += token.anonymized(line, kind, keyOf(kind, token.spelling))
+        for ((position, token) in chain.withIndex()) {
+            occurrences += anonymized(token, if (position == chain.lastIndex) last else SymbolRole.SCHEMA)
         }
-        return chain.last().after
+        return chain.last().end
     }
 
     /**
@@ -306,84 +322,99 @@ private class PlanReader(private val declared: MutableSet<String>) {
         }
 
         var at = 0
-        while (at < scan.cells.size) {
-            val cell = scan.cells[at]
-            at = when (cell.kind) {
-                PlanCellKind.MARK, PlanCellKind.NUMBER -> at + 1
-                PlanCellKind.LITERAL -> {
-                    occurrences += PlanTreatments.literal(cell)
+        while (at < scan.tokens.size) {
+            val token = scan.tokens[at]
+            at = when (token.kind) {
+                PlanTokenKind.MARK, PlanTokenKind.NUMBER -> at + 1
+                PlanTokenKind.LITERAL -> {
+                    occurrences += PlanTreatments.literal(token)
                     at + 1
                 }
 
-                PlanCellKind.WORD, PlanCellKind.DELIMITED -> readCell(scan.cells, at)
+                PlanTokenKind.WORD, PlanTokenKind.DELIMITED -> readName(scan.tokens, at)
             }
         }
     }
 
     /**
-     * What becomes of the name-shaped cell at [at], and where the walk goes next.
+     * What becomes of the name-shaped token at [at], and where the walk goes next.
      *
      * **The chain is asked first**, because the kinds in one are positional and a word that belongs
      * to a qualified name is a name whatever else it is spelled like. The phrase is asked next, and
      * the bare word last, which is the order the delimitation argument comes in: a space is a
      * stronger warrant than a spelling.
      */
-    private fun readCell(cells: List<PlanCell>, at: Int): Int {
-        val chain = chainOf(cells, at)
-        if (chain.size > 1) {
-            for ((index, cell) in chain.withIndex()) {
-                val kind = when (index) {
-                    chain.lastIndex -> SymbolRole.COLUMN
-                    chain.lastIndex - 1 -> SymbolRole.TABLE
+    private fun readName(tokens: List<PlanToken>, at: Int): Int {
+        val chain = chainOf(tokens, at)
+        if (chain.tokens.size > 1) {
+            for ((position, token) in chain.tokens.withIndex()) {
+                val kind = when (position) {
+                    chain.tokens.lastIndex -> SymbolRole.COLUMN
+                    chain.tokens.lastIndex - 1 -> SymbolRole.TABLE
                     else -> SymbolRole.SCHEMA
                 }
-                occurrences += anonymized(cell, kind)
+                occurrences += anonymized(token, kind)
             }
-            return at + chain.size * 2 - 1
+            return chain.after
         }
 
-        val phrase = POSTGRES.phraseAt(cells, at)
+        val phrase = vocabulary.phraseAt(tokens, at)
         if (phrase > 0) {
-            occurrences += PlanOccurrence(cells[at].start, cells[at + phrase - 1].end, PlanDisposition.Preserve)
+            occurrences += PlanOccurrence(tokens[at].start, tokens[at + phrase - 1].end, PlanDisposition.Preserve)
             return at + phrase
         }
 
-        val cell = cells[at]
-        if (cell.kind == PlanCellKind.WORD && POSTGRES.knows(cell.text)) {
-            occurrences += PlanOccurrence(cell.start, cell.end, PlanDisposition.Preserve)
+        val token = tokens[at]
+        if (token.kind == PlanTokenKind.WORD && vocabulary.knows(token.text)) {
+            occurrences += PlanOccurrence(token.start, token.end, PlanDisposition.Preserve)
             return at + 1
         }
 
-        occurrences += anonymized(cell, SymbolRole.COLUMN)
+        occurrences += anonymized(token, SymbolRole.COLUMN)
         return at + 1
     }
 
-    /** One cell replaced by a placeholder of [kind], written inside its delimiters. */
-    private fun anonymized(cell: PlanCell, kind: SymbolRole) = PlanOccurrence(
-        cell.start,
-        cell.end,
-        PlanDisposition.Anonymize(kind, keyOf(kind, cell.text)),
-        cell.nameStart,
-        cell.nameEnd,
+    /** One token replaced by a placeholder of [kind], written inside its delimiters. */
+    private fun anonymized(token: PlanToken, kind: SymbolRole) = PlanOccurrence(
+        token.start,
+        token.end,
+        PlanDisposition.Anonymize(kind, keyOf(kind, token.text)),
+        token.nameStart,
+        token.nameEnd,
     )
 }
 
 /**
- * The dotted chain beginning at [at] — one cell, or several joined by `.`.
+ * The index of the token waiting at or after [at], where the thing waiting there is a name — and
+ * `null` where it is punctuation, a number or nothing at all.
  *
- * Read whole rather than a cell at a time because the kinds are **positional**: what a segment is
+ * At or after rather than exactly at, because the scan has already dropped the whitespace a plan
+ * separates its names with: `Insert on billing.invoices` carries the keyword inside its own label,
+ * so the offset a caller has is the space in front of the relation rather than the relation.
+ */
+private fun nameAt(tokens: List<PlanToken>, at: Int): Int? =
+    tokens.indexOfFirst { it.start >= at }.takeIf { it >= 0 && tokens[it].isName }
+
+/**
+ * The dotted chain beginning at [at] — one token, or several joined by `.` — and where the walk
+ * resumes after it.
+ *
+ * Read whole rather than a token at a time because the kinds are **positional**: what a segment is
  * depends on how many follow it, and a reader that classified each as it met it would have to change
  * its mind about the one before.
  */
-private fun chainOf(cells: List<PlanCell>, at: Int): List<PlanCell> {
-    val chain = mutableListOf(cells[at])
+private fun chainOf(tokens: List<PlanToken>, at: Int): PlanChain {
+    val chain = mutableListOf(tokens[at])
     var next = at + 1
-    while (next + 1 < cells.size && cells[next].isDot && cells[next + 1].isName) {
-        chain += cells[next + 1]
+    while (next + 1 < tokens.size && tokens[next].isDot && tokens[next + 1].isName) {
+        chain += tokens[next + 1]
         next += 2
     }
-    return chain
+    return PlanChain(chain, next)
 }
+
+/** One qualified name, and the index the reader goes on from. See [chainOf]. */
+private class PlanChain(val tokens: List<PlanToken>, val after: Int)
 
 /** One line of the input, and the two readings of it every rule above asks for. */
 private class PlanLine(val text: String, val start: Int) {
@@ -409,32 +440,6 @@ private class PlanLine(val text: String, val start: Int) {
 
 /** A field line's label, and where its value starts in the line. See [PlanLine.field]. */
 private class PlanField(val label: String, val from: Int)
-
-/**
- * One identifier-shaped token, bare or delimited — with every offset **relative to the line**, and
- * [after] relative to whatever string it was read out of.
- *
- * @param spelling the token exactly as written, delimiters included. It is what a key is made of, so
- *   `"Customers"` and `customers` are two symbols and neither is folded into the other.
- */
-private class PlanToken(
-    val start: Int,
-    val end: Int,
-    val nameStart: Int,
-    val nameEnd: Int,
-    val spelling: String,
-    val after: Int,
-) {
-
-    /** A token replaced by a placeholder of [kind], written inside its delimiters. */
-    fun anonymized(line: PlanLine, kind: SymbolRole, key: String) = PlanOccurrence(
-        line.start + start,
-        line.start + end,
-        PlanDisposition.Anonymize(kind, key),
-        line.start + nameStart,
-        line.start + nameEnd,
-    )
-}
 
 /**
  * **The fields that hold measured quantities** — the numbers a plan is pasted *for*, preserved
@@ -501,7 +506,7 @@ private const val BITMAP_INDEX_SCAN = "Bitmap Index Scan"
 private const val SUBPLAN_NAME = "Subplan Name"
 
 /** The keyword a plan writes in front of a name it is computing for itself. */
-private const val CTE = "CTE "
+private const val CTE = "CTE"
 
 /** What an index name follows, spaced as a plan prints it. */
 private const val USING = " using "
@@ -568,64 +573,4 @@ private fun linesOf(text: String): List<PlanLine> {
     }
 }
 
-/**
- * The dotted chain beginning at [at] in [within] — one token, or several separated by dots.
- *
- * Read whole rather than a token at a time because the kinds are **positional**: what a segment is
- * depends on how many follow it, and a reader that classified each as it met it would have to change
- * its mind about the one before.
- *
- * @param offset where [within] begins in the line, so a token's offsets are the line's own
- */
-private fun chainAt(within: String, at: Int, offset: Int): List<PlanToken> {
-    val chain = mutableListOf<PlanToken>()
-    var next = at
-    while (true) {
-        val token = tokenAt(within, next, offset) ?: break
-        chain += token
-        if (token.after >= within.length || within[token.after] != '.') break
-        next = token.after + 1
-    }
-    return chain
-}
 
-/**
- * The token at [at] in [within], or `null` where nothing identifier-shaped starts there.
- *
- * A delimited name keeps its delimiters and reports the name inside them, which is where a
- * placeholder is written: `"Customers"` renders `"table2"`, and the token as a whole is still one
- * range, so occurrences still never split a token. See [PlanOccurrence.nameStart].
- */
-private fun tokenAt(within: String, at: Int, offset: Int): PlanToken? {
-    if (at >= within.length) return null
-
-    if (within[at] == '"') {
-        var end = at + 1
-        while (end < within.length) {
-            if (within[end] == '"') {
-                if (end + 1 < within.length && within[end + 1] == '"') end++ else break
-            }
-            end++
-        }
-        if (end >= within.length) return null
-        return PlanToken(
-            offset + at,
-            offset + end + 1,
-            offset + at + 1,
-            offset + end,
-            within.substring(at, end + 1),
-            end + 1,
-        )
-    }
-
-    if (!opensAWord(within[at])) return null
-    val end = endOfWord(within, at)
-    return PlanToken(offset + at, offset + end, offset + at, offset + end, within.substring(at, end), end)
-}
-
-/** The first index at or after [at] that is not a space — how a plan separates one name from the next. */
-private fun skippingSpaces(text: String, at: Int): Int {
-    var next = at
-    while (next < text.length && text[next] == ' ') next++
-    return next
-}

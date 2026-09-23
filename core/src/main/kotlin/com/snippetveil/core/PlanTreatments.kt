@@ -24,6 +24,11 @@ package com.snippetveil.core
  * decision that keeps this from growing an output surface. A family per class would make every class
  * name a forever-surface in text a model reads, and a new family serves no debugging purpose that
  * `str1` does not already serve. See [PlanDisposition.Mask].
+ *
+ * So four of the classes here share one line of body, deliberately: **what a class is, is its
+ * argument**, and the argument is what a field inventory cites when it picks one. Collapsing them
+ * into a single `mask()` would save four lines and leave every inventory row saying only *masked*,
+ * with the reason it is masked — and therefore whether the reason still holds — nowhere.
  */
 internal object PlanTreatments {
 
@@ -107,13 +112,16 @@ internal object PlanTreatments {
      *
      * `'ACTIVE'` becomes `'str1'`: the literal stays a literal, so the field still reads as the
      * predicate it is, and the value — an address, an account id, a token — does not reach the
-     * clipboard. An **empty** literal is preserved, for the reason the Java literal rule preserves
-     * `""`: there is no content to carry a domain, and `= ''` silently becoming `= 'str1'` converts
-     * an empty-check into a value-check.
+     * clipboard.
+     *
+     * An **empty** literal is nothing to mask, by the same rule that leaves an empty slot alone
+     * below: there is no content to carry a domain, and `= ''` silently becoming `= 'str1'` would
+     * have this product assert a value where the engine printed none — *plausible* rather than
+     * obvious, which is the prohibited class. It is where the Java literal rule lands on `""` too.
      */
-    fun literal(cell: PlanCell): List<PlanOccurrence> {
-        if (cell.nameEnd <= cell.nameStart) return emptyList()
-        return listOf(maskOver(cell.start, cell.end, cell.nameStart, cell.nameEnd, cell.text))
+    fun literal(token: PlanToken): List<PlanOccurrence> {
+        if (token.nameEnd <= token.nameStart) return emptyList()
+        return listOf(maskOver(token.start, token.end, token.nameStart, token.nameEnd, token.text))
     }
 
     /**
@@ -126,50 +134,54 @@ internal object PlanTreatments {
      * is a slot this reader does not understand, and understanding it partially is how a value
      * leaves in the part nobody looked at. A number survives as printed, a constant the vocabulary
      * knows survives as written, and everything else is masked.
+     *
+     * **The list's own shape is read strictly, and a field that does not have it fails whole.** The
+     * reader looks for `$n = value`, comma-separated, and anything else — a list with no `=` in it
+     * at all, a value with nothing after the `=`, a shape from a release nobody here has seen — is
+     * one redacted literal. Walking past what it did not recognise is how the residual would come to
+     * run toward preservation in the one field whose rule is *or one redacted literal*.
      */
     fun parameters(slot: PlanSlot, vocabulary: PlanVocabulary): List<PlanOccurrence> {
         val scan = scanOf(slot)
         if (!scan.sound) return unreadable(slot)
 
-        val cells = scan.cells
+        val tokens = scan.tokens
         val occurrences = mutableListOf<PlanOccurrence>()
         var at = 0
-        while (at < cells.size) {
-            if (!cells[at].isAssignment) {
-                at++
-                continue
-            }
+        while (at < tokens.size) {
+            val opensAParameter = at + 2 < tokens.size &&
+                tokens[at].isMark("$") &&
+                tokens[at + 1].kind == PlanTokenKind.NUMBER &&
+                tokens[at + 2].isMark("=")
+            if (!opensAParameter) return unreadable(slot)
 
             // The value runs to the comma that separates this parameter from the next — at depth
             // zero, so a comma inside a row or an array constructor does not end it.
-            var end = at + 1
+            var end = at + 3
             var depth = 0
-            while (end < cells.size) {
-                val cell = cells[end]
-                if (cell.kind == PlanCellKind.MARK) {
-                    if (cell.text == "(" || cell.text == "[") depth++
-                    if (cell.text == ")" || cell.text == "]") depth--
-                    if (cell.text == "," && depth <= 0) break
-                }
+            while (end < tokens.size) {
+                val token = tokens[end]
+                if (token.isMark("(") || token.isMark("[")) depth++
+                if (token.isMark(")") || token.isMark("]")) depth--
+                if (token.isMark(",") && depth <= 0) break
                 end++
             }
+            if (end == at + 3) return unreadable(slot)
 
-            occurrences += valueOf(slot, cells.subList(at + 1, end), vocabulary)
-            at = end
+            occurrences += valueOf(slot, tokens.subList(at + 3, end), vocabulary)
+            at = end + 1
         }
         return occurrences
     }
 
-    /** What becomes of one parameter's value. See [parameters]. */
-    private fun valueOf(slot: PlanSlot, value: List<PlanCell>, vocabulary: PlanVocabulary): List<PlanOccurrence> {
-        if (value.isEmpty()) return emptyList()
-
+    /** What becomes of one parameter's value, which is never empty. See [parameters]. */
+    private fun valueOf(slot: PlanSlot, value: List<PlanToken>, vocabulary: PlanVocabulary): List<PlanOccurrence> {
         val only = value.singleOrNull()
         if (only != null) {
             when {
-                only.kind == PlanCellKind.LITERAL -> return literal(only)
-                only.kind == PlanCellKind.NUMBER -> return emptyList()
-                only.kind == PlanCellKind.WORD && only.text in vocabulary.constants ->
+                only.kind == PlanTokenKind.LITERAL -> return literal(only)
+                only.kind == PlanTokenKind.NUMBER -> return emptyList()
+                only.kind == PlanTokenKind.WORD && only.text in vocabulary.constants ->
                     return listOf(PlanOccurrence(only.start, only.end, PlanDisposition.Preserve))
             }
         }
@@ -185,8 +197,6 @@ internal object PlanTreatments {
     private fun maskOver(start: Int, end: Int, nameStart: Int, nameEnd: Int, written: String) =
         PlanOccurrence(start, end, PlanDisposition.Mask(PlanKeys.masked(written)), nameStart, nameEnd)
 
-    /** Whether this is the `=` a parameter's value follows, and not part of an operator. */
-    private val PlanCell.isAssignment: Boolean get() = kind == PlanCellKind.MARK && text == "="
 }
 
 /**

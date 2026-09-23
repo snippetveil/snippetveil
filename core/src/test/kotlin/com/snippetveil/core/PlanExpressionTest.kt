@@ -81,17 +81,33 @@ class PlanExpressionTest {
      * quotes would hand the whole rule back to spelling — and `"count"` is a column called `count`.
      */
     @Test
-    fun `a delimited token spelled like a builtin is still a name`() {
+    fun `a delimited token spelled like a keyword or a builtin is still a name`() {
         val plan = """
             |Seq Scan on visits  (cost=0.00..1.00 rows=1 width=4)
-            |  Filter: ("count" > 0)
+            |  Filter: (("AND" > 0) AND ("count" > 0))
             """.trimMargin()
 
-        assertEquals(SymbolRole.COLUMN, namesIn(plan)["count"], "a delimited token was not read as a name")
-        assertFalse("\"count\"" in preservedIn(plan), "a delimited token was emitted as written")
+        for (delimited in listOf("AND", "count")) {
+            assertEquals(
+                SymbolRole.COLUMN,
+                namesIn(plan)[delimited],
+                "a delimited token was not read as a name: \"$delimited\"",
+            )
+            assertFalse(
+                "\"$delimited\"" in preservedIn(plan),
+                "a delimited token was emitted as written: \"$delimited\"",
+            )
+        }
+
+        val text = anonymizedText(plan)
         assertTrue(
-            Regex("""Filter: \("col\d+" > 0\)""").containsMatchIn(anonymizedText(plan)),
-            "a delimited name did not render inside its delimiters:\n" + anonymizedText(plan),
+            Regex("""Filter: \(\("col\d+" > 0\) AND \("col\d+" > 0\)\)""").containsMatchIn(text),
+            "a delimited name did not render inside its delimiters:\n$text",
+        )
+        assertEquals(
+            1,
+            Regex("""\bAND\b""").findAll(text).count(),
+            "the bare keyword and the delimited one did not part company:\n$text",
         )
     }
 
@@ -192,20 +208,23 @@ class PlanExpressionTest {
     /**
      * **The builtin list's known exposure, recorded as a test rather than as a sentence.**
      *
-     * `count` is preserved because PostgreSQL prints its own `count()` exactly as it prints a user's
-     * column or function of that name — there is no spelling difference to read. So a user object
-     * named after a builtin survives under its own name, and that is the price of the field being
-     * readable at all.
+     * **The plan below is a user's own `count(…)` function and a user's own `count` column**, and
+     * nothing in the text says so: PostgreSQL prints its own aggregate exactly as it prints either
+     * of them, in the same position, with the same spelling. So both survive under their own name,
+     * and that is the price of the field being readable at all — the alternative is masking every
+     * function and type name, which needs no list and carries no exposure but loses the reason the
+     * field is worth reading.
      *
      * The asymmetry is why the list is enumerated rather than derived: a row it **holds** is an
      * exposure, and a row it **omits** costs only fidelity. A later ticket's oracle may add to it and
-     * must never subtract from it.
+     * must never subtract from it. A user function the list does **not** hold is replaced, which is
+     * the other half of the same claim.
      */
     @Test
-    fun `a user column named after a builtin is preserved, which is the list's exposure`() {
+    fun `a user function named after a builtin is preserved, which is the list's exposure`() {
         val plan = """
             |Aggregate  (cost=1.00..1.01 rows=1 width=8)
-            |  Output: count(v.id)
+            |  Output: count(v.id), merchant_rank(v.id)
             |  ->  Seq Scan on visits v  (cost=0.00..1.00 rows=1 width=4)
             |        Filter: (count > 0)
             """.trimMargin()
@@ -214,7 +233,12 @@ class PlanExpressionTest {
         assertEquals(
             2,
             Regex("""\bcount\b""").findAll(anonymizedText(plan)).count(),
-            "the exposure changed: a user column spelled like a builtin no longer survives\n" + anonymizedText(plan),
+            "the exposure changed: a user object spelled like a builtin no longer survives\n" + anonymizedText(plan),
+        )
+        assertEquals(
+            SymbolRole.COLUMN,
+            namesIn(plan)["merchant_rank"],
+            "a user function the list does not hold was preserved, which is the exposure widening",
         )
     }
 

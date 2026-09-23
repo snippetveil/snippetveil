@@ -42,6 +42,19 @@ internal class PlanSlot(val within: String, val start: Int, val end: Int, val of
 
     /** Whether there is nothing here but whitespace. */
     val isBlank: Boolean get() = (start until end).all { at(it).isWhitespace() }
+
+    /**
+     * Where the word starting at [at] ends — letters, digits, `_` and the `$` a parameter is written
+     * with, stopping at the slot's end.
+     *
+     * It lives here rather than beside the scanner so that the promise above holds all the way down:
+     * **no caller does the arithmetic**, including the scanner.
+     */
+    fun endOfWordAt(at: Int): Int {
+        var next = at
+        while (next < end && (at(next).isLetterOrDigit() || at(next) == '_' || at(next) == '$')) next++
+        return next
+    }
 }
 
 /**
@@ -86,7 +99,7 @@ internal class PlanSlot(val within: String, val start: Int, val end: Int, val of
  * too, which is what [PlanScan.sound] is. See [PlanTreatments.unreadable] for what becomes of one.
  */
 internal fun scanOf(slot: PlanSlot): PlanScan {
-    val cells = mutableListOf<PlanCell>()
+    val tokens = mutableListOf<PlanToken>()
     var at = slot.start
     while (at < slot.end) {
         val character = slot.at(at)
@@ -100,41 +113,41 @@ internal fun scanOf(slot: PlanSlot): PlanScan {
                 // raw and the field simply stops mid-literal. There is no sound reading of that, and
                 // the answer is to stop reading rather than to guess where it ended.
                 val closing = closingQuote(slot, at, character) ?: return PlanScan(emptyList(), sound = false)
-                val kind = if (character == '\'') PlanCellKind.LITERAL else PlanCellKind.DELIMITED
-                cells += cellIn(slot, kind, at, closing + 1, at + 1, closing)
+                val kind = if (character == '\'') PlanTokenKind.LITERAL else PlanTokenKind.DELIMITED
+                tokens += tokenIn(slot, kind, at, closing + 1, at + 1, closing)
                 at = closing + 1
             }
 
             character.isDigit() -> {
                 val end = endOfNumber(slot, at)
-                cells += cellIn(slot, PlanCellKind.NUMBER, at, end)
+                tokens += tokenIn(slot, PlanTokenKind.NUMBER, at, end)
                 at = end
             }
 
             opensAWord(character) -> {
-                val end = endOfWord(slot.within, at - slot.offset, slot.end - slot.offset) + slot.offset
-                cells += cellIn(slot, PlanCellKind.WORD, at, end)
+                val end = slot.endOfWordAt(at)
+                tokens += tokenIn(slot, PlanTokenKind.WORD, at, end)
                 at = end
             }
 
             else -> {
                 // `::` is one mark rather than two, because a cast is a thing the reader asks about.
                 val end = if (slot.startsWith(CAST, at)) at + CAST.length else at + 1
-                cells += cellIn(slot, PlanCellKind.MARK, at, end)
+                tokens += tokenIn(slot, PlanTokenKind.MARK, at, end)
                 at = end
             }
         }
     }
-    return PlanScan(cells, sound = true)
+    return PlanScan(tokens, sound = true)
 }
 
 /**
  * **What the lexer made of one field**: its tokens, and whether they can be trusted at all.
  *
- * @param sound whether the field's own quoting closed inside the field. **False means the cells are
+ * @param sound whether the field's own quoting closed inside the field. **False means the tokens are
  *   empty and the field is never parsed** — not that some of it was read. See [scanOf].
  */
-internal class PlanScan(val cells: List<PlanCell>, val sound: Boolean)
+internal class PlanScan(val tokens: List<PlanToken>, val sound: Boolean)
 
 /**
  * One token of an expression field, with **every offset the plan's own**.
@@ -145,8 +158,8 @@ internal class PlanScan(val cells: List<PlanCell>, val sound: Boolean)
  *   after the opening delimiter for a quoted one. See [PlanOccurrence.nameStart].
  * @param nameEnd where it ends, before the closing delimiter
  */
-internal class PlanCell(
-    val kind: PlanCellKind,
+internal class PlanToken(
+    val kind: PlanTokenKind,
     val start: Int,
     val end: Int,
     val nameStart: Int,
@@ -155,10 +168,13 @@ internal class PlanCell(
 ) {
 
     /** Whether this is the `.` that joins two segments of a qualified name. */
-    val isDot: Boolean get() = kind == PlanCellKind.MARK && text == "."
+    val isDot: Boolean get() = isMark(".")
 
     /** Whether this token is a name slot — a word or a delimited identifier. */
-    val isName: Boolean get() = kind == PlanCellKind.WORD || kind == PlanCellKind.DELIMITED
+    val isName: Boolean get() = kind == PlanTokenKind.WORD || kind == PlanTokenKind.DELIMITED
+
+    /** Whether this token is the mark [written], which is how a reader asks about punctuation. */
+    fun isMark(written: String): Boolean = kind == PlanTokenKind.MARK && text == written
 }
 
 /**
@@ -167,7 +183,7 @@ internal class PlanCell(
  * The kinds are what the closure dispatches on, and each is decided by the character that opened the
  * token. Nothing here looks a word up; that is the vocabulary's job, one layer out.
  */
-internal enum class PlanCellKind {
+internal enum class PlanTokenKind {
 
     /** A bare identifier-shaped word: `status`, `count`, `AND`, `SubPlan`. */
     WORD,
@@ -238,16 +254,16 @@ internal class PlanVocabulary(
      * qualifier of one, so a phrase reaching either would preserve a name in the middle of a
      * spelling it recognised.
      */
-    fun phraseAt(cells: List<PlanCell>, at: Int): Int {
-        if (at > 0 && cells[at - 1].isDot) return 0
+    fun phraseAt(tokens: List<PlanToken>, at: Int): Int {
+        if (at > 0 && tokens[at - 1].isDot) return 0
 
         for (phrase in phrases) {
-            if (at + phrase.size > cells.size) continue
-            if (phrase.indices.any { cells[at + it].kind != PlanCellKind.WORD || cells[at + it].text != phrase[it] }) {
+            if (at + phrase.size > tokens.size) continue
+            if (phrase.indices.any { tokens[at + it].kind != PlanTokenKind.WORD || tokens[at + it].text != phrase[it] }) {
                 continue
             }
             val after = at + phrase.size
-            if (after < cells.size && cells[after].isDot) continue
+            if (after < tokens.size && tokens[after].isDot) continue
             return phrase.size
         }
         return 0
@@ -373,15 +389,15 @@ private fun endOfNumber(slot: PlanSlot, at: Int): Int {
     return end
 }
 
-/** One cell, with the plan's offsets and the text it is written with. */
-private fun cellIn(
+/** One token, with the plan's offsets and the text it is written with. */
+private fun tokenIn(
     slot: PlanSlot,
-    kind: PlanCellKind,
+    kind: PlanTokenKind,
     start: Int,
     end: Int,
     nameStart: Int = start,
     nameEnd: Int = end,
-) = PlanCell(kind, start, end, nameStart, nameEnd, slot.narrowed(start, end).written)
+) = PlanToken(kind, start, end, nameStart, nameEnd, slot.narrowed(start, end).written)
 
 /**
  * Whether a token can start here — a letter or an underscore, as every engine's identifiers do, and
@@ -389,12 +405,6 @@ private fun cellIn(
  */
 internal fun opensAWord(character: Char): Boolean = character.isLetter() || character == '_'
 
-/** Where the word starting at [at] ends: letters, digits, `_` and the `$` a parameter is written with. */
-internal fun endOfWord(text: String, at: Int, limit: Int = text.length): Int {
-    var end = at
-    while (end < limit && (text[end].isLetterOrDigit() || text[end] == '_' || text[end] == '$')) end++
-    return end
-}
 
 /** The cast mark, which is punctuation and never a name. */
 internal const val CAST = "::"
