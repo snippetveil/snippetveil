@@ -1,8 +1,8 @@
 package com.snippetveil.core
 
 /**
- * **The two shapes a name in an execution plan keys under** — both ephemeral, and neither ever
- * written down.
+ * **The shapes a token in an execution plan keys under** — two for a name and one for a masked
+ * value, all ephemeral, and none ever written down.
  *
  *  - [named] — `(kind, spelling)`, invocation-wide, for a relation, a column, a schema or an index.
  *    Nothing resolves one of these to a declaration, so the only identity it has is how it is
@@ -25,8 +25,8 @@ package com.snippetveil.core
  * counter, and the number is burnt when the invocation ends. The same plan pasted twice therefore
  * gets two sets of placeholders, which is a fidelity limit and not a disclosure.
  *
- * Both prefixes are ones no JVM key and no [SqlKeys] key starts with, so no plan name can pick up a
- * placeholder the ledger holds for something else.
+ * Every prefix here is one no JVM key and no [SqlKeys] key starts with, so no plan token can pick up
+ * a placeholder the ledger holds for something else.
  *
  * **The plan sits in the owner position of [declared] as a prefix rather than as an argument**,
  * because an invocation reads exactly one plan: the engine takes one text, and a name the plan
@@ -40,6 +40,22 @@ object PlanKeys {
 
     /** The key of [name], of kind [kind], **as declared by the plan itself** — an alias, a CTE. */
     fun declared(kind: SymbolRole, name: String): String = "plan-declared:${planKind(kind)}:$name"
+
+    /**
+     * **The key of a value the plan printed and this product masks** — a literal, an echoed query, a
+     * query hash, a hostname, a field that could not be scanned soundly.
+     *
+     * Keyed on the spelling, so **equal spellings share one token** and within-plan correlation
+     * survives the mask: a hash printed at two nodes still reads as one hash at two nodes.
+     *
+     * **It is a namespace of its own, and that is the mechanism rather than a convention.** A masked
+     * value does not join name identity — a database user spelled like a schema is not that schema —
+     * and with a prefix neither [named] nor [declared] can produce, the two cannot collide however
+     * they are spelled. One namespace for every masked class rather than one per class, because the
+     * classes differ in *why* a value is masked and not in *what the value is*: two slots printing
+     * the same spelling are printing the same thing.
+     */
+    fun masked(spelling: String): String = "plan-mask:$spelling"
 
     private fun planKind(kind: SymbolRole): String {
         require(kind in PLAN_KINDS) { "$kind is not a plan kind; a plan name is one of $PLAN_KINDS" }

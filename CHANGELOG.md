@@ -13,6 +13,26 @@
   The counts there are `renamed` and `preserved` and nothing else, and there is no keep-comments
   tick, because a plan has neither unresolved names nor comments. `Export Mapping…` is where it
   always was.
+- **A plan's `Filter`, `Index Cond` and output lists are read word by word, and the values in them
+  are redacted.** `Filter: ((o.status)::text = 'ACTIVE'::text)` used to come out with the names
+  replaced and `'ACTIVE'` copied through; it now comes out as `Filter: ((table1.col2)::text =
+  'str3'::text)`. The operators, the brackets, the casts, the numbers and `true`/`false` are kept as
+  printed, and so are PostgreSQL's own keywords, built-in functions such as `count` and `now`, and
+  its type names — including the ones written with a space, `double precision` and `timestamp
+  without time zone`. **Anything else in one of those fields is treated as a name and replaced**, so
+  a function or a type of your own comes out as a placeholder rather than being copied. A name the
+  plan printed in quotes is always replaced, whatever it is spelled like. Two printings of one value
+  share one `str` number, so a predicate that repeats a value still reads as one. A field this
+  cannot read cleanly — a value the engine printed with a line break in it, say — is replaced whole
+  by a single `str`, never in part. One limit: a column of yours that is spelled like a built-in
+  function, such as `count`, is kept under its own name, because a plan prints the two identically.
+- **A plan's query text, query parameters and query identifier are redacted.** Where a plan carries
+  the statement it was produced for — `auto_explain`'s `Query Text`, a foreign scan's `Remote SQL` —
+  the whole line is replaced by one `str` and nothing is read out of it. A `Query Parameters` value
+  that is one string is replaced by its own `str`, a number or a `NULL` is kept as printed, and
+  anything else is replaced whole. `Query Identifier` is a hash of your statement, so it is replaced
+  too, with the same number wherever it repeats. Row counts, timings, buffers and memory figures are
+  untouched, as they always were.
 - **A plan's placeholders are not remembered, and only one format is read.** A plan carries no
   declarations to file placeholders under, so the same plan pasted twice comes back under different
   numbers and a plan's names never join the mapping an earlier snippet was sent under. Only

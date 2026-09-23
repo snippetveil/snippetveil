@@ -400,6 +400,34 @@ fun anonymize(
     }
 
     /**
+     * **What becomes of one value an execution plan printed** — a redacted literal, out of the same
+     * family and the same counter every other redacted literal comes from.
+     *
+     * It is the literal path's replacement with one difference, and the difference is the key:
+     * **equal spellings share one placeholder**, so a hash printed at two nodes reads as one hash at
+     * two nodes and the correlation the mask would otherwise destroy survives it. A literal in Java
+     * source has no key and shares nothing, because two occurrences there are two writings of a
+     * value in code somebody wrote; a plan is one printed artifact, and sameness in it is a fact
+     * about the run.
+     *
+     * The row is a [MappedKind.LITERAL] row like any other: no key on it, so there is nothing to
+     * tick and nothing to rename — *literal text is the most directly sensitive content the product
+     * handles* — and it is excluded from the flattened-name notice, which is a statement about
+     * symbols and never about values.
+     */
+    fun maskValue(occurrence: PlanOccurrence, mask: PlanDisposition.Mask) {
+        val placeholder = placeholderByKey.getOrPut(mask.key) { allocator.next(LITERAL_PREFIX) }
+        edits += Edit(occurrence.nameStart, occurrence.nameEnd, placeholder)
+        names.getOrPut(placeholder) {
+            MappedName(
+                original = plan.text.substring(occurrence.nameStart, occurrence.nameEnd),
+                placeholder = placeholder,
+                kind = MappedKind.LITERAL,
+            )
+        }
+    }
+
+    /**
      * Splices [symbol]'s placeholder over `[start, end)`, spelled as [language] spells it — and files
      * the row for whichever name reached the output.
      *
@@ -485,6 +513,10 @@ fun anonymize(
 
             is PlanOccurrence -> when (val disposition = occurrence.disposition) {
                 is PlanDisposition.Anonymize -> spliceName(occurrence, disposition)
+
+                // A value rather than a name: one redacted literal, from the family and the counter
+                // that already exist for exactly this.
+                is PlanDisposition.Mask -> maskValue(occurrence, disposition)
 
                 // Emitted as written, and that is the whole of it: no edit, no number, no row. It is
                 // counted, because `preserved` is a claim about what is on the clipboard.
@@ -775,6 +807,11 @@ private class PlanCounts(val replaced: Int, val preserved: Int)
  * A [PlanDisposition.Drop] is in neither, and that is the whole of what dropping costs a count: the
  * token is not on the clipboard under a placeholder and not on it under its own name, so counting it
  * either way would be a false statement about the output.
+ *
+ * **A [PlanDisposition.Mask] is in neither either**, for the reason a redacted literal has never been
+ * in [NameCounts]: these are the *name* counts, and a masked value is not a name of anything. It is
+ * not silent for it — every one of them is a `str` row in the preview, which is where the loss is
+ * read.
  *
  * There is no `unknown` arm and there never will be. Nothing here resolves, so nothing here can have
  * failed to — [NameCounts.unknown] reports what an IDE could not vouch for, and a container with no
