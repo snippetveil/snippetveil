@@ -175,6 +175,24 @@
                 text="De-anonymize Clipboard and Paste"
                 description="Replace SnippetVeil placeholders in the clipboard with the real names and insert the result at the caret"/>
 
+        <!-- **The third input, and the first that never passed through an editor.** A plan is copied
+             out of a database console, so this item is ungated like the two reversals and reads the
+             clipboard on invoke rather than in `update`: enablement is a question about the context,
+             never about the content, and an item that greyed itself out would be reporting what is
+             on the clipboard to anybody who opened the menu.
+
+             `Execution Plan` rather than `EXPLAIN Plan` or `Query Plan`: it is the cross-engine term,
+             documented as such by more than one vendor, and it names the thing rather than the
+             statement that produced it. No *Clipboard* in the name — the two reversals carry it
+             because they have a sibling that pastes, and this has none.
+
+             The ellipsis is the platform's convention for an item that opens a dialog, and here it is
+             load-bearing: this action is preview-first with no fast path, so it *always* opens one. -->
+        <action id="SnippetVeil.AnonymizeExecutionPlan"
+                class="com.snippetveil.plugin.AnonymizeExecutionPlanAction"
+                text="Anonymize Execution Plan&#8230;"
+                description="Replace the names in a PostgreSQL EXPLAIN plan on the clipboard, keeping its costs and timings"/>
+
         <!-- **One group, two homes.** The same submenu is added to the Tools menu and to the editor
              popup, so the two placements cannot drift into two different menus: an action added
              here appears in both, in the same order, with the same gating, because it is the same
@@ -207,6 +225,13 @@
             <reference ref="SnippetVeil.AnonymizeWithPreview"/>
             <reference ref="SnippetVeil.DeanonymizeClipboard"/>
             <reference ref="SnippetVeil.DeanonymizeClipboardAndPaste"/>
+
+            <!-- **Fifth, after the round trip rather than beside `Copy Anonymized`.** The four above
+                 are one workflow read top to bottom — anonymize, anonymize with a look first, and the
+                 two ways back — and a third anonymizing item wedged into the top half would break
+                 that reading for an input most users never paste. It is its own entry point over its
+                 own kind of text, so it sits after the workflow rather than inside it. -->
+            <reference ref="SnippetVeil.AnonymizeExecutionPlan"/>
         </group>
     </actions>
 </idea-plugin>

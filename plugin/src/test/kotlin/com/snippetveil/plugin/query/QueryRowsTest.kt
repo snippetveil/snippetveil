@@ -32,6 +32,7 @@ import com.snippetveil.plugin.PlaceholderLedger
 import com.snippetveil.plugin.PlaceholderSidecar
 import com.snippetveil.plugin.PreviewDialog
 import com.snippetveil.plugin.RENAME_TOOLTIP
+import com.snippetveil.plugin.Subject
 import com.snippetveil.plugin.UNLOCK_LINK
 import com.snippetveil.plugin.answerDialogsWith
 import com.snippetveil.plugin.cellTooltipAt
@@ -39,7 +40,6 @@ import com.snippetveil.plugin.clipboard
 import com.snippetveil.plugin.commitStem
 import com.snippetveil.plugin.reversalFor
 import com.snippetveil.plugin.rowOf
-import com.snippetveil.plugin.stripOf
 import com.snippetveil.plugin.symbols
 import com.snippetveil.plugin.tableIn
 import com.snippetveil.plugin.unlockIn
@@ -297,9 +297,9 @@ internal class QueryRowsTest : QuerySnippetTestCase() {
         val plain = Analysis.of(withoutQueryProvenance(plan), AnonymizationSettings.DEFAULTS, PlaceholderLedger.getInstance().snapshotOf(project))
         assertEquals("the fixture changed more than provenance", decomposed.result.text, plain.result.text)
 
-        assertEquals(stripOf(plain), stripOf(decomposed))
+        assertEquals(Subject.SNIPPET.strip(plain), Subject.SNIPPET.strip(decomposed))
         // `String` is the one preserved name, and the query's three are among the six renamed.
-        assertEquals("6 renamed · 0 unknown · 1 preserved", stripOf(decomposed))
+        assertEquals("6 renamed · 0 unknown · 1 preserved", Subject.SNIPPET.strip(decomposed))
     }
 
     /**
@@ -316,7 +316,8 @@ internal class QueryRowsTest : QuerySnippetTestCase() {
 
         val analysis = analysisOver(AROUND_A_QUERY)
         assertTrue("the query did not decompose", analysis.plan.symbols().any { it.language == SourceLanguage.SQL })
-        assertTrue("the strip carries a clause: ${stripOf(analysis)}", COUNTS_ONLY.matches(stripOf(analysis)))
+        val strip = Subject.SNIPPET.strip(analysis)
+        assertTrue("the strip carries a clause: $strip", COUNTS_ONLY.matches(strip))
 
         myFixture.configureByText("Repository.java", AROUND_A_QUERY)
         invokeCopyAnonymized()

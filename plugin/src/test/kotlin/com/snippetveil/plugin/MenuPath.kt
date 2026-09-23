@@ -84,7 +84,7 @@ private const val RIGHT_CLICK = "right-click \u2192"
  * real invocation is a question this test has no business asking; an action that had escaped the
  * submenu would still be found, because it would be a child of the popup itself.
  */
-private fun menuAncestryOf(actionId: String): List<String> {
+internal fun menuAncestryOf(actionId: String): List<String> {
     val manager = ActionManager.getInstance()
     val popup = checkNotNull(manager.getAction(IdeActions.GROUP_EDITOR_POPUP) as? ActionGroup) {
         "The editor popup is not a registered action group, so no ancestry can be read from it."

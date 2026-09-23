@@ -374,7 +374,16 @@ internal class FakeClipboard(
     var written: Boolean = false
         private set
 
+    /**
+     * How many times it was read — which is the whole of *"no action reads the clipboard in
+     * `update`"*. A test asserting only that the clipboard came back unchanged cannot see a read,
+     * and a read is the thing that rule is about.
+     */
+    var reads: Int = 0
+        private set
+
     override fun read(): String? {
+        reads++
         if (failRead) throw IllegalStateException("the system clipboard is owned by another process")
         return text
     }

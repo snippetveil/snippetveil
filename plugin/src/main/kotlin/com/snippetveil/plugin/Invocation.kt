@@ -229,8 +229,13 @@ private fun analyse(request: SnippetRequest, plans: PlanBuilder): Analysis {
  * changes nothing here and is the reason this check is a property of delivery rather than of the
  * fast path: whatever the user was reading, what is committed was rendered against the ledger as it
  * stands at the moment of the copy.
+ *
+ * @param subject what this invocation is over, which reaches only the balloon: the clipboard, the
+ *   commit and the sidecar do the same thing for an execution plan that they do for a snippet, and
+ *   an invocation that is delivered differently would be a second delivery path to keep in step.
+ *   See [Subject].
  */
-internal fun deliver(project: Project, analysis: Analysis) {
+internal fun deliver(project: Project, analysis: Analysis, subject: Subject = Subject.SNIPPET) {
     val ledger = PlaceholderLedger.getInstance()
     val latest = ledger.snapshotOf(project)
     val delivered = if (analysis.ledger.isStill(latest)) analysis else analysis.rendered(ledger = latest)
@@ -242,7 +247,7 @@ internal fun deliver(project: Project, analysis: Analysis) {
         return
     }
     ledger.commit(project, delivered.result.delta)
-    SnippetVeilNotifications.copied(project, delivered)
+    SnippetVeilNotifications.copied(project, delivered, subject)
 
     // The mapping keeps the qualified keys; **the sidecar keeps this invocation whole** — its
     // locals, parameters, anonymous-class members and the text of every redacted literal, none of

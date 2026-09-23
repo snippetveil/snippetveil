@@ -229,10 +229,18 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
         assertTrue("the pasting reversal is not offered outside Java", "SnippetVeil.DeanonymizeClipboardAndPaste" in offered)
         assertFalse("Copy Anonymized was offered on a Markdown file", "SnippetVeil.CopyAnonymized" in offered)
         assertFalse("the preview was offered on a Markdown file", "SnippetVeil.AnonymizeWithPreview" in offered)
+        assertTrue("the plan item is not offered outside Java", "SnippetVeil.AnonymizeExecutionPlan" in offered)
     }
 
-    /** And in a Java editor all four are offered, which is what stops the check above being vacuous. */
-    fun `test the submenu in a Java editor offers all four`() {
+    /**
+     * And in a Java editor every item is offered, which is what stops the check above being vacuous.
+     *
+     * **The execution-plan item is offered in both**, and that is the ungated half of the same
+     * arrangement: it reads a plan off the clipboard rather than the file, so a Java gate on it would
+     * make it wrong on the file the user happens to have open — the reasoning the two reversals
+     * already carry.
+     */
+    fun `test the submenu in a Java editor offers every item`() {
         assertTheHarnessResolves()
         myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
 
@@ -242,6 +250,7 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
                 "SnippetVeil.AnonymizeWithPreview",
                 "SnippetVeil.DeanonymizeClipboard",
                 "SnippetVeil.DeanonymizeClipboardAndPaste",
+                "SnippetVeil.AnonymizeExecutionPlan",
             ),
             offeredInSubmenu(),
         )

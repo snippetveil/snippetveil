@@ -85,8 +85,10 @@ class KotlinAddsNoRuleTest {
      *
      * **The three SQL kinds at the end arrived with SQL, not with Kotlin** — a rowset, a value in a
      * rowset and a namespace qualifier have no JVM kind to be an instance of, which is exactly the
-     * case this list is closed against for Kotlin. They are in the table because the table is the
-     * whole list; a Kotlin change that adds a fourth still fails here.
+     * case this list is closed against for Kotlin. **`idx` arrived with execution plans**, on the
+     * same reasoning: an access path is not a rowset, and reading one as a `table` would assert a
+     * rowset that is not there. They are in the table because the table is the whole list; a Kotlin
+     * change that adds a kind still fails here.
      */
     @Test
     fun `the placeholder kinds and their prefixes are unchanged`() {
@@ -105,6 +107,7 @@ class KotlinAddsNoRuleTest {
                 "TABLE/table",
                 "COLUMN/col",
                 "SCHEMA/schema",
+                "INDEX/idx",
             ),
             SymbolRole.entries.map { it.name + "/" + it.placeholderPrefix },
             "a placeholder kind arrived or changed spelling; Kotlin was to add none",
@@ -114,7 +117,7 @@ class KotlinAddsNoRuleTest {
             listOf(
                 "TYPE", "METHOD", "FIELD", "PARAMETER", "LOCAL", "PACKAGE",
                 "TYPE_PARAMETER", "LABEL", "ANNOTATION", "ATTRIBUTE", "TABLE", "COLUMN", "SCHEMA",
-                "LITERAL", "UNKNOWN",
+                "INDEX", "LITERAL", "UNKNOWN",
             ),
             MappedKind.entries.map { it.name },
             "a mapping-table kind arrived; Kotlin was to add none",

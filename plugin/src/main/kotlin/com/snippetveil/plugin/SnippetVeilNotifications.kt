@@ -78,18 +78,16 @@ internal object SnippetVeilNotifications {
      * which is precisely the inversion this product cannot afford. It is a displayable measure of
      * how much of the snippet the IDE could not vouch for, and that is all it claims to be.
      */
-    fun copied(project: Project, analysis: Analysis) {
-        val counts = analysis.result.counts
-        val lines = listOf("${counts.replaced} names replaced · ${counts.unknown} unknown · ${counts.preserved} preserved") +
-            analysis.result.fidelityNotices()
+    fun copied(project: Project, analysis: Analysis, subject: Subject = Subject.SNIPPET) {
+        val lines = listOf(subject.balloon(analysis)) + analysis.result.fidelityNotices()
         group().createNotification(
-            "Anonymized snippet copied",
+            subject.balloonTitle,
             // A line each, because the counts are one sentence about the operation and each notice is
             // a sentence about the snippet. Run together behind a separator they read as a fourth
             // number, which is the one thing a disclosure must not look like.
             lines.joinToString("<br>"),
             NotificationType.INFORMATION,
-        ).addAction(showMapping(project, analysis)).notify(project)
+        ).addAction(showMapping(project, analysis, subject)).notify(project)
     }
 
     /**
@@ -105,8 +103,10 @@ internal object SnippetVeilNotifications {
      * included. That is not a new exposure: the file it was cut from is open in the editor beside
      * it, and the mapping it produced is already on disk.
      */
-    private fun showMapping(project: Project, analysis: Analysis) =
-        NotificationAction.createSimple("Show mapping") { PreviewDialog.forReview(project, analysis).show() }
+    private fun showMapping(project: Project, analysis: Analysis, subject: Subject) =
+        NotificationAction.createSimple("Show mapping") {
+            PreviewDialog.forReview(project, analysis, subject = subject).show()
+        }
 
     /**
      * **The only thing this plugin ever says unprompted**, and it says what to do rather than what
@@ -374,6 +374,35 @@ internal object SnippetVeilNotifications {
         logged = "SnippetVeil could not insert the de-anonymized reply; the document may have been written partway.",
         said = "Paste failed — your clipboard was not changed. Part of the reply may already have been inserted; Undo reverts it in one step.",
     )
+
+    /**
+     * **The clipboard is not a plan this product can read** — the one refusal the execution-plan
+     * action ships, and the whole of what it says.
+     *
+     * **It quotes nothing, and that is a property of the type rather than of this sentence.** The
+     * verdict it renders carries no `String` at all — see `PlanReading` — so there is nowhere for a
+     * line of the user's plan to have travelled from. The clipboard held something the user has not
+     * been told is safe to show anyone, and a message that echoed a fragment of it into a balloon,
+     * an IDE log or a screenshot would be this product handing back the one thing it exists to hold.
+     *
+     * **It says what to do instead**, because the two mistakes that produce it are both fixable in
+     * one gesture: a subtree copied from the middle of a plan, and a copy that started at the query.
+     * The clipboard clause is here for the reason it is on [failed] — nothing was read and nothing
+     * written, so the user's next keystroke pastes whatever was there before.
+     *
+     * **Warning rather than error, and no report link.** A correctly-behaving plugin truthfully
+     * refusing input is not a defect: there is nothing to report, and a report link here would
+     * collect issues about a paste that was never a plan. Warning rather than information because
+     * the user asked for something and did not get it — the same reading [kotlinUnavailable] is
+     * given, and this one has no fix page to point at because the fix is in the user's own hands.
+     */
+    fun planUnreadable(project: Project?) {
+        group().createNotification(
+            "Clipboard is not an execution plan SnippetVeil can read \u2014 copy the whole plan from " +
+                "its first line, without the query. Your clipboard was not changed.",
+            NotificationType.WARNING,
+        ).notify(project)
+    }
 
     /**
      * **The source-file gate's third outcome, said out loud** — the one refusal in this product that

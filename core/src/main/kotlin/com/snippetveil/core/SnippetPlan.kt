@@ -86,6 +86,23 @@ enum class SourceLanguage {
      * delimiters, never over them. See [SymbolOccurrence.nameStart].
      */
     SQL,
+
+    /**
+     * **A name in an execution plan** — a relation, a column, an alias or an index, as a database
+     * engine printed it.
+     *
+     * **It is not [SQL], and the distinction is the decision rather than a shade of one.** A plan's
+     * expression fields are the engine's **printer** language: what comes back from `EXPLAIN` is what
+     * the planner chose to write, not the query anybody sent, and the two agree only by convention.
+     * Tagging a plan token as SQL would assert that a SQL parser would read it — which is exactly
+     * what the ruling on injected SQL refused to claim about text nothing parsed.
+     *
+     * There is no PSI anywhere behind one of these. Text assigned the slot and text is all there was
+     * to decide with, so a plan token's placeholder is written into its **name range** stated in text
+     * terms — the inside of the delimiters for `"Customers"` — for the reason [SQL]'s is, and with no
+     * PSI spelling available to state it any other way. See [PlanOccurrence].
+     */
+    PLAN,
 }
 
 /**
@@ -545,4 +562,97 @@ enum class SymbolRole(val placeholderPrefix: String) {
 
     /** **A namespace qualifier** — `billing` in `billing.invoices`. See [TABLE]. */
     SCHEMA("schema"),
+
+    /**
+     * **An access path over a rowset** — an index, as an execution plan names one.
+     *
+     * `idx` rather than `index`, lowercase and never in a type position, in the house style the three
+     * SQL kinds already write in. See [TABLE].
+     *
+     * **Folding an index into [TABLE] is refused**: `Index Scan using table5 on table2` asserts two
+     * rowsets where there is one, which is a false role rather than a coarse one — and a reader
+     * mapping the reply back would look for a table that does not exist. **Masking it as a redacted
+     * literal is refused too**: an index is plainly a name, and the identity would be lost for
+     * nothing.
+     */
+    INDEX("idx"),
+}
+
+/**
+ * **A name an execution plan printed, together with what becomes of it** — the occurrence of a
+ * container with no PSI anywhere in it.
+ *
+ * Every other occurrence in this file reports evidence and leaves the verdict to [anonymize], because
+ * something with an index behind it could say what a token *is* and the engine decides what that
+ * means. Here **text assigned the slot and text is all there was to decide with**: nothing resolves,
+ * nothing is looked up, and there is no evidence to report that is not simply the reading. So the
+ * reading is what crosses — as a [disposition], which is the same shape the rules on the other side
+ * produce and not a second policy: the engine still owns the counter, the keys, the rows and the
+ * ledger, and this says only which of its three outcomes this token takes.
+ *
+ * @param disposition what becomes of this token. See [PlanDisposition].
+ * @param nameStart where the token's **name** starts, which is where a placeholder is written — the
+ *   whole token for a bare name, and after the opening delimiter for a quoted one. `"Customers"`
+ *   renders `"table2"`, delimiters surviving, for the reason [SymbolOccurrence.nameStart] gives: a
+ *   delimited identifier is case-sensitive where a bare one is folded, so normalising it would
+ *   silently rewrite what the plan says.
+ * @param nameEnd where the name ends — before the closing delimiter. See [nameStart].
+ */
+class PlanOccurrence(
+    override val start: Int,
+    override val end: Int,
+    val disposition: PlanDisposition,
+    val nameStart: Int = start,
+    val nameEnd: Int = end,
+) : Occurrence() {
+
+    /** Always [SourceLanguage.PLAN], and not a parameter: a plan token is written in one language. */
+    override val language: SourceLanguage = SourceLanguage.PLAN
+
+    init {
+        require(start <= nameStart && nameStart <= nameEnd && nameEnd <= end) {
+            "the name range [$nameStart, $nameEnd) does not lie inside the token [$start, $end)"
+        }
+    }
+}
+
+/**
+ * **What becomes of one token an execution plan printed** — anonymize it under a kind, emit it as
+ * written, or take it out of the output altogether.
+ *
+ * Three outcomes rather than the two this format needs, and the third is carried deliberately:
+ * **nothing drops in the PostgreSQL text format**, and a later format has a token whose presence is
+ * itself the disclosure. Retrofitting an outcome through the plan type afterwards is worse than
+ * carrying it now — every reader of a disposition would have to be found again, and the one that was
+ * missed would silently emit what it was told to remove.
+ */
+sealed class PlanDisposition {
+
+    /**
+     * **A name, replaced by a placeholder of [kind]** — written into the occurrence's name range.
+     *
+     * @param key what identifies the name across this invocation. Spelled by [PlanKeys], which is
+     *   where the two shapes a plan key takes are argued — and both are ephemeral, so nothing here
+     *   ever reaches the persisted ledger.
+     */
+    class Anonymize(val kind: SymbolRole, val key: String) : PlanDisposition()
+
+    /**
+     * **Emitted exactly as written** — a keyword, a type name, a function the engine itself printed.
+     *
+     * A preserved token is a token this container *slotted* and chose not to replace, which is why it
+     * is an occurrence at all rather than text nobody reported: it is what the `preserved` half of
+     * the counts is counting, and a plan whose vocabulary went unreported would show a zero there
+     * that is not true.
+     */
+    object Preserve : PlanDisposition()
+
+    /**
+     * **Removed: the output has empty text where this token was.**
+     *
+     * It allocates nothing, records no row and moves no counter — a dropped token stands for nothing
+     * in the output, so a number handed out for one would be a number burnt to protect a reader from
+     * a collision they cannot have.
+     */
+    object Drop : PlanDisposition()
 }
