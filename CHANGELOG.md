@@ -33,14 +33,39 @@
   anything else is replaced whole. `Query Identifier` is a hash of your statement, so it is replaced
   too, with the same number wherever it repeats. Row counts, timings, buffers and memory figures are
   untouched, as they always were.
-- **A plan's placeholders are not remembered, and only one format is read.** A plan carries no
-  declarations to file placeholders under, so the same plan pasted twice comes back under different
-  numbers and a plan's names never join the mapping an earlier snippet was sent under. Only
-  PostgreSQL's default `EXPLAIN` text output is read, and only from the plan's first line: a paste
-  that starts in the middle of the tree, one that carries the query above the plan, `EXPLAIN (COSTS
-  OFF)` output and `psql`'s own `QUERY PLAN` header and row of dashes are all refused with one
-  message saying what to copy instead. A refusal leaves the clipboard exactly as it was and never
-  quotes what was on it.
+- **A plan's placeholders are not remembered.** A plan carries no declarations to file placeholders
+  under, so the same plan pasted twice comes back under different numbers and a plan's names never
+  join the mapping an earlier snippet was sent under. A refusal leaves the clipboard exactly as it
+  was and never quotes what was on it.
+- **PostgreSQL's JSON, YAML and XML plans are read too.** `EXPLAIN (FORMAT JSON)`, `FORMAT YAML` and
+  `FORMAT XML` join the default text output, and each is recognised on its own: a text that looks
+  like more than one of them is refused rather than read as whichever was tried first. The names,
+  the values and the numbers are treated exactly as they are in a text plan, and the document comes
+  back in the format it arrived in.
+- **A field SnippetVeil has no rule for refuses the whole plan.** Inside a field it does know, an
+  unrecognised word is still replaced; a *field* is different, because nothing says whether it holds
+  a name, a magnitude, a hostname or your query — so the plan is refused instead of guessed at. The
+  cost is real and deliberate: a PostgreSQL release that adds a field refuses every plan carrying it
+  until SnippetVeil ships a row for it. Re-running without the option that emitted the new field is
+  the immediate way out.
+- **A plan's `Settings` are read by key.** In the JSON, YAML and XML formats, a core planner setting
+  is kept as printed — `work_mem`, `random_page_cost`, `enable_seqscan` and the rest of what
+  actually explains a plan choice. `search_path` is read as the list of schema names it is, so a
+  schema on the path gets the same placeholder as that schema on a relation, and `"$user"` is kept
+  because PostgreSQL always substitutes it. A key SnippetVeil has no row for — an extension's, or a
+  setting flagged after this release — has **both its key and its value** replaced. The text
+  format's `Settings:` row is refused instead, because its values are quoted without escaping.
+- **Three text-format rows are refused with the fix.** `Settings:`, `Conflict Arbiter Indexes:` and
+  the `Trigger …` rows print names PostgreSQL did not quote, and they cannot be recovered from the
+  text. A plan carrying one now says so and names the option that works: re-run with `EXPLAIN
+  (FORMAT JSON)`. Any other line SnippetVeil does not recognise refuses with the general message —
+  which also closes the case where a value containing a line break used to let its second line
+  through.
+- **`psql`'s own table around a plan is read rather than refused.** The `QUERY PLAN` header, the rule
+  of dashes, the leading space, the padding and the `(n rows)` count are peeled off, the plan inside
+  is anonymized, and the table comes back byte for byte — for text and JSON plans alike, in the
+  unicode line style as well as the default one. `psql` at a non-default setting is refused, and so
+  is an input carrying an echoed statement or a prompt: a table is decoration, a statement is not.
 - **A JPQL query in a Java string is anonymized name by name**, when every name in it resolves — and
   so is a query in the other persistence query languages the IDE reads the same way.
   `@NamedQuery(query = "SELECT c FROM Customer c WHERE c.merchantRef = :ref")` used to come out as

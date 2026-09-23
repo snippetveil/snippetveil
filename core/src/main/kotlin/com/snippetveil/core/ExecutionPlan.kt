@@ -1,8 +1,8 @@
 package com.snippetveil.core
 
 /**
- * **Reads a PostgreSQL `EXPLAIN` text plan, and says what is a name in it** — the engine's third
- * entry point, and the only one with no IDE anywhere behind it.
+ * **Reads a PostgreSQL `EXPLAIN` plan, and says what is a name in it** — the engine's third entry
+ * point, and the only one with no IDE anywhere behind it.
  *
  * ### Why the parse is here rather than in the plugin
  *
@@ -23,67 +23,40 @@ package com.snippetveil.core
  * wrong; and dropping inside the parse to return edited text, which costs the plan its verbatim-text
  * invariant — the one the preview and the round trip both read.
  *
- * ### One format, recognised at the head
+ * ### Four formats, and exactly one of them recognised
  *
- * PostgreSQL's `EXPLAIN` in its **default text output**, and nothing else. Recognition is anchored:
- * the input must **begin at the plan's first line**, and it is tested against fixed literals rather
- * than scanned for something `EXPLAIN`-looking anywhere in the text. A subtree pasted from the middle
- * of a plan begins with indentation and a branch arrow, and a paste carrying the query above the plan
- * begins with the query — so both refuse, which is what [PlanReading.Unreadable] is for.
+ * PostgreSQL's default **text** output and its **JSON**, **YAML** and **XML** ones. Each has its own
+ * anchored recognition predicate, and **if two of them accept, the input refuses rather than being
+ * read under one of the two** — see [PlanFormat]. Recognition still begins at the plan's first line:
+ * a subtree pasted from the middle of a text plan begins with indentation, and a paste carrying the
+ * query above the plan begins with the query, so both refuse.
  *
- * **Two stated limits, because a user meets both.** `psql`'s own table decoration — the `QUERY PLAN`
- * header, the rule of dashes and the `(1 row)` footer — is `psql`'s and not `EXPLAIN`'s, so a paste
- * carrying it does not begin at the plan's first line and refuses. And `EXPLAIN (COSTS OFF)` is not
- * the default output; its first line carries no cost parenthetical, so it refuses too. Both refuse by
- * the same rule rather than by a special case, and the message says what to copy.
+ * A **client frame** is peeled before any of that — `psql`'s aligned header, its rule, the space it
+ * indents each row by and the count it prints underneath — so the shape most users arrive with is
+ * read rather than refused, and re-emitted byte for byte. A frame is chrome; **a row echoing the
+ * user's own statement is a transcript, and an input carrying one refuses.** See [PlanFraming].
  *
  * ### What it reports, and what it never touches
  *
  * Relations, columns, schemas, aliases and indexes; the values the planner printed, masked; and
  * **nothing numeric**. The costs, the row estimates, the widths and the timings are read straight
- * past: names are taken from positions on a node line, which is why no rule here can reach the
- * parentheticals at all, and a field of measurements is reported as nothing at all. A plan is pasted
- * *for* its numbers, and an anonymizer that moved one would have destroyed the reason it was sent.
+ * past: a field of measurements is reported as nothing at all. A plan is pasted *for* its numbers,
+ * and an anonymizer that moved one would have destroyed the reason it was sent.
  *
- * A token this file does not recognise is reported as a **column** rather than passed through, which
- * is the fail-closed direction and is stated rather than tidy: over-reporting costs a visible,
- * obviously-anonymized artifact in a line of plan vocabulary, and under-reporting puts the
- * employer's domain on a clipboard. [POSTGRES] is what keeps that residual from eating the plan's
- * own language, and it holds the engine's vocabulary rather than anybody's names — see [scanOf] for
- * the argument that lets any of it be preserved at all, and [PlanTreatments] for the classes the
- * fields are read under.
+ * **Two closures decide the rest, and they run in opposite directions.** A field the vocabulary does
+ * not hold **refuses the input**; a token the vocabulary does not know, inside a field it does hold,
+ * **anonymizes**. Both are argued in [PlanTreatment], which is also where the cost of the first —
+ * an engine release that adds a field refuses every plan carrying it until a vocabulary row follows —
+ * is accepted rather than discovered later.
  */
-fun parsePlan(text: String): PlanReading {
-    val lines = linesOf(text)
-    if (lines.isEmpty() || !opensAPlan(lines.first())) return PlanReading.Unreadable
-
-    // **Every declaration first, and only then anything keyed against one.** A plan prints
-    // `CTE Scan on recent` above the `CTE recent` that declares `recent` as readily as below it, and
-    // a name that keyed as an invocation-wide relation where it was printed first and as the plan's
-    // own where it was printed second would be identity decided by print order — two placeholders
-    // for one thing, in the output the user reads.
-    //
-    // So the structure is read twice against the same set: **the first reader's occurrences are
-    // thrown away**, because the second reader makes them again with every declaration in hand. That
-    // is cheaper than it looks — the walk allocates a token per name and resolves nothing — and it is
-    // the whole of what makes the two keys agree.
-    val declared = mutableSetOf<String>()
-    val declarations = PlanReader(declared, POSTGRES)
-    lines.forEach(declarations::readStructure)
-
-    val reader = PlanReader(declared, POSTGRES)
-    lines.forEach(reader::readStructure)
-    lines.forEach(reader::readFields)
-
-    return PlanReading.Read(SnippetPlan(text, reader.occurrences.sortedBy { it.start }))
-}
+fun parsePlan(text: String): PlanReading = readingOf(text)
 
 /**
- * **What [parsePlan] made of the text**: the finished plan, or the verdict that it is not one.
+ * **What [parsePlan] made of the text**: the finished plan, or a verdict that it is not one.
  *
  * > The engine decides what the text **is**; the message layer decides how that reads.
  *
- * **The verdict carries no `String` field, and that is the mechanism rather than a convention.** With
+ * **No verdict carries a `String` field, and that is the mechanism rather than a convention.** With
  * nowhere to put input text, *no refusal message quotes the input* stops being a discipline somebody
  * has to keep and becomes a property of the type — which matters here more than anywhere, because
  * the input is a plan the user has not yet been told is safe to show anyone.
@@ -98,44 +71,156 @@ sealed class PlanReading {
     class Read(val plan: SnippetPlan) : PlanReading()
 
     /**
-     * **The text is not a plan this engine reads** — the one verdict this format ships.
+     * **The text is not a plan this engine reads** — the general verdict, and the one nearly every
+     * refusal takes.
      *
-     * It says nothing about *why*, and there is nothing it could say that the message does not
-     * already: the answer is always *copy the whole plan from its first line, without the query*.
+     * It says nothing about *why*, and there is nothing it could usefully say: a paste that is not a
+     * plan, a client setting this product has not seen, a document that did not parse and a field no
+     * vocabulary row covers are one answer to the user, and the answer is *copy the whole plan from
+     * its first line, without the query*.
+     *
+     * **A field the vocabulary lacks lands here and adds nothing.** It is not a recognised refused
+     * form: there is no other option of the engine's that this product knows would work, so there is
+     * no recourse to offer and offering one anyway would be a guess printed as advice.
      */
     object Unreadable : PlanReading()
+
+    /**
+     * **A shape this product recognises as one it cannot read soundly, whose engine offers a better
+     * one** — and the recourse names it.
+     *
+     * The difference from [Unreadable] is not severity. It is that here the product **knows what the
+     * user should do instead**, because the same plan in another of the engine's own output formats
+     * carries the very thing this one lost. See [PlanRecourse], and [TEXT_RAW_NAME_ROWS] for the
+     * closed list of rows that produce one.
+     */
+    class Refused(val recourse: PlanRecourse) : PlanReading()
 }
 
 /**
- * **Whether this is the first line of a plan** — a fixed node label at offset zero, with the cost
- * parenthetical the default output always prints.
+ * **What the user can do instead** — an enumeration, never a sentence.
+ *
+ * A constant rather than a string for the reason [PlanReading] carries no `String` at all: the engine
+ * decides *that* there is a better option and *which*, and the message layer decides how that reads.
+ * A rendered sentence here would be the product's words in the engine, and a type that could hold one
+ * would be a type that could hold a line of the user's plan.
+ */
+enum class PlanRecourse {
+
+    /**
+     * **Re-run the same `EXPLAIN` with `FORMAT JSON`.**
+     *
+     * The text format prints a small, closed set of rows with raw unquoted names in them; the same
+     * plan as JSON escapes every one of them. The recourse is exact rather than general: it is not
+     * *try something else*, it is *this option of your engine's produces a plan this product reads*.
+     */
+    FORMAT_JSON,
+}
+
+/**
+ * **Whether a text opens PostgreSQL's default text plan** — a fixed node label at offset zero, with
+ * the cost parenthetical the default output always prints.
  *
  * Two literals rather than one, and each closes what the other cannot. The label alone would take
  * `Sort out the merchant ledger` for a plan; the cost alone would take any line that mentions one.
  * Anchoring at offset zero is what refuses the two pastes a user actually makes by mistake — a
  * subtree from the middle, which begins with indentation, and the query above the plan.
+ *
+ * It also refuses `EXPLAIN (COSTS OFF)`, whose first line carries no cost parenthetical, by the same
+ * rule rather than by a special case.
  */
-private fun opensAPlan(head: PlanLine): Boolean = labelOf(head.text) != null && COST in head.text
-
-/** The cost parenthetical, as the default output spaces it. See [opensAPlan]. */
-private const val COST = "  (cost="
+internal fun opensATextPlan(text: String): Boolean {
+    val head = linesOf(text).firstOrNull() ?: return false
+    return labelOf(head.text) != null && COST in head.text
+}
 
 /**
- * **The reading of one plan** — the names it declares, and the occurrences it produces.
+ * **Everything the text format's reader reports** — the declarations, the structure and the fields,
+ * over a text whose every line has first been shown to be one this reader recognises.
  *
- * A class rather than a run of functions because [declared] and the list being filled travel
- * together through every rule below, and threading the pair through seven signatures made the
- * parameters the loudest thing in the file. It also makes the two passes [parsePlan] runs visible as
- * what they are: two readers over one set of declarations, of which only the second keeps its work.
- *
- * @param declared the names the plan itself introduces — an alias, a CTE. [readStructure] fills it,
- *   and everything keyed as a relation reads it. See [PlanKeys].
- * @param vocabulary the engine whose printer wrote this plan, passed in rather than read out of a
- *   global anywhere below — so the second engine is a second argument here and not a second reader.
+ * Three passes, and the first two are one argument. A plan prints `CTE Scan on recent` above the
+ * `CTE recent` that declares `recent` as readily as below it, and a name that keyed as an
+ * invocation-wide relation where it was printed first and as the plan's own where it was printed
+ * second would be identity decided by print order — two placeholders for one thing, in the output the
+ * user reads. So the structure is read twice against the same set and **the first reader's
+ * occurrences are thrown away**, because the second reader makes them again with every declaration in
+ * hand.
  */
-private class PlanReader(private val declared: MutableSet<String>, private val vocabulary: PlanVocabulary) {
+internal fun textOccurrencesIn(text: String): List<PlanOccurrence> {
+    val lines = linesOf(text)
 
-    val occurrences = mutableListOf<Occurrence>()
+    // **The line closure, before anything is read.** A line this reader does not recognise refuses
+    // the input, so no later pass is ever looking at a line nothing classified. See [assertRecognised].
+    lines.forEach(::assertRecognised)
+
+    val declared = mutableSetOf<String>()
+    val declarations = PlanTextReader(PlanSymbols(declared, POSTGRES))
+    lines.forEach(declarations::readStructure)
+
+    val symbols = PlanSymbols(declared, POSTGRES)
+    val reader = PlanTextReader(symbols)
+    lines.forEach(reader::readStructure)
+    lines.forEach(reader::readFields)
+
+    return symbols.occurrences
+}
+
+/**
+ * **The line closure: every line of a text plan is one of the shapes this reader knows, and any
+ * other line is *not a readable plan*.**
+ *
+ * It is the field closure written for a format whose structure is indentation rather than nesting.
+ * A structured document has entries, and an entry the inventory lacks refuses; a text plan has lines,
+ * and the same reasoning reaches every one of them. Nothing says what an unrecognised line holds, and
+ * **reading past one is how a value leaves in the part nobody looked at** — which is exactly what a
+ * string literal carrying a newline used to do, its continuation line being neither a node nor a
+ * field and so passed through unread.
+ *
+ * The one exception is the enumerated raw-name row, which is refused **with a recourse** because the
+ * engine offers a form where the same row is recoverable. It is asked first, because those rows are
+ * recognised by their head rather than by parsing as anything.
+ */
+private fun assertRecognised(line: PlanLine) {
+    if (line.text.isBlank()) return
+
+    if (TEXT_RAW_NAME_ROWS.any { line.body.startsWith(it) }) {
+        throw PlanRefusal(PlanReading.Refused(PlanRecourse.FORMAT_JSON))
+    }
+
+    val field = line.field
+    if (field != null) {
+        if (treatmentOf(field.label) == null) throw PlanRefusal(PlanReading.Unreadable)
+        return
+    }
+
+    if (labelOf(line.body) != null) return
+
+    val body = line.body.trim()
+    if (CTE_HEADER.matches(body) || SUBPLAN_HEADER.matches(body)) return
+    throw PlanRefusal(PlanReading.Unreadable)
+}
+
+/**
+ * The treatment a text field label takes, or `null` where the inventory does not hold it.
+ *
+ * The label is normalised first, because the text format numbers one of its own rows: a parallel
+ * plan prints `Worker 0:`, `Worker 1:` and so on, which are one inventory row wearing a counter the
+ * engine put there.
+ */
+internal fun treatmentOf(label: String): PlanTreatment? {
+    POSTGRES_TEXT_FIELDS[label]?.let { return it }
+    if (label.substringAfterLast(' ').toIntOrNull() == null) return null
+    return POSTGRES_TEXT_FIELDS[label.substringBeforeLast(' ')]
+}
+
+/**
+ * **The reading of one text plan** — the names it declares, and the occurrences it produces.
+ *
+ * A class rather than a run of functions because the symbols being filled travel through every rule
+ * below. It also makes the two structure passes [textOccurrencesIn] runs visible as what they are:
+ * two readers over one set of declarations, of which only the second keeps its work.
+ */
+private class PlanTextReader(private val symbols: PlanSymbols) {
 
     /**
      * **A node line, and the names printed at fixed positions on it** — and the CTE headers, which
@@ -151,14 +236,21 @@ private class PlanReader(private val declared: MutableSet<String>, private val v
         if (field != null) {
             // `Subplan Name: CTE recent` names a CTE on a field line, which is the one declaration
             // that does not arrive on a line of its own.
-            if (field.label == SUBPLAN_NAME) readCteHeader(line, line.start + field.from)
+            if (treatmentOf(field.label) == PlanTreatment.Declared) {
+                symbols.declareWritten(
+                    PlanSlot(line.text, line.start + field.from, line.start + line.text.length, line.start).trimmed(),
+                )
+            }
             return
         }
 
         val label = labelOf(line.body)
         if (label == null) {
-            // `CTE recent`, sitting above the subtree that computes it.
-            readCteHeader(line, line.start + line.bodyAt)
+            // `CTE recent`, sitting above the subtree that computes it — or `SubPlan 1`, which is a
+            // label the planner invented and declares nothing.
+            symbols.declareWritten(
+                PlanSlot(line.text, line.start + line.bodyAt, line.start + line.text.length, line.start).trimmed(),
+            )
             return
         }
 
@@ -170,7 +262,7 @@ private class PlanReader(private val declared: MutableSet<String>, private val v
 
         var at = label.length
         val using = head.indexOf(USING, at)
-        if (using >= 0) at = readQualified(tokens, from + using + USING.length, SymbolRole.INDEX) - from
+        if (using >= 0) at = symbols.readQualified(tokens, from + using + USING.length, SymbolRole.INDEX) - from
 
         // **Where the relation begins, which is one of two places.** `Seq Scan on visits` carries the
         // keyword in the middle of the line; `Insert on visits`, `Update on`, `Delete on` and
@@ -188,233 +280,51 @@ private class PlanReader(private val declared: MutableSet<String>, private val v
         // is the one node whose `on` means something else. Reading it as a relation would put a
         // `table` placeholder on an access path and assert a rowset that is not there.
         val scanned = if (label == BITMAP_INDEX_SCAN) SymbolRole.INDEX else SymbolRole.TABLE
-        val after = readQualified(tokens, from + relation, scanned)
+        val after = symbols.readQualified(tokens, from + relation, scanned)
 
         // The alias, where the engine printed one — `Seq Scan on visits v`. It is a name the **plan**
         // declares: two plans each calling something `v` are not talking about one thing, and
         // `visits_1` is an alias this engine invented rather than a relation anybody named.
         val alias = nameAt(tokens, after) ?: return
-        declare(tokens[alias])
-    }
-
-    /** `CTE recent` — the name after the keyword, declared by the plan that computes it. */
-    private fun readCteHeader(line: PlanLine, from: Int) {
-        val tokens = scanOf(PlanSlot(line.text, from, line.start + line.text.length, line.start)).tokens
-        if (tokens.size < 2 || tokens[0].text != CTE || !tokens[1].isName) return
-        declare(tokens[1])
+        symbols.declare(tokens[alias])
     }
 
     /**
-     * **A name the plan itself introduced** — an alias, a CTE — filed as the plan's own.
+     * **One field line, handed to the treatment its label names** — the text format's half of the
+     * field inventory, read out of [POSTGRES_TEXT_FIELDS].
      *
-     * It goes into [declared] before it is keyed, which is what the two passes in [parsePlan] are
-     * for: a name the plan declares is the plan's wherever it is written afterwards, whether that is
-     * above the declaration or below it.
-     */
-    private fun declare(token: PlanToken) {
-        declared += token.text
-        occurrences += PlanOccurrence(
-            token.start,
-            token.end,
-            PlanDisposition.Anonymize(SymbolRole.TABLE, PlanKeys.declared(SymbolRole.TABLE, token.text)),
-            token.nameStart,
-            token.nameEnd,
-        )
-    }
-
-    /**
-     * **One field line, handed to the treatment its label names** — which is the whole of this
-     * format's field inventory, and the only place a label decides anything.
+     * There is **no default arm**, and that is the change the field closure made: a label this
+     * inventory does not hold has already refused the whole input in [assertRecognised], so nothing
+     * here has to decide what to do with a field nobody typed.
      *
-     * The classes are [PlanTreatments]'; what is here is the mapping from PostgreSQL's text output to
-     * them. The default arm is the decision: **a field this file has never heard of is read as an
-     * expression** rather than passed over, so a plan option nobody anticipated cannot carry a column
-     * name out unnoticed. What that costs is a metric word occasionally replaced in a line of
-     * counters, which is visible in the pane the user is looking at.
-     *
-     * Three of the labels below — the echoed query, the parameters and the query identifier — are
-     * printed by `EXPLAIN (VERBOSE)` and by `auto_explain` **above** the tree rather than inside it,
-     * where this reader's anchored recognition does not yet admit them. They are inventory rows all
-     * the same: a field is treated by what it is wherever it is printed, and a reader that answered
-     * only for the positions seen so far would be one more thing to remember when the next format
-     * arrives.
+     * Three of the labels in the inventory — the echoed query, the parameters and the query
+     * identifier — are printed by `EXPLAIN (VERBOSE)` and by `auto_explain` **above** the tree rather
+     * than inside it, where this reader's anchored recognition does not yet admit them. They are
+     * inventory rows all the same: a field is treated by what it is wherever it is printed.
      */
     fun readFields(line: PlanLine) {
         val field = line.field ?: return
         val slot = PlanSlot(line.text, line.start + field.from, line.start + line.text.length, line.start)
 
-        when {
+        when (val treatment = treatmentOf(field.label)) {
             // A declaration, read whole by `readStructure` before anything was keyed against it.
-            field.label == SUBPLAN_NAME -> return
+            PlanTreatment.Declared -> Unit
 
-            field.label in MEASURED_FIELDS -> occurrences += PlanTreatments.measured()
-            field.label in ECHOED_QUERY_FIELDS -> occurrences += PlanTreatments.echoedQuery(slot)
-            field.label in PARAMETER_FIELDS -> occurrences += PlanTreatments.parameters(slot, vocabulary)
-            field.label in IDENTIFYING_FIELDS -> occurrences += PlanTreatments.identifying(slot)
+            PlanTreatment.Measured -> symbols.occurrences += PlanTreatments.measured()
+            PlanTreatment.Expression -> symbols.readExpression(slot.trimmed())
+            is PlanTreatment.Fact -> symbols.occurrences += PlanTreatments.engineFact(slot, treatment.shape)
+            PlanTreatment.EchoedQuery -> symbols.occurrences += PlanTreatments.echoedQuery(slot)
+            PlanTreatment.Parameters -> symbols.occurrences += PlanTreatments.parameters(slot, symbols.vocabulary)
+            PlanTreatment.Identifying -> symbols.occurrences += PlanTreatments.identifying(slot)
+            PlanTreatment.Deployment -> symbols.occurrences += PlanTreatments.deployment(slot)
 
-            else -> readExpression(slot)
+            // The text format has no field of either shape, and a row that grew one would be read
+            // rather than guessed at. See [PlanTreatment].
+            is PlanTreatment.Name, is PlanTreatment.Subtree, PlanTreatment.SettingsMap, null ->
+                throw PlanRefusal(PlanReading.Unreadable)
         }
     }
-
-    /**
-     * The dotted chain that begins at or after [at] — `billing.invoices`, `v`, `"Customers"` — with
-     * [last] the kind of its final segment and every segment before it a schema.
-     *
-     * **A qualified name is several symbols and not one**, so each segment is keyed and replaced on
-     * its own: `billing.invoices` renders `schema1.table2`, and the reader keeps the fact that the
-     * two are different things in different namespaces.
-     *
-     * @return where the chain ended in the plan, so the caller can go on reading the line from
-     *   there — and [at] itself where nothing identifier-shaped was waiting
-     */
-    private fun readQualified(tokens: List<PlanToken>, at: Int, last: SymbolRole): Int {
-        val index = nameAt(tokens, at) ?: return at
-        val chain = chainOf(tokens, index).tokens
-
-        for ((position, token) in chain.withIndex()) {
-            occurrences += anonymized(token, if (position == chain.lastIndex) last else SymbolRole.SCHEMA)
-        }
-        return chain.last().end
-    }
-
-    /**
-     * **Which of the two key shapes a name takes** — the plan's own, or the invocation's.
-     *
-     * A name the plan declared is the plan's however it is written afterwards, which is what makes
-     * the alias in `Seq Scan on visits v` and the `v` in `Filter: (v.id = 1)` one symbol. Everything
-     * else keys on its spelling across the invocation, exactly as written. See [PlanKeys].
-     */
-    private fun keyOf(kind: SymbolRole, spelling: String): String =
-        if (kind == SymbolRole.TABLE && spelling in declared) {
-            PlanKeys.declared(kind, spelling)
-        } else {
-            PlanKeys.named(kind, spelling)
-        }
-
-    /**
-     * **Every token in one expression field, and what the residual closure makes of each.**
-     *
-     * The field is scanned once by [scanOf] and then walked cell by cell. What decides a cell is its
-     * shape and the vocabulary, and nothing else — there is no tree, and no rule here asks what a
-     * token might mean:
-     *
-     *  - **The field is checked for soundness first.** A field whose quoting the engine does not
-     *    make unforgeable is never parsed and becomes one redacted literal, whole. See
-     *    [PlanTreatments.unreadable].
-     *  - **A literal is masked**, content only. It is a value the planner printed — an address, an
-     *    account id, a token — and it is the one thing in a plan that is unambiguously the user's.
-     *  - **Numbers and punctuation survive by not being reported**, which is what keeps a plan's
-     *    measurements out of reach of every rule here.
-     *  - **A dotted chain is read whole**: `v.created_at` is a qualifier and a column, `billing.t.c`
-     *    is a schema, a relation and a column. The last segment is a column **by position**, so a
-     *    column genuinely called `text` keeps its kind rather than being mistaken for the type.
-     *  - **A phrase the vocabulary holds survives whole**, and may not span a name slot.
-     *  - **A word the vocabulary knows survives**; a delimited token never does, because a delimited
-     *    token is always a name.
-     *  - **Everything else is a column** — the residual, running toward replacement, argued in
-     *    [scanOf] and on [parsePlan].
-     */
-    private fun readExpression(slot: PlanSlot) {
-        val scan = scanOf(slot)
-        if (!scan.sound) {
-            occurrences += PlanTreatments.unreadable(slot)
-            return
-        }
-
-        var at = 0
-        while (at < scan.tokens.size) {
-            val token = scan.tokens[at]
-            at = when (token.kind) {
-                PlanTokenKind.MARK, PlanTokenKind.NUMBER -> at + 1
-                PlanTokenKind.LITERAL -> {
-                    occurrences += PlanTreatments.literal(token)
-                    at + 1
-                }
-
-                PlanTokenKind.WORD, PlanTokenKind.DELIMITED -> readName(scan.tokens, at)
-            }
-        }
-    }
-
-    /**
-     * What becomes of the name-shaped token at [at], and where the walk goes next.
-     *
-     * **The chain is asked first**, because the kinds in one are positional and a word that belongs
-     * to a qualified name is a name whatever else it is spelled like. The phrase is asked next, and
-     * the bare word last, which is the order the delimitation argument comes in: a space is a
-     * stronger warrant than a spelling.
-     */
-    private fun readName(tokens: List<PlanToken>, at: Int): Int {
-        val chain = chainOf(tokens, at)
-        if (chain.tokens.size > 1) {
-            for ((position, token) in chain.tokens.withIndex()) {
-                val kind = when (position) {
-                    chain.tokens.lastIndex -> SymbolRole.COLUMN
-                    chain.tokens.lastIndex - 1 -> SymbolRole.TABLE
-                    else -> SymbolRole.SCHEMA
-                }
-                occurrences += anonymized(token, kind)
-            }
-            return chain.after
-        }
-
-        val phrase = vocabulary.phraseAt(tokens, at)
-        if (phrase > 0) {
-            occurrences += PlanOccurrence(tokens[at].start, tokens[at + phrase - 1].end, PlanDisposition.Preserve)
-            return at + phrase
-        }
-
-        val token = tokens[at]
-        if (token.kind == PlanTokenKind.WORD && vocabulary.knows(token.text)) {
-            occurrences += PlanOccurrence(token.start, token.end, PlanDisposition.Preserve)
-            return at + 1
-        }
-
-        occurrences += anonymized(token, SymbolRole.COLUMN)
-        return at + 1
-    }
-
-    /** One token replaced by a placeholder of [kind], written inside its delimiters. */
-    private fun anonymized(token: PlanToken, kind: SymbolRole) = PlanOccurrence(
-        token.start,
-        token.end,
-        PlanDisposition.Anonymize(kind, keyOf(kind, token.text)),
-        token.nameStart,
-        token.nameEnd,
-    )
 }
-
-/**
- * The index of the token waiting at or after [at], where the thing waiting there is a name — and
- * `null` where it is punctuation, a number or nothing at all.
- *
- * At or after rather than exactly at, because the scan has already dropped the whitespace a plan
- * separates its names with: `Insert on billing.invoices` carries the keyword inside its own label,
- * so the offset a caller has is the space in front of the relation rather than the relation.
- */
-private fun nameAt(tokens: List<PlanToken>, at: Int): Int? =
-    tokens.indexOfFirst { it.start >= at }.takeIf { it >= 0 && tokens[it].isName }
-
-/**
- * The dotted chain beginning at [at] — one token, or several joined by `.` — and where the walk
- * resumes after it.
- *
- * Read whole rather than a token at a time because the kinds are **positional**: what a segment is
- * depends on how many follow it, and a reader that classified each as it met it would have to change
- * its mind about the one before.
- */
-private fun chainOf(tokens: List<PlanToken>, at: Int): PlanChain {
-    val chain = mutableListOf(tokens[at])
-    var next = at + 1
-    while (next + 1 < tokens.size && tokens[next].isDot && tokens[next + 1].isName) {
-        chain += tokens[next + 1]
-        next += 2
-    }
-    return PlanChain(chain, next)
-}
-
-/** One qualified name, and the index the reader goes on from. See [chainOf]. */
-private class PlanChain(val tokens: List<PlanToken>, val after: Int)
 
 /** One line of the input, and the two readings of it every rule above asks for. */
 private class PlanLine(val text: String, val start: Int) {
@@ -442,50 +352,11 @@ private class PlanLine(val text: String, val start: Int) {
 private class PlanField(val label: String, val from: Int)
 
 /**
- * **The fields that hold measured quantities** — the numbers a plan is pasted *for*, preserved
- * exactly as printed. See [PlanTreatments.measured] for what that costs and why the cost is stated
- * rather than closed.
- *
- * A list of the measured fields rather than a list of the name-bearing ones, because the direction
- * of the mistake differs: a field missing from this list is read as an expression and its counters
- * come out anonymized, which is visible and ugly; a *name-bearing* field missing from a list of loud
- * fields would leave a column name on the clipboard, which is invisible and is the whole failure.
- */
-private val MEASURED_FIELDS: Set<String> = setOf(
-    "Planning Time", "Execution Time", "Planning", "Execution", "Buffers", "I/O Timings",
-    "Sort Method", "Sort Space Used", "Sort Space Type", "Workers Planned", "Workers Launched",
-    "Worker", "Heap Blocks", "Exact Heap Blocks", "Lossy Heap Blocks", "Buckets", "Batches",
-    "Memory Usage", "Peak Memory Usage", "Disk Usage", "Rows Removed by Filter",
-    "Rows Removed by Index Recheck", "Rows Removed by Join Filter", "Rows Removed by Conflict Filter",
-    "Functions", "Options", "Timing", "JIT", "Settings", "Full-sort Groups", "Pre-sorted Groups",
-    "Hits", "Misses", "Evictions", "Overflows", "Storage", "Tuples Inserted", "Conflicting Tuples",
-    "Heap Fetches",
-)
-
-/**
- * **The fields holding the user's own statement text** — `auto_explain`'s echo of the query, and the
- * statement a foreign scan is about to send to another server.
- *
- * Each is one redacted literal and is never parsed. See [PlanTreatments.echoedQuery].
- */
-private val ECHOED_QUERY_FIELDS: Set<String> = setOf("Query Text", "Remote SQL")
-
-/** **The fields holding a parameter list** — each value a literal. See [PlanTreatments.parameters]. */
-private val PARAMETER_FIELDS: Set<String> = setOf("Query Parameters")
-
-/**
- * **The fields holding a value that identifies rather than describes** — PostgreSQL's query id is a
- * hash of the statement, and a receiver holding one can confirm a guessed query against it. See
- * [PlanTreatments.identifying].
- */
-private val IDENTIFYING_FIELDS: Set<String> = setOf("Query Identifier")
-
-/**
  * **The node labels a plan line can begin with** — the fixed literals recognition is anchored on.
  *
  * Fixed literals rather than a pattern, because a pattern is what a scan for something
- * `EXPLAIN`-looking would be. A label this list is missing costs the names on that one line, which
- * the fields around it usually carry anyway; a pattern loose enough never to miss one would accept
+ * `EXPLAIN`-looking would be. A label this list is missing now refuses the plan carrying it, under
+ * the same closure every field is read under; a pattern loose enough never to miss one would accept
  * prose.
  */
 private val NODE_LABELS: List<String> = listOf(
@@ -495,18 +366,15 @@ private val NODE_LABELS: List<String> = listOf(
     "Incremental Sort", "Index Only Scan", "Index Scan", "Insert on", "Limit", "LockRows",
     "Materialize", "Memoize", "Merge Append", "Merge Join", "Merge on", "MixedAggregate",
     "Named Tuplestore Scan", "Nested Loop", "ProjectSet", "Recursive Union", "Result", "Sample Scan",
-    "Seq Scan", "SetOp", "Sort", "Subquery Scan", "Tid Scan", "Unique", "Update on", "Values Scan",
-    "WindowAgg", "WorkTable Scan",
+    "Seq Scan", "SetOp", "Sort", "Subquery Scan", "Table Function Scan", "Tid Range Scan",
+    "Tid Scan", "Unique", "Update on", "Values Scan", "WindowAgg", "WorkTable Scan",
 )
 
-/** The one node label whose `on` names an access path rather than a rowset. See [PlanReader]. */
+/** The one node label whose `on` names an access path rather than a rowset. See [PlanTextReader]. */
 private const val BITMAP_INDEX_SCAN = "Bitmap Index Scan"
 
-/** The field a subplan's own name arrives on, which is a declaration rather than an expression. */
-private const val SUBPLAN_NAME = "Subplan Name"
-
-/** The keyword a plan writes in front of a name it is computing for itself. */
-private const val CTE = "CTE"
+/** The cost parenthetical, as the default output spaces it. See [opensATextPlan]. */
+private const val COST = "  (cost="
 
 /** What an index name follows, spaced as a plan prints it. */
 private const val USING = " using "
@@ -572,5 +440,3 @@ private fun linesOf(text: String): List<PlanLine> {
         at = end + 1
     }
 }
-
-

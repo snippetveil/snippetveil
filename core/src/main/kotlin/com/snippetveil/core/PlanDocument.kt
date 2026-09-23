@@ -1,0 +1,477 @@
+package com.snippetveil.core
+
+/**
+ * **One structured plan, read out of three spellings into one shape** — the document the field
+ * inventory walks, and the seam that keeps *what a field is* from being asked three times.
+ *
+ * PostgreSQL's JSON, YAML and XML outputs carry **the same tree**. What differs is the punctuation,
+ * so the punctuation is what these readers absorb: each produces the sequence of query mappings its
+ * own spelling encodes, and everything downstream — the inventory, the closure, the treatments — is
+ * written once.
+ *
+ * **Three readers and not one, because they are three vocabularies.** They are not layered on a
+ * shared tokenizer and none of them falls back to another: a YAML document is not a JSON document,
+ * and a reader that tried both in turn would be a reader that picks. See [PlanFormat] for the
+ * predicates that decide which one runs, and for what happens when two of them say yes.
+ *
+ * **Every offset here is the plan's own.** A node carries slots into the text it was read from, so an
+ * occurrence built from one needs no arithmetic — the same promise [PlanSlot] makes, kept all the way
+ * up.
+ */
+internal sealed class PlanNode {
+
+    /** The node's whole extent, punctuation included. */
+    abstract val slot: PlanSlot
+}
+
+/**
+ * **A mapping: labelled entries, in the order the engine printed them.**
+ *
+ * A list rather than a map, because **a label may repeat** — XML writes a list of plans as repeated
+ * `<Plan>` elements under one `<Plans>` — and because a reader that deduplicated would decide which
+ * of two printings to report, which is a judgment nothing here is allowed to make.
+ */
+internal class PlanMapping(val entries: List<PlanEntry>, override val slot: PlanSlot) : PlanNode()
+
+/** **A sequence**: a JSON array, a YAML block sequence, or an XML element whose children are `Item`. */
+internal class PlanSequence(val items: List<PlanNode>, override val slot: PlanSlot) : PlanNode()
+
+/**
+ * **A scalar**: a string, a number, a boolean.
+ *
+ * @param content where the value's own text is — inside the delimiters for a quoted scalar, and the
+ *   whole token for a bare one. It is where a placeholder is written, for the reason
+ *   [PlanOccurrence.nameStart] gives.
+ */
+internal class PlanScalar(override val slot: PlanSlot, val content: PlanSlot) : PlanNode()
+
+/**
+ * One entry of a [PlanMapping]: the label, where that label is **written**, and the value.
+ *
+ * @param names every range the label occupies in the text — one for JSON and YAML, and **two for
+ *   XML**, which writes the name again in the closing tag. A rule that masks a key has to reach all
+ *   of them, and a document that told it about only the opening tag would leave the name in the
+ *   output while reporting that it had been replaced.
+ */
+internal class PlanEntry(val label: String, val names: List<PlanSlot>, val value: PlanNode)
+
+/**
+ * **PostgreSQL's `EXPLAIN (FORMAT JSON)`, read strictly** — and `null` for anything that is not
+ * exactly that.
+ *
+ * Strict rather than tolerant everywhere: a document that does not parse whole is not a plan, and
+ * guessing past a malformed region is how a reader comes to walk text it never understood. The
+ * top level must be an **array of objects**, which is what the printer emits and the whole of what
+ * this accepts.
+ */
+internal fun jsonQueriesIn(text: String): List<PlanMapping>? = JsonReader(text).document()
+
+/**
+ * **PostgreSQL's `EXPLAIN (FORMAT YAML)`, read strictly** — and `null` for anything else.
+ *
+ * It reads **the printer's YAML and not YAML**, which is stated rather than hidden: the accepted
+ * grammar is a block sequence of block mappings, two-space indentation, one entry per line, and
+ * scalars that are either double-quoted or bare. A general YAML parser would accept flow mappings,
+ * anchors, tags and multi-document streams — none of which the printer emits, all of which would be
+ * surface this container then has to defend.
+ */
+internal fun yamlQueriesIn(text: String): List<PlanMapping>? = YamlReader(text).document()
+
+/**
+ * **PostgreSQL's `EXPLAIN (FORMAT XML)`, read strictly** — and `null` for anything else.
+ *
+ * The root is `<explain>` and its children are `<Query>` elements, whose contents are the mappings
+ * every other format prints at top level. An element whose children are all `<Item>` is a **list**,
+ * which is the printer's own spelling for one.
+ */
+internal fun xmlQueriesIn(text: String): List<PlanMapping>? = XmlReader(text).document()
+
+/**
+ * **How a label is spelled as an XML element name** — the printer's own transform, applied here so
+ * that one inventory serves all three formats.
+ *
+ * `ExplainXMLTag` writes every character of a property name that is not `A-Za-z0-9-_.` as `-`, so
+ * `Node Type` is `<Node-Type>` and `I/O Read Time` is `<I-O-Read-Time>`. The mapping is **not**
+ * invertible — `Full-sort Groups` and a hypothetical `Full sort Groups` collide — so the inventory is
+ * carried the other way: every known label is put through this, and a tag that is no label's image
+ * refuses like any other unknown field.
+ */
+internal fun xmlTagOf(label: String): String =
+    label.map { if (it.isLetterOrDigit() || it == '-' || it == '_' || it == '.') it else '-' }.joinToString("")
+
+/** The JSON document, read a character at a time. See [jsonQueriesIn]. */
+private class JsonReader(private val source: String) {
+
+    private var at = 0
+
+    fun document(): List<PlanMapping>? {
+        val root = value() as? PlanSequence ?: return null
+        skipSpace()
+        if (at != source.length) return null
+        return root.items.map { it as? PlanMapping ?: return null }
+    }
+
+    private fun value(): PlanNode? {
+        skipSpace()
+        return when (peek()) {
+            '{' -> mapping()
+            '[' -> sequence()
+            '"' -> string()
+            null -> null
+            else -> bare()
+        }
+    }
+
+    private fun mapping(): PlanNode? {
+        val start = at
+        at++
+        val entries = mutableListOf<PlanEntry>()
+        skipSpace()
+        if (peek() == '}') {
+            at++
+            return PlanMapping(entries, slot(start, at))
+        }
+        while (true) {
+            skipSpace()
+            val key = string() ?: return null
+            skipSpace()
+            if (peek() != ':') return null
+            at++
+            val value = value() ?: return null
+            entries += PlanEntry(key.content.written, listOf(key.content), value)
+            skipSpace()
+            when (peek()) {
+                ',' -> at++
+                '}' -> {
+                    at++
+                    return PlanMapping(entries, slot(start, at))
+                }
+
+                else -> return null
+            }
+        }
+    }
+
+    private fun sequence(): PlanNode? {
+        val start = at
+        at++
+        val items = mutableListOf<PlanNode>()
+        skipSpace()
+        if (peek() == ']') {
+            at++
+            return PlanSequence(items, slot(start, at))
+        }
+        while (true) {
+            items += value() ?: return null
+            skipSpace()
+            when (peek()) {
+                ',' -> at++
+                ']' -> {
+                    at++
+                    return PlanSequence(items, slot(start, at))
+                }
+
+                else -> return null
+            }
+        }
+    }
+
+    /** A quoted string, whose content is what lies between the delimiters — escapes and all. */
+    private fun string(): PlanScalar? {
+        if (peek() != '"') return null
+        val start = at
+        at++
+        val contentStart = at
+        while (at < source.length) {
+            when (source[at]) {
+                '\\' -> at += 2
+                '"' -> {
+                    val contentEnd = at
+                    at++
+                    return PlanScalar(slot(start, at), slot(contentStart, contentEnd))
+                }
+
+                else -> at++
+            }
+        }
+        return null
+    }
+
+    /** A number, `true`, `false` or `null` — everything the printer writes without delimiters. */
+    private fun bare(): PlanScalar? {
+        val start = at
+        while (at < source.length && (source[at].isLetterOrDigit() || source[at] in "+-.")) at++
+        if (at == start) return null
+        return PlanScalar(slot(start, at), slot(start, at))
+    }
+
+    private fun peek(): Char? = source.getOrNull(at)
+
+    private fun skipSpace() {
+        while (at < source.length && source[at].isWhitespace()) at++
+    }
+
+    private fun slot(start: Int, end: Int) = PlanSlot(source, start, end)
+}
+
+/** The YAML document, read a line at a time. See [yamlQueriesIn]. */
+private class YamlReader(private val source: String) {
+
+    private val lines: List<YamlLine> = source.lineSequence().let { sequence ->
+        var at = 0
+        sequence.map { text ->
+            val line = YamlLine(text, at)
+            at += text.length + 1
+            line
+        }.filterNot { it.isBlank }.toList()
+    }
+
+    fun document(): List<PlanMapping>? {
+        if (lines.isEmpty()) return null
+        if (lines.first().indent != 0 || !lines.first().opensAnItem) return null
+
+        val read = sequenceFrom(0, 0) ?: return null
+        if (read.next != lines.size) return null
+        return read.node.items.map { it as? PlanMapping ?: return null }
+    }
+
+    /** The block sequence at [indent], every item of which is a mapping opened by its own `- `. */
+    private fun sequenceFrom(from: Int, indent: Int): Read<PlanSequence>? {
+        val items = mutableListOf<PlanNode>()
+        var at = from
+        while (at < lines.size && lines[at].indent == indent && lines[at].opensAnItem) {
+            val item = mappingFrom(at, indent + DASH.length, opensAnItem = true) ?: return null
+            items += item.node
+            at = item.next
+        }
+        if (items.isEmpty()) return null
+        return Read(PlanSequence(items, spanOf(from, at)), at)
+    }
+
+    /**
+     * The block mapping at [indent] — and, where [opensAnItem], the one whose first entry is written
+     * on the `- ` line rather than under it.
+     */
+    private fun mappingFrom(from: Int, indent: Int, opensAnItem: Boolean): Read<PlanMapping>? {
+        val entries = mutableListOf<PlanEntry>()
+        var at = from
+        var first = opensAnItem
+        while (at < lines.size) {
+            val line = lines[at]
+            if (!first && (line.indent != indent || line.opensAnItem)) break
+            if (first && line.indent + DASH.length != indent) break
+
+            val entry = entryOn(line, at, indent) ?: return null
+            entries += entry.node
+            at = entry.next
+            first = false
+        }
+        if (entries.isEmpty()) return null
+        return Read(PlanMapping(entries, spanOf(from, at)), at)
+    }
+
+    /** One `Label: value` entry, whose value is on the line or in the block indented under it. */
+    private fun entryOn(line: YamlLine, at: Int, indent: Int): Read<PlanEntry>? {
+        val body = line.text.substring(line.bodyAt)
+        val colon = body.indexOf(':').takeIf { it > 0 } ?: return null
+        val label = body.substring(0, colon)
+        val names = listOf(PlanSlot(source, line.start + line.bodyAt, line.start + line.bodyAt + colon))
+
+        var valueAt = line.bodyAt + colon + 1
+        while (valueAt < line.text.length && line.text[valueAt] == ' ') valueAt++
+
+        if (valueAt < line.text.length) {
+            val scalar = scalarIn(line, valueAt) ?: return null
+            return Read(PlanEntry(label, names, scalar), at + 1)
+        }
+
+        // Nothing after the colon: the value is the block indented under this line — or, where no
+        // line is indented under it, the empty list the printer writes for `Triggers: ` with no
+        // trigger. **An empty block is a sequence and never a mapping**, because a mapping with no
+        // entries would be a container the closure never looked inside.
+        val next = lines.getOrNull(at + 1)
+        if (next == null || next.indent <= indent) {
+            return Read(PlanEntry(label, names, PlanSequence(emptyList(), spanOf(at + 1, at + 1))), at + 1)
+        }
+
+        val block = if (next.opensAnItem) {
+            sequenceFrom(at + 1, next.indent)
+        } else {
+            mappingFrom(at + 1, next.indent, opensAnItem = false)
+        } ?: return null
+        return Read(PlanEntry(label, names, block.node), block.next)
+    }
+
+    /** The scalar written from [valueAt] to the end of [line] — quoted, or bare. */
+    private fun scalarIn(line: YamlLine, valueAt: Int): PlanScalar? {
+        val start = line.start + valueAt
+        val end = line.start + line.text.length
+        if (line.text[valueAt] != '"') return PlanScalar(PlanSlot(source, start, end), PlanSlot(source, start, end))
+
+        var at = valueAt + 1
+        while (at < line.text.length) {
+            when (line.text[at]) {
+                '\\' -> at += 2
+                '"' -> {
+                    // The printer writes nothing after a quoted scalar, so a trailing character is a
+                    // document this reader does not understand rather than one to read past.
+                    if (at != line.text.length - 1) return null
+                    return PlanScalar(
+                        PlanSlot(source, start, line.start + at + 1),
+                        PlanSlot(source, start + 1, line.start + at),
+                    )
+                }
+
+                else -> at++
+            }
+        }
+        return null
+    }
+
+    private fun spanOf(from: Int, to: Int): PlanSlot {
+        val start = lines.getOrNull(from)?.start ?: source.length
+        val last = lines.getOrNull(to - 1)
+        val end = if (last == null) start else last.start + last.text.length
+        return PlanSlot(source, minOf(start, end), end)
+    }
+
+    private class Read<out T>(val node: T, val next: Int)
+
+    private class YamlLine(val text: String, val start: Int) {
+
+        val indent: Int = text.indexOfFirst { it != ' ' }.takeIf { it >= 0 } ?: text.length
+
+        val isBlank: Boolean = text.isBlank()
+
+        /** Whether this line opens a sequence item — `- `, at its own indentation. */
+        val opensAnItem: Boolean = text.startsWith(DASH, indent)
+
+        /** Where the entry's label begins: past the indentation, and past the `- ` of an item. */
+        val bodyAt: Int = if (opensAnItem) indent + DASH.length else indent
+    }
+}
+
+/** What opens a YAML sequence item, spaces included — the printer's own two-character indent step. */
+private const val DASH = "- "
+
+/** The XML document, read a character at a time. See [xmlQueriesIn]. */
+private class XmlReader(private val source: String) {
+
+    private var at = 0
+
+    fun document(): List<PlanMapping>? {
+        skipSpace()
+        val root = element() ?: return null
+        skipSpace()
+        if (at != source.length) return null
+        if (root.label != EXPLAIN) return null
+
+        val queries = root.value as? PlanMapping ?: return null
+        if (queries.entries.any { it.label != QUERY }) return null
+        return queries.entries.map { it.value as? PlanMapping ?: return null }
+    }
+
+    /** One element, opened at [at], with its children read as a mapping, a sequence or a scalar. */
+    private fun element(): PlanEntry? {
+        if (peek() != '<') return null
+        val start = at
+        at++
+        val nameStart = at
+        while (at < source.length && (source[at].isLetterOrDigit() || source[at] in "-_.")) at++
+        val label = source.substring(nameStart, at)
+        if (label.isEmpty()) return null
+        val opening = PlanSlot(source, nameStart, at)
+
+        if (!skipAttributes()) return null
+        if (source.startsWith("/>", at)) {
+            at += 2
+            val empty = PlanSlot(source, at, at)
+            return PlanEntry(label, listOf(opening), PlanScalar(PlanSlot(source, start, at), empty))
+        }
+        if (peek() != '>') return null
+        at++
+
+        val contentStart = at
+        val children = mutableListOf<PlanEntry>()
+        while (true) {
+            skipSpace()
+            if (source.startsWith("</", at)) break
+            if (peek() != '<') {
+                if (children.isNotEmpty()) return null
+                return textElement(start, label, opening, contentStart)
+            }
+            children += element() ?: return null
+        }
+
+        val contentEnd = at
+        at += 2
+        val closingStart = at
+        while (at < source.length && source[at] != '>') at++
+        if (source.substring(closingStart, at) != label) return null
+        at++
+
+        val closing = PlanSlot(source, closingStart, closingStart + label.length)
+        val span = PlanSlot(source, start, at)
+        val value = if (children.isNotEmpty() && children.all { it.label == ITEM }) {
+            PlanSequence(children.map { it.value }, PlanSlot(source, contentStart, contentEnd))
+        } else if (children.isNotEmpty()) {
+            PlanMapping(children, PlanSlot(source, contentStart, contentEnd))
+        } else {
+            PlanScalar(span, PlanSlot(source, contentStart, contentEnd))
+        }
+        return PlanEntry(label, listOf(opening, closing), value)
+    }
+
+    /** An element holding character data, whose content runs to its own closing tag. */
+    private fun textElement(start: Int, label: String, opening: PlanSlot, contentStart: Int): PlanEntry? {
+        var contentEnd = contentStart
+        while (contentEnd < source.length && source[contentEnd] != '<') contentEnd++
+        at = contentEnd
+        if (!source.startsWith("</", at)) return null
+        at += 2
+        val closingStart = at
+        while (at < source.length && source[at] != '>') at++
+        if (source.substring(closingStart, at) != label) return null
+        at++
+        return PlanEntry(
+            label,
+            listOf(opening, PlanSlot(source, closingStart, closingStart + label.length)),
+            PlanScalar(PlanSlot(source, start, at), PlanSlot(source, contentStart, contentEnd)),
+        )
+    }
+
+    /**
+     * The attributes of an element, skipped — and refused unless they are the namespace the printer
+     * declares on its root.
+     *
+     * The printer writes exactly one attribute in the whole document, so anything else is a document
+     * this reader has not seen rather than one to read past.
+     */
+    private fun skipAttributes(): Boolean {
+        skipSpace()
+        while (at < source.length && source[at] != '>' && !source.startsWith("/>", at)) {
+            if (!source.startsWith(NAMESPACE, at)) return false
+            at += NAMESPACE.length
+            skipSpace()
+        }
+        return true
+    }
+
+    private fun peek(): Char? = source.getOrNull(at)
+
+    private fun skipSpace() {
+        while (at < source.length && source[at].isWhitespace()) at++
+    }
+}
+
+/** The root element of PostgreSQL's XML plan. */
+private const val EXPLAIN = "explain"
+
+/** The element one query's plan sits in. */
+private const val QUERY = "Query"
+
+/** The element the XML printer writes a list's members as. */
+private const val ITEM = "Item"
+
+/** The one attribute the XML printer writes, byte-exact — see [XmlReader.skipAttributes]. */
+private const val NAMESPACE = """xmlns="http://www.postgresql.org/2009/explain""""
