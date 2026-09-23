@@ -189,6 +189,37 @@ internal val SQLSERVER_TEXT_REMOTE_QUERY = """
     |  |--Remote Query(SOURCE:(LEDGER), QUERY:(SELECT "Tbl1001"."Total" FROM "billing"."Invoices" "Tbl1001"))
 """.trimMargin()
 
+/**
+ * **The remote rows this product's refusal does not name** — a remote insert, update and delete.
+ *
+ * SQL Server prints **five** remote operators and the ticket names two of them. All five write the
+ * linked server **unbracketed** after `SOURCE:`, which is the one thing this format's reading has no
+ * answer for: *a bracketed token is a name and everything outside a bracket is the engine's*, so an
+ * unbracketed linked server is preserved rather than replaced.
+ *
+ * They are fixtures rather than a footnote because they are what the operator list is holding shut.
+ * `SqlServerRefusalTest` runs each of them and asserts it is **not read** — see
+ * [SQLSERVER_OPERATORS], where the argument for the list lives.
+ */
+internal val SQLSERVER_TEXT_UNNAMED_REMOTE_ROWS: Map<String, String> = mapOf(
+    // The remote object in the remote server's own quoting, which is what a non-SQL-Server linked
+    // server produces: nothing here is bracketed at all.
+    "Remote Insert" to """
+        |StmtText
+        |  |--Remote Insert(SOURCE:(LEDGER), OBJECT:("billing"."dbo"."Invoices"))
+    """.trimMargin(),
+    // The remote object bracketed, which is what a SQL Server linked server produces — so the object
+    // reads and **only the linked server is left raw**. This is the shape that actually leaks.
+    "Remote Update" to """
+        |StmtText
+        |  |--Remote Update(SOURCE:(ACME_FINANCE_SRV), OBJECT:([ACME_FINANCE_SRV].[billing].[dbo].[Invoices]))
+    """.trimMargin(),
+    "Remote Delete" to """
+        |StmtText
+        |  |--Remote Delete(SOURCE:(ACME_FINANCE_SRV), OBJECT:([ACME_FINANCE_SRV].[billing].[dbo].[Invoices]))
+    """.trimMargin(),
+)
+
 /** **A remote scan row**, refused for the same reason and with the same recourse. */
 internal val SQLSERVER_TEXT_REMOTE_SCAN = """
     |StmtText

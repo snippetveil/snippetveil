@@ -1,6 +1,7 @@
 package com.snippetveil.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -132,6 +133,30 @@ class SqlServerRefusalTest {
             doubled.mapping.values.filter { "Odd" in it }.toSet(),
             "a doubled closing bracket was read as the end of a name:\n${doubled.text}",
         )
+    }
+
+    /**
+     * **A remote row this product's refusal does not name is still never read** — and this is the
+     * test that says what the operator list is for.
+     *
+     * SQL Server prints five remote operators; two of them are named and refused with an option. All
+     * five write the linked server **unbracketed** after `SOURCE:`, and an unbracketed token in this
+     * format is preserved, because *everything outside a bracket is the engine's own* is the whole
+     * reading. So a remote update that reached the reader would hand back `SOURCE:(ACME_FINANCE_SRV)`
+     * exactly as printed — the organization-identifying string this product exists to replace.
+     *
+     * The operator list is what stops it, and **the leak is asserted rather than described**: each
+     * row is read as far as it gets, and neither the linked server nor a readable plan may come out
+     * of it. Cut the list and this test goes red on the second and third fixtures.
+     */
+    @Test
+    fun `a remote row outside the two that are named is never read`() {
+        for ((operator, plan) in SQLSERVER_TEXT_UNNAMED_REMOTE_ROWS) {
+            val reading = parsePlan(plan)
+
+            assertFalse(reading is PlanReading.Read, "$operator was read, and its linked server is raw in it")
+            assertEquals(PlanReading.Unreadable, reading, "for $operator")
+        }
     }
 
     /**

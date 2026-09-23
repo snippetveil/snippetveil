@@ -505,6 +505,13 @@ internal val SQLSERVER_TOP_FIELDS: Map<String, PlanTreatment> = mapOf(
  * does; under a reader with no operator list, the unbracketed name would simply be preserved, because
  * preserving what is not in brackets is the whole rule. Refusing an operator nobody has captured is
  * the cost, and it is the same cost the field closure carries everywhere else in this product.
+ *
+ * **This list is wider than the ticket, and it was kept on evidence rather than on preference.**
+ * The ticket names two remote rows; cutting the list to exactly those two was tried, and a
+ * `Remote Update` row then **reads**, handing back `SOURCE:(ACME_FINANCE_SRV)` exactly as printed —
+ * the linked server, in the clear. `SqlServerRefusalTest` runs that row and the two beside it and
+ * asserts none of them is read, so the day this list is cut the test says which rows it let through
+ * rather than leaving it to be noticed. See [SQLSERVER_TEXT_UNNAMED_REMOTE_ROWS].
  */
 internal val SQLSERVER_OPERATORS: Set<String> = setOf(
     "Adaptive Join", "Assert", "Bitmap", "Clustered Index Delete", "Clustered Index Insert",
