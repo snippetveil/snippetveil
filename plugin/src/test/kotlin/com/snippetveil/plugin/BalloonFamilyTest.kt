@@ -2,7 +2,7 @@ package com.snippetveil.plugin
 
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
-import com.snippetveil.core.PlanRecourse
+import com.snippetveil.core.PlanRefusedForm
 import com.snippetveil.core.Reversal
 import com.snippetveil.core.Unrestored
 import com.snippetveil.core.UnrestoredReason
@@ -150,15 +150,15 @@ class BalloonFamilyTest : JavaSnippetTestCase() {
             // report link, which is where *a plugin refusing input correctly is not a defect* is
             // actually checked.
             Row("planUnreadable", Footprint.CLIPBOARD_NOT_WRITTEN) { notify.planUnreadable(project) },
-
-            // The refusal of a plan this product recognises and cannot read soundly. It is held to
-            // the same two rules as the one above — nothing was read or written, and a plugin
-            // refusing correctly is not a defect — and differs only in naming the engine's own
-            // option that would work.
-            Row("planRefused", Footprint.CLIPBOARD_NOT_WRITTEN) {
-                notify.planRefused(project, PlanRecourse.FORMAT_JSON)
-            },
-        )
+        ) +
+            // The refusal of a plan this product recognises and cannot read soundly, **once per
+            // recognised shape**. Each has a sentence of its own and the rules here are about the
+            // sentence: one of the four names no recourse at all, and every one of them must still
+            // be held to the clipboard clause and to having no report link — which is where *a
+            // plugin refusing input correctly is not a defect* is actually checked.
+            PlanRefusedForm.entries.map { form ->
+                Row("planRefused", Footprint.CLIPBOARD_NOT_WRITTEN) { notify.planRefused(project, form) }
+            }
     }
 
     /** One balloon to raise: the [function] on [SnippetVeilNotifications] that raises it, and its footprint. */

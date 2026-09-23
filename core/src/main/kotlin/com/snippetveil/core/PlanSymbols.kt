@@ -32,25 +32,70 @@ internal class PlanSymbols(private val declared: MutableSet<String>, val vocabul
      * relation either way. Two cascades over one sealed type is two places for a later class to be
      * added to and one place for it to be forgotten.
      *
-     * @return `false` where [treatment] names a **container** rather than a value. That is not a
-     *   case this can answer: what a container holds is the document's shape, which each format's
-     *   reader knows and this does not. Both callers refuse on it.
+     * @return `false` where [treatment] names a **container** rather than a value, or a line whose
+     *   reading needs the node it was printed on. Neither is a case this can answer: what a container
+     *   holds and what a node's siblings are is the document's shape, which each format's reader
+     *   knows and this does not. Both callers refuse on it.
      */
     fun readSlot(slot: PlanSlot, treatment: PlanTreatment): Boolean {
         when (treatment) {
             is PlanTreatment.Name -> name(slot, treatment.kind)
             PlanTreatment.Declared -> declareWritten(slot)
             PlanTreatment.Expression -> readExpression(slot)
+            is PlanTreatment.Reference -> readReference(slot, treatment.kinds)
             PlanTreatment.Measured -> occurrences += PlanTreatments.measured()
             is PlanTreatment.Fact -> occurrences += PlanTreatments.engineFact(slot, treatment.shape)
+            is PlanTreatment.Unescaped -> occurrences += PlanTreatments.unescaped(slot, treatment.admits)
             PlanTreatment.EchoedQuery -> occurrences += PlanTreatments.echoedQuery(slot)
             PlanTreatment.Parameters -> occurrences += PlanTreatments.parameters(slot, vocabulary)
             PlanTreatment.Identifying -> occurrences += PlanTreatments.identifying(slot)
             PlanTreatment.Deployment -> occurrences += PlanTreatments.deployment(slot)
+            PlanTreatment.AppendedRaw -> occurrences += PlanTreatments.appendedRaw(slot)
 
-            is PlanTreatment.Subtree, PlanTreatment.SettingsMap -> return false
+            is PlanTreatment.Subtree, PlanTreatment.SettingsMap, is PlanTreatment.Rendered -> return false
         }
         return true
+    }
+
+    /**
+     * **One qualified reference, split on `.` and keyed by position** — and a part count that is not
+     * the one the inventory named **refuses the input**.
+     *
+     * Every part is a name and the kinds are positional, exactly as they are in a dotted chain inside
+     * an expression — but the counting is the opposite discipline. A chain is read as long as it
+     * happens to be, because the lexer found its boundaries in the engine's own delimiters; a
+     * reference arrives with **no delimiters at all**, so the only thing that says a `.` separated
+     * two names rather than sitting inside one is that the total came out right.
+     *
+     * An alias a user spelled `a.b` is the case that makes this necessary and it is the case a
+     * tolerant reader silently gets wrong: the reference has one part too many, every kind shifts by
+     * one, and the output confidently calls somebody's alias a schema.
+     *
+     * A field with **nothing in it** is nothing to place, which is the answer every other treatment
+     * gives an empty slot; an **empty part inside a reference** is a different thing, and refuses.
+     *
+     * @throws PlanRefusal where the split does not give exactly one part per kind, or where a part is
+     *   empty — a reference that begins, ends or doubles a `.` is not one this reader can place
+     */
+    fun readReference(slot: PlanSlot, kinds: List<SymbolRole>) {
+        val reference = slot.trimmed()
+        if (reference.isBlank) return
+
+        val parts = reference.written.split('.')
+        if (parts.size != kinds.size || parts.any { it.isEmpty() }) throw PlanRefusal(PlanReading.Unreadable)
+
+        var at = reference.start
+        for ((position, part) in parts.withIndex()) {
+            val kind = kinds[position]
+            occurrences += PlanOccurrence(
+                at,
+                at + part.length,
+                PlanDisposition.Anonymize(kind, keyOf(kind, part)),
+            )
+            // Past the part, and past the `.` that follows it — which is punctuation, and survives
+            // by not being reported.
+            at += part.length + 1
+        }
     }
 
     /** **A name of [kind], written over the whole of [slot]** — where the slot *is* one name. */

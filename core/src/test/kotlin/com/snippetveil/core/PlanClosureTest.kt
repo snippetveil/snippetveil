@@ -56,7 +56,7 @@ class PlanClosureTest {
 
         assertEquals(PlanReading.Unreadable, unknownField, "an unknown field was refused as a recognised shape")
         assertTrue(rawNameRow is PlanReading.Refused, "a raw-name row was not refused as a recognised shape")
-        assertEquals(PlanRecourse.FORMAT_JSON, (rawNameRow as PlanReading.Refused).recourse)
+        assertEquals(PlanRefusedForm.POSTGRES_TEXT_RAW_NAME_ROW, (rawNameRow as PlanReading.Refused).form)
     }
 
     /**
@@ -80,7 +80,7 @@ class PlanClosureTest {
             val reading = parsePlan(plan)
 
             assertTrue(reading is PlanReading.Refused, "`$row` was not refused as a recognised shape")
-            assertEquals(PlanRecourse.FORMAT_JSON, (reading as PlanReading.Refused).recourse, "for `$row`")
+            assertEquals(PlanRecourse.POSTGRES_FORMAT_JSON, (reading as PlanReading.Refused).form.recourse, "for `$row`")
         }
     }
 

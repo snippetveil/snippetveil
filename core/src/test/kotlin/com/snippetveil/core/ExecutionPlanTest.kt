@@ -296,7 +296,7 @@ internal fun planIn(text: String): SnippetPlan = when (val reading = parsePlan(t
     is PlanReading.Read -> reading.plan
     PlanReading.Unreadable -> throw AssertionError("this was refused, and is a plan:\n$text")
     is PlanReading.Refused ->
-        throw AssertionError("this was refused with ${reading.recourse}, and is a plan:\n$text")
+        throw AssertionError("this was refused as ${reading.form}, and is a plan:\n$text")
 }
 
 /** The name written at each anonymized token, and the kind it was read as. */

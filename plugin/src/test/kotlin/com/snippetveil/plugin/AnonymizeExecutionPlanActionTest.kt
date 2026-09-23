@@ -12,6 +12,7 @@ import com.intellij.ui.EditorTextField
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.PlanReading
+import com.snippetveil.core.PlanRefusedForm
 import com.snippetveil.core.parsePlan
 import java.awt.Container
 import javax.swing.Action
@@ -158,6 +159,108 @@ class AnonymizeExecutionPlanActionTest : JavaSnippetTestCase() {
         )
         for (name in listOf("work_mem", "visits", "billing")) {
             assertFalse("the refusal quotes `$name`: ${balloon.content}", name in balloon.content)
+        }
+    }
+
+    /**
+     * **The output a MySQL user gets without asking for anything is refused, and the sentence names
+     * that shape rather than another.**
+     *
+     * It is the product's least comfortable fact, so it is asserted plainly: the default `EXPLAIN`
+     * lands on the tabular sentence and the `TREE` output lands on its own, and **they are asserted
+     * as a pair** — one message covering both would have to describe neither in order to be true of
+     * both, and that is exactly the wording a later change would drift into.
+     */
+    fun `test MySQL's default output and its TREE output are refused in their own words`() {
+        val said = mapOf(
+            MYSQL_TABULAR to "SnippetVeil cannot safely anonymize MySQL's tabular EXPLAIN output. " +
+                "Run EXPLAIN FORMAT=JSON and copy that instead. Your clipboard was not changed.",
+            MYSQL_TREE to "SnippetVeil cannot safely anonymize MySQL's TREE format. " +
+                "Run EXPLAIN FORMAT=JSON and copy that instead. Your clipboard was not changed.",
+        )
+
+        for ((paste, sentence) in said) {
+            setClipboard(paste)
+
+            var opened = false
+            invokePlan(FakeClipboard(paste)) { _, analysis -> analysis.also { opened = true } }
+            awaitBackgroundWork()
+
+            assertFalse("a refused paste opened the preview", opened)
+            assertEquals("the refusal changed the clipboard", paste, clipboard())
+
+            val balloon = notifications.single()
+            assertEquals(NotificationType.WARNING, balloon.type)
+            assertEmpty(balloon.actions)
+            assertEquals(sentence, balloon.content)
+            for (name in listOf("visits_by_owner", "owner_id")) {
+                assertFalse("the refusal quotes `$name`: ${balloon.content}", name in balloon.content)
+            }
+        }
+    }
+
+    /**
+     * **A MariaDB paste is refused in MariaDB's own words, and the sentence offers nothing.**
+     *
+     * The absence of a recourse clause is the assertion, and it is asserted against MySQL's sentence
+     * rather than on its own: the two engines print near-identical plans, and a MariaDB user told to
+     * run `EXPLAIN FORMAT=JSON` would have been handed advice about an engine they are not running.
+     */
+    fun `test a MariaDB paste is refused with no recourse and never in MySQL's words`() {
+        setClipboard(MARIADB_TABULAR)
+
+        var opened = false
+        invokePlan(FakeClipboard(MARIADB_TABULAR)) { _, analysis -> analysis.also { opened = true } }
+        awaitBackgroundWork()
+
+        assertFalse("a refused paste opened the preview", opened)
+        assertEquals("the refusal changed the clipboard", MARIADB_TABULAR, clipboard())
+
+        val balloon = notifications.single()
+        assertEquals(NotificationType.WARNING, balloon.type)
+        assertEmpty(balloon.actions)
+        assertEquals(
+            "SnippetVeil does not anonymize MariaDB plans in any format. Your clipboard was not changed.",
+            balloon.content,
+        )
+        assertFalse("a MariaDB paste was given MySQL's recourse: " + balloon.content, "FORMAT=JSON" in balloon.content)
+        assertFalse("a MariaDB paste was told about MySQL: " + balloon.content, "MySQL" in balloon.content)
+    }
+
+    /**
+     * **Every recognised refused shape leaves the clipboard byte-identical and quotes none of it** —
+     * asserted over the whole enumeration rather than over the two shapes that happen to have a test.
+     *
+     * The pastes carry names nothing may repeat back, and the sentence each produces is checked
+     * against every one of them. A form added later without a test of its own is still held here, so
+     * the guarantee is about the *set* of refusals rather than about the ones somebody remembered.
+     */
+    fun `test every recognised refused shape leaves the clipboard alone and quotes nothing of it`() {
+        val pastes = mapOf(
+            PlanRefusedForm.POSTGRES_TEXT_RAW_NAME_ROW to "$PLAN\nSettings: work_mem = '8MB'",
+            PlanRefusedForm.MYSQL_TREE to MYSQL_TREE,
+            PlanRefusedForm.MYSQL_TABULAR to MYSQL_TABULAR,
+            PlanRefusedForm.MARIADB to MARIADB_TABULAR,
+        )
+
+        assertEquals(
+            "a refused shape has no paste here, so the set is not covered",
+            PlanRefusedForm.entries.toSet(),
+            pastes.keys,
+        )
+        for ((form, paste) in pastes) {
+            setClipboard(paste)
+            invokePlan(FakeClipboard(paste)) { _, analysis -> analysis }
+            awaitBackgroundWork()
+
+            assertEquals("$form changed the clipboard", paste, clipboard())
+
+            val said = notifications.single().content
+            assertEquals("$form is not a warning", NotificationType.WARNING, notifications.single().type)
+            assertTrue("$form does not say the clipboard is unchanged: $said", "was not changed" in said)
+            for (word in REFUSED_PASTE_NAMES) {
+                assertFalse("$form quotes `$word`: $said", word in said)
+            }
         }
     }
 
@@ -323,7 +426,42 @@ private val PRIVATE_QUERY = """
 /** What a user's clipboard held before an invocation that must not touch it. */
 private const val PREVIOUS_CLIPBOARD = "the raw plan the user copied a minute ago"
 
+/**
+ * The names the refused pastes carry — the words no refusal may contain, whichever shape it
+ * recognised.
+ */
+private val REFUSED_PASTE_NAMES = listOf(
+    "visits_by_owner", "owner_id", "created_at", "work_mem", "visits", "billing", "SIMPLE",
+)
+
 /** The names [PRIVATE_QUERY] carries — the words a refusal may not contain. */
 private val PRIVATE_NAMES = listOf(
     "merchant_secret", "tenant_id", "acme_billing", "hidden_ledger", "settled", "SELECT",
 )
+
+/**
+ * **What a MySQL user gets from `EXPLAIN` without asking for anything** — the traditional table,
+ * inside the bordered frame the client's default terminator draws around it.
+ */
+private val MYSQL_TABULAR = """
+    +----+-------------+-------+------------+------+------------------+------------------+---------+-------+------+----------+-------+
+    | id | select_type | table | partitions | type | possible_keys    | key              | key_len | ref   | rows | filtered | Extra |
+    +----+-------------+-------+------------+------+------------------+------------------+---------+-------+------+----------+-------+
+    |  1 | SIMPLE      | v     | NULL       | ref  | visits_by_owner  | visits_by_owner  | 4       | const |    2 |   100.00 | NULL  |
+    +----+-------------+-------+------------+------+------------------+------------------+---------+-------+------+----------+-------+
+""".trimIndent()
+
+/** MySQL's `TREE` output, whose aliases and index names are appended with nothing around them. */
+private val MYSQL_TREE = """
+    -> Sort: shop.v.created_at  (cost=0.85 rows=2)
+        -> Index lookup on v using visits_by_owner (owner_id = 42)  (cost=0.70 rows=2)
+""".trimIndent()
+
+/** MariaDB's `EXPLAIN`, which prints neither of the two columns MySQL's table has. */
+private val MARIADB_TABULAR = """
+    +------+-------------+-------+------+------------------+------------------+---------+-------+------+-------+
+    | id   | select_type | table | type | possible_keys    | key              | key_len | ref   | rows | Extra |
+    +------+-------------+-------+------+------------------+------------------+---------+-------+------+-------+
+    |    1 | SIMPLE      | v     | ref  | visits_by_owner  | visits_by_owner  | 4       | const |    2 |       |
+    +------+-------------+-------+------+------------------+------------------+---------+-------+------+-------+
+""".trimIndent()

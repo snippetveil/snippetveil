@@ -23,13 +23,19 @@ package com.snippetveil.core
  * wrong; and dropping inside the parse to return edited text, which costs the plan its verbatim-text
  * invariant — the one the preview and the round trip both read.
  *
- * ### Four formats, and exactly one of them recognised
+ * ### Several formats, and exactly one of them recognised
  *
- * PostgreSQL's default **text** output and its **JSON**, **YAML** and **XML** ones. Each has its own
- * anchored recognition predicate, and **if two of them accept, the input refuses rather than being
- * read under one of the two** — see [PlanFormat]. Recognition still begins at the plan's first line:
- * a subtree pasted from the middle of a text plan begins with indentation, and a paste carrying the
- * query above the plan begins with the query, so both refuse.
+ * PostgreSQL's default **text** output and its **JSON**, **YAML** and **XML** ones; MySQL's two
+ * **JSON** formats; and the shapes of MySQL's and MariaDB's that are recognised in order to be
+ * refused well. Each has its own anchored recognition predicate, and **if two of them accept, the
+ * input refuses rather than being read under one of the two** — see [PlanFormat]. Recognition still
+ * begins at the plan's first line: a subtree pasted from the middle of a text plan begins with
+ * indentation, and a paste carrying the query above the plan begins with the query, so both refuse.
+ *
+ * **A recogniser only ever picks the message.** It never decides what is emitted, and the clipboard
+ * is untouched either way — but a refusal that named the wrong engine's option would be a false
+ * statement this product made about somebody else's engine, so the predicates are held to the same
+ * standard as the parser. See [MYSQL_FORMATS] and [MARIADB_FORMATS].
  *
  * A **client frame** is peeled before any of that — `psql`'s aligned header, its rule, the space it
  * indents each row by and the count it prints underneath — so the shape most users arrive with is
@@ -86,15 +92,75 @@ sealed class PlanReading {
     object Unreadable : PlanReading()
 
     /**
-     * **A shape this product recognises as one it cannot read soundly, whose engine offers a better
-     * one** — and the recourse names it.
+     * **A shape this product recognises as one it cannot read soundly** — named, so that the message
+     * layer can say which shape it was and, where the engine offers a better one, which.
      *
-     * The difference from [Unreadable] is not severity. It is that here the product **knows what the
-     * user should do instead**, because the same plan in another of the engine's own output formats
-     * carries the very thing this one lost. See [PlanRecourse], and [TEXT_RAW_NAME_ROWS] for the
-     * closed list of rows that produce one.
+     * The difference from [Unreadable] is not severity. It is that here the product **recognised what
+     * arrived**, so it can say something true and specific about it instead of *this is not a plan I
+     * read*. See [PlanRefusedForm] for the closed list, and [TEXT_RAW_NAME_ROWS] for the rows of
+     * PostgreSQL's text format that produce one.
      */
-    class Refused(val recourse: PlanRecourse) : PlanReading()
+    class Refused(val form: PlanRefusedForm) : PlanReading()
+}
+
+/**
+ * **The shapes this product recognises and refuses** — an enumeration, never a sentence, and one row
+ * per *situation the user is in* rather than one per reason a reader gave up.
+ *
+ * **A form rather than a bare recourse, because one message cannot honestly cover two situations.**
+ * MySQL's `TREE` output and its tabular output are refused for different reasons and are fixed by the
+ * same option, and a single sentence naming only the option would have to describe neither shape in
+ * order to describe both. So the engine says *which shape arrived*, and the message layer says how
+ * that reads — the same division of labour the verdict itself follows.
+ *
+ * **A form may carry no recourse at all, and one deliberately does.** MariaDB writes strings into its
+ * JSON without escaping them, so its JSON output is not even valid JSON, and every other form it
+ * prints inherits the same problem. There is no better form of that engine's to name, and naming one
+ * anyway would be this product making a false statement about somebody else's engine.
+ *
+ * @param recourse the option of the same engine's that produces a plan this product reads, or `null`
+ *   where this product knows of none. See [PlanRecourse].
+ */
+enum class PlanRefusedForm(val recourse: PlanRecourse?) {
+
+    /**
+     * **PostgreSQL's text format, on one of the rows it prints a raw unquoted name in.**
+     *
+     * See [TEXT_RAW_NAME_ROWS] for the closed list and for why each of them is unrecoverable from
+     * the text.
+     */
+    POSTGRES_TEXT_RAW_NAME_ROW(PlanRecourse.POSTGRES_FORMAT_JSON),
+
+    /**
+     * **MySQL's `TREE` output** — which is also what `EXPLAIN ANALYZE` prints.
+     *
+     * Aliases and index names are **appended raw** into the rendered line, with no delimiter of any
+     * kind around them, so a name a user chose can forge a line that reads as well-formed. Nothing
+     * can recover the boundary afterwards, and `EXPLAIN FORMAT=JSON` escapes every one of them.
+     */
+    MYSQL_TREE(PlanRecourse.MYSQL_FORMAT_JSON),
+
+    /**
+     * **MySQL's tabular output** — the traditional column table, which is **what `EXPLAIN` with no
+     * format clause prints**, and the hypergraph optimizer's tabular form, which prints the same
+     * columns.
+     *
+     * Names are written into the cells unquoted and the cells are separated by a bare `|`, so a name
+     * carrying one is indistinguishable from the separator. **This is the product's least comfortable
+     * refusal**, because it is the output a MySQL user gets without asking for anything — which is
+     * exactly why it has a sentence of its own rather than sharing [MYSQL_TREE]'s.
+     */
+    MYSQL_TABULAR(PlanRecourse.MYSQL_FORMAT_JSON),
+
+    /**
+     * **MariaDB, in every form it prints** — and the one form with **no recourse, deliberately**.
+     *
+     * Its JSON writer does not escape strings at all, so the document it produces is not valid JSON
+     * and a value carrying a quote runs into its siblings; its tabular forms carry the same unquoted
+     * names MySQL's do. There is no output of MariaDB's that this product knows would work, so the
+     * message names none. See [PlanRecourse] for why an invented one would be worse than silence.
+     */
+    MARIADB(null),
 }
 
 /**
@@ -104,6 +170,10 @@ sealed class PlanReading {
  * decides *that* there is a better option and *which*, and the message layer decides how that reads.
  * A rendered sentence here would be the product's words in the engine, and a type that could hold one
  * would be a type that could hold a line of the user's plan.
+ *
+ * **One row per engine, because the option is spelled per engine.** PostgreSQL's is written
+ * `EXPLAIN (FORMAT JSON)` and MySQL's `EXPLAIN FORMAT=JSON`, and a single row rendered one way would
+ * hand half the users a statement their own engine rejects.
  */
 enum class PlanRecourse {
 
@@ -114,7 +184,16 @@ enum class PlanRecourse {
      * plan as JSON escapes every one of them. The recourse is exact rather than general: it is not
      * *try something else*, it is *this option of your engine's produces a plan this product reads*.
      */
-    FORMAT_JSON,
+    POSTGRES_FORMAT_JSON,
+
+    /**
+     * **Re-run the same `EXPLAIN` with `FORMAT=JSON`.**
+     *
+     * MySQL's JSON writer escapes every string it prints, which is the one thing its `TREE` and
+     * tabular outputs do not do — so the same plan asked for as JSON carries the delimiters the
+     * others threw away.
+     */
+    MYSQL_FORMAT_JSON,
 }
 
 /**
@@ -184,7 +263,7 @@ private fun assertRecognised(line: PlanLine) {
     if (line.text.isBlank()) return
 
     if (TEXT_RAW_NAME_ROWS.any { line.body.startsWith(it) }) {
-        throw PlanRefusal(PlanReading.Refused(PlanRecourse.FORMAT_JSON))
+        throw PlanRefusal(PlanReading.Refused(PlanRefusedForm.POSTGRES_TEXT_RAW_NAME_ROW))
     }
 
     val field = line.field

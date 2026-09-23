@@ -294,21 +294,43 @@ Worth knowing before relying on it:
   its default from 2025.1; where it is not, a `.kt` file says so rather than offering nothing. The
   two reversals work anywhere — De-anonymize Clipboard needs only a project, De-anonymize
   Clipboard and Paste a writable editor.
-- **An execution plan is PostgreSQL’s `EXPLAIN` output, in any of its four formats.** Anonymize
-  Execution Plan… replaces the relation, column, alias and index names in a text, JSON, YAML or XML
-  plan and leaves every cost and timing as printed. It still reads only from the plan’s first line: a
-  subtree pasted from the middle and a paste carrying the query above the plan are refused rather
-  than half-read. `psql`’s own table — the `QUERY PLAN` header, the rule, the padding and the row
+- **An execution plan is PostgreSQL’s `EXPLAIN` output in any of its four formats, or MySQL’s in
+  JSON.** Anonymize Execution Plan… replaces the relation, column, alias and index names and leaves
+  every cost and timing as printed. It still reads only from the plan’s first line: a subtree
+  pasted from the middle and a paste carrying the query above the plan are refused rather than
+  half-read. `psql`’s own table — the `QUERY PLAN` header, the rule, the padding and the row
   count — is peeled off and handed back byte for byte, but `psql` at a non-default setting, and any
   input carrying an echoed statement, are refused. Nothing about the plan is looked up in a database,
   and its placeholders are **not** remembered — a plan has no declarations to file them under, so the
-  same plan pasted twice comes back under different numbers.
+  same plan pasted twice comes back under different numbers. The `mysql` client’s vertical
+  terminator — the `\G` you type in place of `;` — is peeled and handed back the same way; the
+  bordered table its default terminator draws is not, and a plan inside one is refused until that
+  frame has been captured.
+- **A MySQL plan is read only as `EXPLAIN FORMAT=JSON`, in either of its two JSON schema
+  versions.** Every other form MySQL prints is refused, and that includes the one you get without
+  asking: the default `EXPLAIN` table writes names into its cells unquoted and separates the cells
+  with a bare `|`, and the `TREE` format and `EXPLAIN ANALYZE` append aliases and index names with
+  nothing around them at all — so a name someone chose can forge a line that reads as well-formed,
+  and nothing can recover the boundary afterwards; the warnings overlay `SHOW WARNINGS` prints after
+  an `EXPLAIN` is refused with them. Each of those says which shape it recognised and names
+  `EXPLAIN FORMAT=JSON` as the fix. In the JSON formats the node line is not read as prose: it
+  is rebuilt from the node’s own fields and compared, and a line that does not match refuses. Version
+  1’s `access_type`, `key_length` and `message` are written unescaped, so each is accepted only for a
+  value MySQL itself writes — anything else refuses rather than being replaced, because a value that
+  could have ended its own slot could have invented the fields printed after it.
+- **A MariaDB plan is refused in every form, and no alternative is offered.** MariaDB’s JSON writer
+  does not escape the strings it writes, so its output is not valid JSON at all, and its other forms
+  carry the same unquoted names. There is no output of MariaDB’s that SnippetVeil could point you
+  at, so its message points at none — telling you to run a MySQL command would be advice about an
+  engine you are not running. MariaDB is recognised by its **own** output, not as a broken MySQL;
+  where the two engines print something genuinely identical, the paste is refused as *not a readable
+  plan* rather than attributed to a guess.
 - **A field SnippetVeil has no rule for refuses the whole plan.** The field set is closed, and the
   reason it is closed is the opposite of the reason an unknown *word* inside a field is replaced: a
   word arrives in a slot something already typed, and a field arrives with nothing saying whether it
-  holds a name, a magnitude, a hostname or your query. A PostgreSQL release that adds a field
-  therefore refuses every plan carrying it until SnippetVeil ships a row for it — a real cost,
-  accepted rather than discovered later, with re-running without that option as the way out.
+  holds a name, a magnitude, a hostname or your query. An engine release that adds a field therefore
+  refuses every plan carrying it until SnippetVeil ships a row for it — a real cost, accepted rather
+  than discovered later, with re-running without that option as the way out.
 - **A plan’s expression fields are read by a lexer, not by a SQL parser.** What survives in a
   `Filter` or an output list is a short list: operators, brackets, casts, numbers, `true`/`false`,
   PostgreSQL’s own keywords, and its built-in function and type names. **Everything else there is

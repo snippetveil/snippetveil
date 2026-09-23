@@ -10,6 +10,7 @@ import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.snippetveil.core.PlanRecourse
+import com.snippetveil.core.PlanRefusedForm
 import com.snippetveil.core.Reversal
 import com.snippetveil.core.Unrestored
 import com.snippetveil.core.fidelityNotices
@@ -34,6 +35,17 @@ internal object SnippetVeilNotifications {
 
     /** The group id, matching the `notificationGroup` extension in plugin.xml. */
     private const val GROUP = "SnippetVeil"
+
+    /**
+     * **The clause a balloon from an invocation that wrote nothing ends in**, in the one place a plan
+     * refusal can read it from.
+     *
+     * A constant rather than four literals because [sentenceFor] *claims* every one of its sentences
+     * ends in it, and a claim four separately-typed strings have to keep is a claim one of them
+     * eventually breaks. `BalloonFamilyTest` holds every balloon in this file to the statement its
+     * invocation's footprint demands; this makes one family of them structural as well.
+     */
+    private const val CLIPBOARD_UNCHANGED = "Your clipboard was not changed."
 
     /**
      * The Kotlin settings page — *Languages & Frameworks → Kotlin* — as a string id, which is how
@@ -406,36 +418,75 @@ internal object SnippetVeilNotifications {
     }
 
     /**
-     * **A plan this product recognises and cannot read soundly — whose engine offers a form it
-     * can.**
+     * **A plan this product recognises and cannot read soundly** — said in the words of the shape
+     * that actually arrived.
      *
      * It differs from [planUnreadable] in exactly one way, and the difference is the whole reason it
-     * is a second balloon: here the product **knows what the user should do instead**, and saying
-     * *copy the whole plan from its first line* would be advice that does not work, on input where
-     * the user already did.
+     * is a second balloon: here the product **recognised what was pasted**, and saying *copy the
+     * whole plan from its first line* would be advice that does not work, on input where the user
+     * already did.
      *
-     * **The engine's own option is named, and the recourse decides which.** The engine says *that*
-     * there is a better form and *which* — see `PlanRecourse` — and this says how that reads.
-     * Rendering the option name here rather than in the engine keeps the product's words on this side
-     * of the boundary, which is the same rule that keeps the refusal from quoting anything: the
-     * verdict carries an enumeration, and an enumeration cannot hold a line of the user's plan.
+     * **A sentence per form, because one message cannot honestly cover two situations.** The engine
+     * says *which shape arrived* — see `PlanRefusedForm` — and this says how that reads. Rendering
+     * the words here rather than in the engine keeps the product's sentences on this side of the
+     * boundary, which is the same rule that keeps the refusal from quoting anything: the verdict
+     * carries an enumeration, and an enumeration cannot hold a line of the user's plan.
+     *
+     * **One of the sentences names no recourse, deliberately.** MariaDB prints nothing this product
+     * can read, so there is no better form of that engine's to point at — and pointing at another
+     * engine's would be a false statement about the engine the user is running. See [sentenceFor].
      *
      * **Warning rather than error, and no report link**, for the reason [planUnreadable] has none:
      * a plugin truthfully refusing input it cannot read soundly is not a defect.
      */
-    fun planRefused(project: Project?, recourse: PlanRecourse) {
-        group().createNotification(
+    fun planRefused(project: Project?, form: PlanRefusedForm) {
+        group().createNotification(sentenceFor(form), NotificationType.WARNING).notify(project)
+    }
+
+    /**
+     * What each recognised refused shape is said with — the form's own words, and the engine option
+     * that would work where there is one.
+     *
+     * **The tabular sentence is the one that matters most**, because it is the common path: what a
+     * MySQL user gets from `EXPLAIN` without asking for anything is refused, and a message that
+     * described some other shape in order to cover both would be describing neither.
+     *
+     * **The clipboard clause is appended once rather than written into four literals**, so *every
+     * sentence ends in it* is structural rather than a habit four strings have to keep. It is true by
+     * construction: the refusal happens on invoke, before anything has been read or written. See
+     * [AnonymizeExecutionPlanAction].
+     */
+    private fun sentenceFor(form: PlanRefusedForm): String = "${shapeOf(form)} $CLIPBOARD_UNCHANGED"
+
+    /** What is said about the shape that arrived, without the clause every one of them ends in. */
+    private fun shapeOf(form: PlanRefusedForm): String = when (form) {
+        PlanRefusedForm.POSTGRES_TEXT_RAW_NAME_ROW ->
             "SnippetVeil cannot read this plan soundly \u2014 re-run the same statement with " +
-                "${optionFor(recourse)} and copy that instead. Your clipboard was not changed.",
-            NotificationType.WARNING,
-        ).notify(project)
+                "${optionFor(form)} and copy that instead."
+
+        PlanRefusedForm.MYSQL_TREE ->
+            "SnippetVeil cannot safely anonymize MySQL's TREE format. Run ${optionFor(form)} and copy that instead."
+
+        PlanRefusedForm.MYSQL_TABULAR ->
+            "SnippetVeil cannot safely anonymize MySQL's tabular EXPLAIN output. Run ${optionFor(form)} " +
+                "and copy that instead."
+
+        PlanRefusedForm.MARIADB -> "SnippetVeil does not anonymize MariaDB plans in any format."
     }
 
-    /** The engine option a recourse names, spelled as the user would type it. See [planRefused]. */
-    private fun optionFor(recourse: PlanRecourse): String = when (recourse) {
-        PlanRecourse.FORMAT_JSON -> "EXPLAIN (FORMAT JSON)"
+    /**
+     * The engine option [form] names, spelled as the user would type it **into that engine** — which
+     * is why there is a row per engine rather than one spelling shared by two.
+     *
+     * A form that names none never reaches here: its sentence offers nothing, which is the whole of
+     * what `PlanRefusedForm.MARIADB` is for. The arm says so with the form's own name, so a sentence
+     * that grew a recourse clause with no recourse behind it fails loudly rather than printing one.
+     */
+    private fun optionFor(form: PlanRefusedForm): String = when (form.recourse) {
+        PlanRecourse.POSTGRES_FORMAT_JSON -> "EXPLAIN (FORMAT JSON)"
+        PlanRecourse.MYSQL_FORMAT_JSON -> "EXPLAIN FORMAT=JSON"
+        null -> error("${form.name} names no engine option, and its sentence asked for one")
     }
-
     /**
      * **The source-file gate's third outcome, said out loud** — the one refusal in this product that
      * fires on a file the tool *would* have anonymized on a correctly-configured IDE.

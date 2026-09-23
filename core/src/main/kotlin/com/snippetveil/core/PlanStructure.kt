@@ -9,6 +9,9 @@ package com.snippetveil.core
  * entry is looked up in the inventory, and an entry the inventory does not hold refuses the input.**
  * See [PlanTreatment] for the closure and for what it costs.
  *
+ * @param root the top of the field inventory this document is read against — one query's fields.
+ *   A parameter rather than a constant because the reader serves **every engine's** structured
+ *   formats, and an engine's inventory is the whole of what this product accepts from it.
  * @param naming how a label written in the document is spelled in the inventory — the identity for
  *   JSON and YAML, and [POSTGRES_XML_LABELS] for XML, which writes `Node Type` as `Node-Type`.
  * @param quote how the format writes a double quote **inside a scalar** — `\"` where the format
@@ -17,12 +20,13 @@ package com.snippetveil.core
  */
 internal class PlanStructureReader(
     private val symbols: PlanSymbols,
+    private val root: Map<String, PlanTreatment>,
     private val naming: (String) -> String,
     private val quote: String,
 ) {
 
     /** One query, read against the top of the inventory. */
-    fun readQuery(query: PlanMapping) = readMapping(query, POSTGRES_QUERY_FIELDS)
+    fun readQuery(query: PlanMapping) = readMapping(query, root)
 
     /**
      * **Every entry of one mapping, against one field set** — and the closure, which is the whole of
@@ -30,11 +34,78 @@ internal class PlanStructureReader(
      *
      * A label the field set does not hold is not read, not skipped and not guessed at: the input
      * refuses, with the general verdict and no recourse. See [PlanTreatment].
+     *
+     * A **rendered line** is the one row read here rather than in [read], and it has to be: it is the
+     * only treatment whose reading needs the *other* entries of the mapping it sits in. See
+     * [readRendered].
+     *
+     * **That arm is an addition to this dispatch and not a second place a new treatment can hide.**
+     * The cascade over the sealed type is still [PlanSymbols.readSlot]'s alone, exhaustive and
+     * compiler-checked, and it answers `false` for a rendered line — so a rendered field reaching any
+     * other path refuses rather than being read under a rule meant for something else.
      */
     private fun readMapping(mapping: PlanMapping, fields: Map<String, PlanTreatment>) {
         for (entry in mapping.entries) {
             val treatment = fields[naming(entry.label)] ?: throw PlanRefusal(PlanReading.Unreadable)
-            read(entry.value, treatment)
+            if (treatment is PlanTreatment.Rendered) {
+                readRendered(entry.value, mapping, fields, treatment.templates)
+            } else {
+                read(entry.value, treatment)
+            }
+        }
+    }
+
+    /**
+     * **A line the engine rendered, cross-checked against the templates it is assembled from** — and
+     * refused where it matches none of them.
+     *
+     * The node's own scalar fields are what the templates are instantiated from, so the comparison is
+     * between two strings **spelled the same way**: both are the document's own text, escapes and
+     * all, and nothing is unescaped in order to compare it. A table named `a"b` therefore matches its
+     * template for the same reason every other table does, rather than as a case somebody remembered.
+     *
+     * Where a template matches, each part it took from a field is handed back to **that field's own
+     * row**: a relation in the line takes the relation's placeholder, and a value the line borrowed
+     * from a masked field is masked. So the line never acquires a reading of its own, and the two
+     * printings of one name never disagree.
+     *
+     * @throws PlanRefusal where the entry is not a scalar, where no template produced the line, or
+     *   where a part came from a field whose row cannot be read as a value
+     */
+    private fun readRendered(
+        node: PlanNode,
+        mapping: PlanMapping,
+        fields: Map<String, PlanTreatment>,
+        templates: List<PlanTemplate>,
+    ) {
+        val line = node as? PlanScalar ?: throw PlanRefusal(PlanReading.Unreadable)
+
+        // The node's own scalar fields, first printing wins. A label the engine repeated is a label
+        // whose second printing this reader has no way to prefer, and the first is the one the line
+        // was assembled from.
+        val values = LinkedHashMap<String, String>()
+        for (entry in mapping.entries) {
+            val scalar = entry.value as? PlanScalar ?: continue
+            values.putIfAbsent(naming(entry.label), scalar.content.written)
+        }
+
+        val template = renderedBy(templates, line.content.written, values)
+            ?: throw PlanRefusal(PlanReading.Unreadable)
+
+        var at = line.content.start
+        for (part in template.parts) {
+            when (part) {
+                is PlanTemplatePart.Written -> at += part.text.length
+
+                is PlanTemplatePart.Field -> {
+                    val written = values.getValue(part.label)
+                    val treatment = fields[part.label] ?: throw PlanRefusal(PlanReading.Unreadable)
+                    if (!symbols.readSlot(line.content.narrowed(at, at + written.length), treatment)) {
+                        throw PlanRefusal(PlanReading.Unreadable)
+                    }
+                    at += written.length
+                }
+            }
         }
     }
 

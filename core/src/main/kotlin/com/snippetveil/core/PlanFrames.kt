@@ -18,17 +18,22 @@ package com.snippetveil.core
  *
  * ### The fixed rows are byte-exact, and the frame list is closed
  *
- * Two frames are admitted, both `psql`'s aligned format **at default settings**, and each in both
- * line styles:
+ * Two frames are admitted from `psql`'s aligned format **at default settings**, each in both line
+ * styles:
  *
  *  - **One row per plan line**, which is what a text plan produces: the count says how many lines
  *    there were, and it has to agree with how many there are.
  *  - **One row holding the whole plan**, which is what a structured plan produces: every line but
  *    the last carries the client's continuation marker, and the count says one row.
  *
+ * And a third from the `mysql` client, which is **the one admitted frame that is not a setting** —
+ * the vertical terminator's. See [peelVertical] for why a keystroke typed per statement is a
+ * different thing from a client configured a way this product has not captured.
+ *
  * Anything else refuses — a border style, an unaligned format, tuples-only, a different column
- * header. **A client version is a compatibility event**, exactly like an engine release that adds a
- * field, and for the same reason: nothing else here is allowed to guess what an unrecognised row is.
+ * header, and the bordered table the `mysql` client's default terminator draws. **A client version is
+ * a compatibility event**, exactly like an engine release that adds a field, and for the same reason:
+ * nothing else here is allowed to guess what an unrecognised row is.
  *
  * ### Re-emitted byte-identically, and that is a property of the shape
  *
@@ -85,7 +90,91 @@ internal class PlanSegment(val inner: Int, val outer: Int, val length: Int)
  * list being closed rather than a rule of its own.
  */
 internal fun framingOf(text: String): PlanFraming =
-    FRAME_STYLES.firstNotNullOfOrNull { peel(text, it) } ?: PlanFraming(text, listOf(PlanSegment(0, 0, text.length)))
+    FRAME_STYLES.firstNotNullOfOrNull { peel(text, it) }
+        ?: peelVertical(text)
+        ?: PlanFraming(text, listOf(PlanSegment(0, 0, text.length)))
+
+/**
+ * **The `mysql` client's vertical frame, peeled** — the row banner, the column label, and the count
+ * underneath — or `null` where [text] is not exactly that.
+ *
+ * ### Why a keystroke's frame is admitted where a setting's is not
+ *
+ * The rule above is *a capture taken at the client's default **settings***, and a user who has
+ * changed one meets a frame this product has never seen on every plan afterwards. The vertical
+ * terminator is not a setting: `\G` is typed in place of `;` **per statement**, and the frame it
+ * produces is fixed — the same banner, the same `Label: ` and the same count, whatever the client is
+ * configured to do with `;`. So it is a capture of its own rather than a variant of one, and it is
+ * admitted.
+ *
+ * **The bordered table the default terminator draws around an admitted format is a different thing
+ * and the two must not be confused.** That frame is not peeled here: it awaits a capture, and until
+ * one exists a plan inside one is not recognised at all. It is refused rather than read, which is the
+ * fail-closed direction — see [MYSQL_FORMATS] for the one thing that does look past it, which looks
+ * only to decide which refusal to print.
+ *
+ * ### One row, and the count says so
+ *
+ * A plan is one row. The banner is checked to be the **first** row's, and the count underneath — the
+ * client's own arithmetic — is checked to agree that there was one. A second banner is a result set
+ * this reader has not seen, and it refuses rather than reading the first row and ignoring the rest.
+ *
+ * The value itself is **one contiguous run of the input**: `\G` writes a multi-line value with its
+ * newlines intact and no per-line chrome, so unlike `psql`'s aligned table there is nothing inside it
+ * to skip. One segment, and the translation back is an offset.
+ */
+private fun peelVertical(text: String): PlanFraming? {
+    val lines = linesIn(text)
+    if (lines.size < 2) return null
+    if (!isRowBanner(lines[0].text)) return null
+
+    val opening = lines[1].text
+    if (!opening.startsWith(VERTICAL_LABEL)) return null
+
+    // Where the value begins, and where the rows stop: at the count line, at a second row's banner —
+    // which is a result set this reader has not seen — or at the end of the input.
+    val start = lines[1].start + VERTICAL_LABEL.length
+    var line = 2
+    while (line < lines.size) {
+        val row = lines[line].text
+        if (isRowBanner(row)) return null
+        if (VERTICAL_COUNT.matches(row)) break
+        line++
+    }
+
+    val last = lines[line - 1]
+    val end = last.start + last.text.length
+    if (end < start) return null
+
+    if (line < lines.size) {
+        // The count is the client's arithmetic over the result, so it is checked against it: one row.
+        val printed = VERTICAL_COUNT.matchEntire(lines[line].text)?.groupValues?.get(1)?.toIntOrNull()
+        if (printed != 1) return null
+
+        // Nothing but blank lines may follow it. A prompt or an echoed statement is not chrome.
+        if ((line + 1 until lines.size).any { lines[it].text.isNotBlank() }) return null
+    }
+
+    return PlanFraming(text.substring(start, end), listOf(PlanSegment(0, start, end - start)))
+}
+
+/** Whether this is the banner the client prints above a row — `**** 1. row ****`, stars and all. */
+private fun isRowBanner(line: String): Boolean = ROW_BANNER.matches(line)
+
+/**
+ * The banner the vertical terminator prints above each row of a result.
+ *
+ * The row number is read so that **only the first row's banner opens a frame**: a paste beginning at
+ * the second row of a result is a paste whose first row this product never saw, and it is not one
+ * plan with a frame around it.
+ */
+private val ROW_BANNER = Regex("""\*{3,} 1\. row \*{3,}""")
+
+/** The count the client prints under a vertical result, with the number of rows it printed. */
+private val VERTICAL_COUNT = Regex("""(\d+) rows? in set \(.*\)""")
+
+/** The column label the client writes a plan's one column under, with the space that follows it. */
+private const val VERTICAL_LABEL = "EXPLAIN: "
 
 /**
  * **One client's line style** — the character it rules with, and the marker it ends a continued row
