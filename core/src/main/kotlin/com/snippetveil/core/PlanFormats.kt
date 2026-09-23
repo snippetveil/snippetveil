@@ -107,7 +107,12 @@ private fun structuredOccurrencesIn(
     naming: (String) -> String,
     quote: String,
 ): List<PlanOccurrence> {
-    if (queries == null) throw PlanRefusal(PlanReading.Unreadable)
+    // **A document with no plan in it is not a plan.** `[]` parses as JSON and `<explain/>` parses
+    // as XML, and neither is anything `EXPLAIN` prints — so they refuse here rather than being read
+    // as a plan with nothing in it, which is a *success* the user would have to notice was empty.
+    if (queries.isNullOrEmpty() || queries.any { it.entries.isEmpty() }) {
+        throw PlanRefusal(PlanReading.Unreadable)
+    }
 
     val declared = mutableSetOf<String>()
     val declarations = PlanStructureReader(PlanSymbols(declared, POSTGRES), naming, quote)

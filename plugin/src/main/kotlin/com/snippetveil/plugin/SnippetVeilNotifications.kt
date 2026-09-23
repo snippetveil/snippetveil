@@ -406,7 +406,7 @@ internal object SnippetVeilNotifications {
     }
 
     /**
-     * **A plan this product recognises and cannot read soundly \u2014 whose engine offers a form it
+     * **A plan this product recognises and cannot read soundly — whose engine offers a form it
      * can.**
      *
      * It differs from [planUnreadable] in exactly one way, and the difference is the whole reason it
@@ -415,7 +415,7 @@ internal object SnippetVeilNotifications {
      * the user already did.
      *
      * **The engine's own option is named, and the recourse decides which.** The engine says *that*
-     * there is a better form and *which* \u2014 see `PlanRecourse` \u2014 and this says how that reads.
+     * there is a better form and *which* — see `PlanRecourse` — and this says how that reads.
      * Rendering the option name here rather than in the engine keeps the product's words on this side
      * of the boundary, which is the same rule that keeps the refusal from quoting anything: the
      * verdict carries an enumeration, and an enumeration cannot hold a line of the user's plan.

@@ -103,6 +103,53 @@ class PlanFormatTest {
     }
 
     /**
+     * **A document with no plan in it is not a plan.**
+     *
+     * `[]` is a well-formed JSON document and `<explain/>` a well-formed XML one, and neither is
+     * anything `EXPLAIN` prints. Reading one would report *success* over an input with nothing in
+     * it — a copy the user has to notice was empty, on the surface where noticing is the whole job.
+     */
+    @Test
+    fun `a document carrying no query refuses`() {
+        val empty = listOf(
+            "[]",
+            "[{}]",
+            """<explain xmlns="http://www.postgresql.org/2009/explain"></explain>""",
+        )
+
+        for (document in empty) {
+            assertEquals(PlanReading.Unreadable, parsePlan(document), "this was read as a plan:\n$document")
+        }
+    }
+
+    /**
+     * **A plan pasted from a Windows terminal reads like any other, and its line endings come back
+     * untouched.**
+     *
+     * A carriage return is a line terminator rather than a row's content, so it is off every line
+     * before a slot is cut and nothing here can reach it. Asserted over all four formats, because
+     * each reads lines its own way and three of them would otherwise refuse a paste the fourth
+     * tolerated by accident.
+     */
+    @Test
+    fun `a plan whose lines end in a carriage return reads, and keeps them`() {
+        for ((format, plan) in STRUCTURED_PLANS + ("text" to TEXT_PLAN)) {
+            val windows = plan.replace("\n", "\r\n")
+            val text = anonymizedText(windows)
+
+            assertEquals(
+                windows.count { it == '\r' },
+                text.count { it == '\r' },
+                "the $format reading moved a line ending:\n$text",
+            )
+            assertFalse(
+                Regex("""\bvisits\b""").containsMatchIn(text),
+                "the $format reading of a Windows paste left a relation on the clipboard:\n$text",
+            )
+        }
+    }
+
+    /**
      * **A name the plan declared is one symbol across the whole document**, wherever the format
      * printed the declaration relative to its uses.
      *

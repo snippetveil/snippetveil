@@ -304,30 +304,23 @@ private class PlanTextReader(private val symbols: PlanSymbols) {
      */
     fun readFields(line: PlanLine) {
         val field = line.field ?: return
+        val treatment = treatmentOf(field.label) ?: throw PlanRefusal(PlanReading.Unreadable)
+
+        // A declaration is read whole by `readStructure`, before anything was keyed against it —
+        // so reading it again here would report one name twice and splice over its own placeholder.
+        if (treatment == PlanTreatment.Declared) return
+
         val slot = PlanSlot(line.text, line.start + field.from, line.start + line.text.length, line.start)
-
-        when (val treatment = treatmentOf(field.label)) {
-            // A declaration, read whole by `readStructure` before anything was keyed against it.
-            PlanTreatment.Declared -> Unit
-
-            PlanTreatment.Measured -> symbols.occurrences += PlanTreatments.measured()
-            PlanTreatment.Expression -> symbols.readExpression(slot.trimmed())
-            is PlanTreatment.Fact -> symbols.occurrences += PlanTreatments.engineFact(slot, treatment.shape)
-            PlanTreatment.EchoedQuery -> symbols.occurrences += PlanTreatments.echoedQuery(slot)
-            PlanTreatment.Parameters -> symbols.occurrences += PlanTreatments.parameters(slot, symbols.vocabulary)
-            PlanTreatment.Identifying -> symbols.occurrences += PlanTreatments.identifying(slot)
-            PlanTreatment.Deployment -> symbols.occurrences += PlanTreatments.deployment(slot)
-
-            // The text format has no field of either shape, and a row that grew one would be read
-            // rather than guessed at. See [PlanTreatment].
-            is PlanTreatment.Name, is PlanTreatment.Subtree, PlanTreatment.SettingsMap, null ->
-                throw PlanRefusal(PlanReading.Unreadable)
-        }
+        if (!symbols.readSlot(slot.trimmed(), treatment)) throw PlanRefusal(PlanReading.Unreadable)
     }
 }
 
 /** One line of the input, and the two readings of it every rule above asks for. */
-private class PlanLine(val text: String, val start: Int) {
+private class PlanLine(line: PlanTextLine) {
+
+    val text: String = line.text
+
+    val start: Int = line.start
 
     /**
      * Where the node body begins — the indentation and the branch arrow taken off, and the
@@ -429,14 +422,5 @@ private fun fieldIn(body: String, bodyAt: Int): PlanField? {
     return PlanField(label, bodyAt + colon + 1)
 }
 
-/** The lines of [text], each knowing where it begins — so every offset stays the input's own. */
-private fun linesOf(text: String): List<PlanLine> {
-    val lines = mutableListOf<PlanLine>()
-    var at = 0
-    while (true) {
-        val end = text.indexOf('\n', at).takeIf { it >= 0 } ?: text.length
-        lines += PlanLine(text.substring(at, end), at)
-        if (end == text.length) return lines
-        at = end + 1
-    }
-}
+/** The lines of [text], each read the two ways every rule above asks for. See [linesIn]. */
+private fun linesOf(text: String): List<PlanLine> = linesIn(text).map(::PlanLine)

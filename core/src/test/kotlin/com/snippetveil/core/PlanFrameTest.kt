@@ -121,6 +121,20 @@ class PlanFrameTest {
         )
     }
 
+    /**
+     * **A table pasted out of a Windows terminal is the same table**, and its line endings are part
+     * of the frame rather than of any row's content — so they come back untouched like the rest of
+     * it.
+     */
+    @Test
+    fun `a framed table whose lines end in a carriage return is peeled and kept`() {
+        val framed = FRAMES.getValue("ascii")(FRAMED_TEXT_PLAN, false).replace("\n", "\r\n")
+        val text = anonymizedText(framed)
+
+        assertFalse("visits" in text, "a relation inside a Windows-pasted frame reached the clipboard:\n$text")
+        assertEquals(chromeOf(framed), chromeOf(text), "the frame was not re-emitted byte-identically")
+    }
+
     /** A subtree pasted out of the middle of a framed table still refuses: peeling moves no anchor. */
     @Test
     fun `a subtree pasted out of a framed table still refuses`() {
@@ -176,6 +190,6 @@ private const val HEADER = "QUERY PLAN"
 private fun chromeOf(text: String): String {
     val framing = framingOf(text)
     val chrome = StringBuilder(text)
-    for (segment in framing.segments.asReversed()) chrome.delete(segment.at, segment.at + segment.length)
+    for (segment in framing.segments.asReversed()) chrome.delete(segment.outer, segment.outer + segment.length)
     return chrome.toString()
 }

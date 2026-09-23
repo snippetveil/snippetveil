@@ -93,6 +93,10 @@ internal val EXHAUSTIVE_XML_PLAN = """
     |      <Storage>1</Storage>
     |      <Maximum-Storage>1</Maximum-Storage>
     |      <Tuples-Inserted>1</Tuples-Inserted>
+    |      <Tuples-Updated>1</Tuples-Updated>
+    |      <Tuples-Deleted>1</Tuples-Deleted>
+    |      <Tuples-Skipped>1</Tuples-Skipped>
+    |      <Remote-SQL>SELECT 1</Remote-SQL>
     |      <Conflicting-Tuples>1</Conflicting-Tuples>
     |      <Worker-Number>1</Worker-Number>
     |      <Shared-Hit-Blocks>1</Shared-Hit-Blocks>
@@ -288,6 +292,9 @@ internal val EXHAUSTIVE_TEXT_PLAN = """
     |  Storage: 1
     |  Maximum Storage: 1
     |  Tuples Inserted: 1
+    |  Tuples Updated: 1
+    |  Tuples Deleted: 1
+    |  Tuples Skipped: 1
     |  Conflicting Tuples: 1
     |  Heap Fetches: 1
     |  Index Searches: 1

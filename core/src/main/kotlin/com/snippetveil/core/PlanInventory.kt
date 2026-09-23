@@ -79,8 +79,8 @@ internal sealed class PlanTreatment {
      * **The settings map, typed by key** — the one field whose *keys* carry a rule.
      *
      * It is a treatment rather than a [Subtree] because its key set is **open where every other one
-     * is closed**: an unknown field refuses, and an unknown *setting* is masked. See [settingsIn] for
-     * why the two differ.
+     * is closed**: an unknown field refuses, and an unknown *setting* is masked. See
+     * [PlanStructureReader.readSettings] for why the two differ.
      */
     object SettingsMap : PlanTreatment()
 }
@@ -159,9 +159,22 @@ internal val POSTGRES_PLAN_FIELDS: Map<String, PlanTreatment> = buildMap {
         put(label, PlanTreatment.Fact(PlanShapes.BOOLEAN))
     }
 
+    // **The engine's enums that arrive as strings.** They are facts rather than measurements, and
+    // the difference is not cosmetic: a measured field reports nothing at all, so a surprise in one
+    // of these would be emitted verbatim. The text format keeps them measured, because there one of
+    // these labels heads a **row of several measurements** — `Sort Method: quicksort  Memory: 25kB`
+    // — which no shape covers and which a mask would take the numbers out of.
+    for (label in listOf("Sort Method", "Sort Space Type", "Sort Methods Used", "Storage")) {
+        put(label, PlanTreatment.Fact(PlanShapes.ENGINE_ENUM))
+    }
+
     // An extension's custom-scan provider names the deployment rather than anything in the data, and
     // a private extension's name is exactly the kind of string this product exists to replace.
     put("Custom Plan Provider", PlanTreatment.Deployment)
+
+    // The statement a foreign scan is about to send to another server — the user's own SQL, printed
+    // by every format and not only by the text one.
+    put("Remote SQL", PlanTreatment.EchoedQuery)
 
     // **The expression fields**, where the token residual runs. See [scanOf].
     for (label in listOf(
@@ -180,11 +193,13 @@ internal val POSTGRES_PLAN_FIELDS: Map<String, PlanTreatment> = buildMap {
         "Actual Total Time", "Actual Rows", "Actual Loops", "Disabled Nodes", "Subplans Removed",
         "Rows Removed by Filter", "Rows Removed by Index Recheck", "Rows Removed by Join Filter",
         "Rows Removed by Conflict Filter", "Heap Fetches", "Exact Heap Blocks", "Lossy Heap Blocks",
-        "Index Searches", "Sort Method", "Sort Space Used", "Sort Space Type", "Sort Methods Used",
+        "Index Searches", "Sort Space Used",
         "Workers Planned", "Workers Launched", "Hash Buckets", "Original Hash Buckets",
         "Hash Batches", "Original Hash Batches", "Peak Memory Usage", "Disk Usage", "Cache Hits",
-        "Cache Misses", "Cache Evictions", "Cache Overflows", "Storage", "Maximum Storage",
-        "Tuples Inserted", "Conflicting Tuples", "Worker Number",
+        "Cache Misses", "Cache Evictions", "Cache Overflows", "Maximum Storage",
+        // What a write node counted, including the four a `MERGE` reports separately.
+        "Tuples Inserted", "Conflicting Tuples", "Tuples Updated", "Tuples Deleted", "Tuples Skipped",
+        "Worker Number",
     )) {
         put(label, PlanTreatment.Measured)
     }
@@ -283,6 +298,7 @@ internal val POSTGRES_TEXT_FIELDS: Map<String, PlanTreatment> = buildMap {
         "Timing", "JIT", "Full-sort Groups", "Pre-sorted Groups", "Hits", "Misses", "Evictions",
         "Overflows", "Storage", "Maximum Storage", "Tuples Inserted", "Conflicting Tuples",
         "Heap Fetches", "Index Searches", "Subplans Removed", "Disabled Nodes", "Time", "Calls",
+        "Tuples Updated", "Tuples Deleted", "Tuples Skipped",
     )) {
         put(label, PlanTreatment.Measured)
     }
@@ -315,7 +331,7 @@ internal val TEXT_RAW_NAME_ROWS: List<String> = listOf("Settings:", "Conflict Ar
  * default. Which settings carry that flag is **a fact about an engine release**, so this is a
  * vocabulary row like any other: a newly flagged setting is a compatibility event, and it is
  * **masked until the row follows** rather than refusing the plan — a settings map is typed by key
- * and its key set is the one open set in the inventory. See [settingsIn].
+ * and its key set is the one open set in the inventory. See [PlanStructureReader.readSettings].
  *
  * `search_path` is deliberately absent: its value is a list of **schema names**, which is a rule of
  * its own rather than an engine fact. See [searchPathIn].

@@ -47,9 +47,9 @@ internal class PlanFraming(val inner: String, val segments: List<PlanSegment>) {
      *   unreachable without a frame, where the whole input is one segment.
      */
     fun translate(at: Int, to: Int): Int {
-        val segment = segments.lastOrNull { at >= it.from } ?: throw PlanRefusal(PlanReading.Unreadable)
-        if (to > segment.from + segment.length) throw PlanRefusal(PlanReading.Unreadable)
-        return segment.at + (at - segment.from)
+        val segment = segments.lastOrNull { at >= it.inner } ?: throw PlanRefusal(PlanReading.Unreadable)
+        if (to > segment.inner + segment.length) throw PlanRefusal(PlanReading.Unreadable)
+        return segment.outer + (at - segment.inner)
     }
 
     /** The same occurrence, with every offset moved back into the framed input. */
@@ -65,11 +65,14 @@ internal class PlanFraming(val inner: String, val segments: List<PlanSegment>) {
 /**
  * One contiguous run of plan text inside the input.
  *
- * @param from where it begins in [PlanFraming.inner]
- * @param at where it begins in the input
+ * Both offsets are named for **which string they index**, because that is the only thing that tells
+ * them apart and a pair of bare integers here is the mistake the whole frame turns on.
+ *
+ * @param inner where it begins in [PlanFraming.inner] — the plan with the frame off
+ * @param outer where it begins in the input the frame was peeled from
  * @param length how long it is, which is the same in both
  */
-internal class PlanSegment(val from: Int, val at: Int, val length: Int)
+internal class PlanSegment(val inner: Int, val outer: Int, val length: Int)
 
 /**
  * **The plan inside [text]**, with whatever client frame was drawn around it taken off — or the whole
@@ -112,19 +115,14 @@ private val ROW_COUNT = Regex("""\((\d+) rows?\)""")
  * than read: a count the client computed from something else is a frame this product has not seen.
  */
 private fun peel(text: String, style: FrameStyle): PlanFraming? {
-    val lines = mutableListOf<Pair<String, Int>>()
-    var at = 0
-    while (at <= text.length) {
-        val end = text.indexOf('\n', at).takeIf { it >= 0 } ?: text.length
-        lines += text.substring(at, end) to at
-        if (end == text.length) break
-        at = end + 1
-    }
+    // A carriage return is a line terminator rather than a row's content, so [linesIn] leaves it off
+    // the line — which puts it inside the frame, where it belongs and where nothing can reach it.
+    val lines = linesIn(text)
 
     if (lines.size < 4) return null
-    if (lines[0].first.trim() != QUERY_PLAN) return null
+    if (lines[0].text.trim() != QUERY_PLAN) return null
 
-    val rule = lines[1].first
+    val rule = lines[1].text
     if (rule.length < QUERY_PLAN.length || rule.any { it != style.rule }) return null
 
     // The rows, which run to the count line. Each is the client's leading space, the plan's own
@@ -134,7 +132,7 @@ private fun peel(text: String, style: FrameStyle): PlanFraming? {
     var line = 2
     var inner = 0
     while (line < lines.size) {
-        val (row, start) = lines[line]
+        val row = lines[line].text
         if (ROW_COUNT.matches(row)) break
         if (!row.startsWith(" ")) return null
 
@@ -143,7 +141,7 @@ private fun peel(text: String, style: FrameStyle): PlanFraming? {
         if (marks) end--
         while (end > 1 && row[end - 1] == ' ') end--
 
-        rows += PlanSegment(inner, start + 1, end - 1)
+        rows += PlanSegment(inner, lines[line].start + 1, end - 1)
         inner += end - 1 + 1
         continued = marks
         line++
@@ -153,7 +151,7 @@ private fun peel(text: String, style: FrameStyle): PlanFraming? {
     // see the end of.
     if (rows.isEmpty() || continued) return null
 
-    val count = lines.getOrNull(line)?.first?.let { ROW_COUNT.matchEntire(it) } ?: return null
+    val count = lines.getOrNull(line)?.text?.let { ROW_COUNT.matchEntire(it) } ?: return null
     val printed = count.groupValues[1].toIntOrNull() ?: return null
 
     // **The count is the client's arithmetic over the plan**, so it is checked against the plan: one
@@ -163,12 +161,18 @@ private fun peel(text: String, style: FrameStyle): PlanFraming? {
 
     // Nothing but blank lines may follow the count. A prompt, an echoed statement or a second table
     // is not chrome, and an input carrying one is not one plan with a frame around it.
-    if ((line + 1 until lines.size).any { lines[it].first.isNotBlank() }) return null
+    if ((line + 1 until lines.size).any { lines[it].text.isNotBlank() }) return null
 
-    val body = rows.joinToString("\n") { text.substring(it.at, it.at + it.length) }
+    val body = rows.joinToString("\n") { text.substring(it.outer, it.outer + it.length) }
     return PlanFraming(body, rows)
 }
 
-/** Whether every row but the last carries the continuation marker, which is one cell over many lines. */
-private fun markerRuns(lines: List<Pair<String, Int>>, style: FrameStyle, from: Int, to: Int): Boolean =
-    (from until to - 1).all { lines[it].first.endsWith(style.marker) } && !lines[to - 1].first.endsWith(style.marker)
+/**
+ * Whether every row **but the last** carries the continuation marker, which is one cell over many
+ * lines.
+ *
+ * The last row is not re-checked here: the caller has already refused a table whose final row still
+ * says it continues, because that is a table it did not see the end of.
+ */
+private fun markerRuns(lines: List<PlanTextLine>, style: FrameStyle, from: Int, to: Int): Boolean =
+    (from until to - 1).all { lines[it].text.endsWith(style.marker) }

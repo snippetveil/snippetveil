@@ -57,25 +57,15 @@ internal class PlanStructureReader(
         }
     }
 
-    /** One scalar, handed to the treatment its label named. */
+    /**
+     * One scalar, handed to the treatment its label named.
+     *
+     * A **container** treatment reaching here is a document whose shape contradicts its own
+     * inventory row — the arms in [read] have already taken every container this reader understands
+     * — so it refuses rather than reading the tree under it as a value.
+     */
     private fun readScalar(scalar: PlanScalar, treatment: PlanTreatment) {
-        val slot = scalar.content
-        when (treatment) {
-            is PlanTreatment.Name -> symbols.name(slot, treatment.kind)
-            PlanTreatment.Declared -> symbols.declareWritten(slot)
-            PlanTreatment.Expression -> symbols.readExpression(slot)
-            PlanTreatment.Measured -> symbols.occurrences += PlanTreatments.measured()
-            is PlanTreatment.Fact -> symbols.occurrences += PlanTreatments.engineFact(slot, treatment.shape)
-            PlanTreatment.EchoedQuery -> symbols.occurrences += PlanTreatments.echoedQuery(slot)
-            PlanTreatment.Parameters -> symbols.occurrences += PlanTreatments.parameters(slot, symbols.vocabulary)
-            PlanTreatment.Identifying -> symbols.occurrences += PlanTreatments.identifying(slot)
-            PlanTreatment.Deployment -> symbols.occurrences += PlanTreatments.deployment(slot)
-
-            // Reached only by a container whose treatment said it holds one, which the arms above
-            // have already taken. A container arriving here is a document this reader does not
-            // understand, and it refuses rather than reading the tree under it as a value.
-            is PlanTreatment.Subtree, PlanTreatment.SettingsMap -> throw PlanRefusal(PlanReading.Unreadable)
-        }
+        if (!symbols.readSlot(scalar.content, treatment)) throw PlanRefusal(PlanReading.Unreadable)
     }
 
     /**
@@ -105,7 +95,9 @@ internal class PlanStructureReader(
     private fun readSettings(mapping: PlanMapping) {
         for (entry in mapping.entries) {
             when (entry.label) {
-                SEARCH_PATH -> eachScalar(entry.value) { symbols.occurrences += searchPathIn(it.content, quote) }
+                SEARCH_PATH -> eachScalar(entry.value) {
+                    symbols.occurrences += searchPathIn(symbols, it.content, quote)
+                }
 
                 in POSTGRES_FLAGGED_SETTINGS -> eachScalar(entry.value) {
                     symbols.occurrences += PlanTreatments.engineFact(it.content, PlanShapes.SETTING)
@@ -158,10 +150,13 @@ internal class PlanStructureReader(
  * the part nobody looked at leaves the machine, so the elements are read first and committed only if
  * every one of them read.
  *
+ * @param symbols the reading the rest of the plan is going through — because the sharing above is
+ *   **the key rule agreeing with itself**, and a second copy of that rule here is exactly where the
+ *   two would drift apart. See [PlanSymbols.keyOf].
  * @param quote how this format writes a double quote inside a scalar, which is what says where a
  *   quoted element begins and ends. See [PlanStructureReader].
  */
-internal fun searchPathIn(slot: PlanSlot, quote: String): List<PlanOccurrence> {
+internal fun searchPathIn(symbols: PlanSymbols, slot: PlanSlot, quote: String): List<PlanOccurrence> {
     if (slot.isBlank) return emptyList()
 
     val occurrences = mutableListOf<PlanOccurrence>()
@@ -186,7 +181,7 @@ internal fun searchPathIn(slot: PlanSlot, quote: String): List<PlanOccurrence> {
             quoted || written.matches(BARE_SCHEMA) -> occurrences += PlanOccurrence(
                 name.start,
                 name.end,
-                PlanDisposition.Anonymize(SymbolRole.SCHEMA, PlanKeys.named(SymbolRole.SCHEMA, written)),
+                PlanDisposition.Anonymize(SymbolRole.SCHEMA, symbols.keyOf(SymbolRole.SCHEMA, written)),
             )
 
             else -> return PlanTreatments.unreadable(slot)

@@ -23,6 +23,36 @@ internal class PlanSymbols(private val declared: MutableSet<String>, val vocabul
 
     val occurrences = mutableListOf<PlanOccurrence>()
 
+    /**
+     * **One slot, handed to the treatment its inventory row names** — the arms every format shares,
+     * in the one place they can be shared.
+     *
+     * A field's *position* differs by format and a field's *treatment* does not: `Filter` is an
+     * expression whether the engine wrote it after a colon or under a key, and `Relation Name` is a
+     * relation either way. Two cascades over one sealed type is two places for a later class to be
+     * added to and one place for it to be forgotten.
+     *
+     * @return `false` where [treatment] names a **container** rather than a value. That is not a
+     *   case this can answer: what a container holds is the document's shape, which each format's
+     *   reader knows and this does not. Both callers refuse on it.
+     */
+    fun readSlot(slot: PlanSlot, treatment: PlanTreatment): Boolean {
+        when (treatment) {
+            is PlanTreatment.Name -> name(slot, treatment.kind)
+            PlanTreatment.Declared -> declareWritten(slot)
+            PlanTreatment.Expression -> readExpression(slot)
+            PlanTreatment.Measured -> occurrences += PlanTreatments.measured()
+            is PlanTreatment.Fact -> occurrences += PlanTreatments.engineFact(slot, treatment.shape)
+            PlanTreatment.EchoedQuery -> occurrences += PlanTreatments.echoedQuery(slot)
+            PlanTreatment.Parameters -> occurrences += PlanTreatments.parameters(slot, vocabulary)
+            PlanTreatment.Identifying -> occurrences += PlanTreatments.identifying(slot)
+            PlanTreatment.Deployment -> occurrences += PlanTreatments.deployment(slot)
+
+            is PlanTreatment.Subtree, PlanTreatment.SettingsMap -> return false
+        }
+        return true
+    }
+
     /** **A name of [kind], written over the whole of [slot]** — where the slot *is* one name. */
     fun name(slot: PlanSlot, kind: SymbolRole) {
         if (slot.isBlank) return
@@ -251,6 +281,35 @@ internal fun chainOf(tokens: List<PlanToken>, at: Int): PlanChain {
 
 /** One qualified name, and the index the reader goes on from. See [chainOf]. */
 internal class PlanChain(val tokens: List<PlanToken>, val after: Int)
+
+/**
+ * **One line of an input, and where it begins in it** — so every offset cut from a line stays the
+ * input's own.
+ *
+ * A type rather than a pair, because the two numbers a frame deals in are both offsets and telling
+ * them apart by position is exactly the mistake this file is written to prevent. See [linesIn].
+ */
+internal class PlanTextLine(val text: String, val start: Int)
+
+/**
+ * The lines of [text], for every reader here that works a line at a time — the frame peeler and the
+ * text format's own reader alike.
+ *
+ * **A carriage return is a line terminator rather than content**, so it is left off the line and is
+ * therefore never inside a slot, never scanned and never reported. A plan pasted out of a Windows
+ * terminal reads exactly as the same plan pasted anywhere else, and its line endings come back
+ * untouched because nothing above can reach them.
+ */
+internal fun linesIn(text: String): List<PlanTextLine> {
+    val lines = mutableListOf<PlanTextLine>()
+    var at = 0
+    while (true) {
+        val end = text.indexOf('\n', at).takeIf { it >= 0 } ?: text.length
+        lines += PlanTextLine(text.substring(at, end).removeSuffix(RETURN), at)
+        if (end == text.length) return lines
+        at = end + 1
+    }
+}
 
 /** `CTE recent` — the keyword the engine writes in front of a name the plan is computing for itself. */
 internal val CTE_HEADER = Regex("""CTE (\S+)""")

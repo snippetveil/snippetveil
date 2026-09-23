@@ -217,14 +217,17 @@ private class JsonReader(private val source: String) {
 /** The YAML document, read a line at a time. See [yamlQueriesIn]. */
 private class YamlReader(private val source: String) {
 
-    private val lines: List<YamlLine> = source.lineSequence().let { sequence ->
-        var at = 0
-        sequence.map { text ->
-            val line = YamlLine(text, at)
-            at += text.length + 1
-            line
-        }.filterNot { it.isBlank }.toList()
-    }
+    /**
+     * The document's lines, blank ones dropped.
+     *
+     * [linesIn] rather than `lineSequence()`, and the difference is not stylistic: `lineSequence()`
+     * hides which terminator it split on, so **a line's length stops saying where the next line
+     * begins** the moment the input arrives with two-character endings. Every offset below is the
+     * input's own, and that is what keeps them so.
+     */
+    private val lines: List<YamlLine> = linesIn(source)
+        .map { YamlLine(it.text, it.start) }
+        .filterNot { it.isBlank }
 
     fun document(): List<PlanMapping>? {
         if (lines.isEmpty()) return null
@@ -353,6 +356,9 @@ private class YamlReader(private val source: String) {
 
 /** What opens a YAML sequence item, spaces included — the printer's own two-character indent step. */
 private const val DASH = "- "
+
+/** The other half of a Windows line ending, which every reader here treats as a terminator. */
+internal const val RETURN = "\r"
 
 /** The XML document, read a character at a time. See [xmlQueriesIn]. */
 private class XmlReader(private val source: String) {
