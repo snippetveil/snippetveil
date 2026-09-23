@@ -53,16 +53,22 @@ class ActionRegistrationTest : BasePlatformTestCase() {
     }
 
     /**
-     * **All four items, in the order the workflow runs in**: anonymize, anonymize with a look first,
-     * and the two ways back — the reversal, then the reversal that also lands it.
+     * **All five items, in the order the workflow runs in**: anonymize, anonymize with a look first,
+     * and the two ways back — the reversal, then the reversal that also lands it — and then the one
+     * input that never came out of an editor.
      *
      * The pasting variant sits directly after the reversal rather than at the end for a reason the
      * order carries on its own: they are one operation with two destinations, and a row between them
      * would read as a fourth stage of the workflow instead of a second delivery of the third.
+     *
+     * **The plan is appended fifth rather than filed beside `Copy Anonymized`**, which is the same
+     * reasoning read the other way: the four above are one workflow over source that a user reads top
+     * to bottom, and a third anonymizing item wedged into the top half would break that reading for
+     * an input most users never paste.
      */
-    fun `test the submenu holds the four actions in workflow order`() {
+    fun `test the submenu holds the five actions in workflow order`() {
         assertEquals(
-            listOf(COPY_ANONYMIZED, ANONYMIZE_WITH_PREVIEW, DEANONYMIZE, DEANONYMIZE_AND_PASTE),
+            listOf(COPY_ANONYMIZED, ANONYMIZE_WITH_PREVIEW, DEANONYMIZE, DEANONYMIZE_AND_PASTE, ANONYMIZE_PLAN),
             childIdsOf(MENU),
         )
 
@@ -71,6 +77,22 @@ class ActionRegistrationTest : BasePlatformTestCase() {
         assertEquals("Anonymize with Preview\u2026", manager.getAction(ANONYMIZE_WITH_PREVIEW).templatePresentation.text)
         assertEquals("De-anonymize Clipboard", manager.getAction(DEANONYMIZE).templatePresentation.text)
         assertEquals("De-anonymize Clipboard and Paste", manager.getAction(DEANONYMIZE_AND_PASTE).templatePresentation.text)
+        assertEquals("Anonymize Execution Plan\u2026", manager.getAction(ANONYMIZE_PLAN).templatePresentation.text)
+    }
+
+    /**
+     * **The plan item's own ancestry**, derived from the registration rather than read off the XML —
+     * the gesture a user makes, written out: right-click, the submenu, the item.
+     *
+     * It is the same derivation the two sentences that *name* a menu path are held to, asked here of
+     * the item instead of a sentence: an `add-to-group` the platform could not resolve leaves an
+     * action registered and unreachable, and nothing else in this suite would notice.
+     */
+    fun `test the execution plan item is reachable under the SnippetVeil submenu`() {
+        assertEquals(
+            listOf("SnippetVeil", "Anonymize Execution Plan\u2026"),
+            menuAncestryOf(ANONYMIZE_PLAN),
+        )
     }
 
     /**
@@ -94,7 +116,7 @@ class ActionRegistrationTest : BasePlatformTestCase() {
     }
 
     /**
-     * **These five ids are every action this plugin registers** — which is how *"`Export Mapping…` is
+     * **These six ids are every action this plugin registers** — which is how *"`Export Mapping…` is
      * reachable from the preview and from nowhere else"* is checked rather than asserted.
      *
      * The export is a button on the preview dialog and deliberately not a menu item: a Tools-menu
@@ -116,7 +138,7 @@ class ActionRegistrationTest : BasePlatformTestCase() {
      */
     fun `test the plugin registers these actions and no others`() {
         assertEquals(
-            listOf(ANONYMIZE_WITH_PREVIEW, COPY_ANONYMIZED, DEANONYMIZE, DEANONYMIZE_AND_PASTE, MENU),
+            listOf(ANONYMIZE_PLAN, ANONYMIZE_WITH_PREVIEW, COPY_ANONYMIZED, DEANONYMIZE, DEANONYMIZE_AND_PASTE, MENU),
             ActionManager.getInstance().getActionIdList("SnippetVeil").sorted(),
         )
     }
@@ -131,6 +153,8 @@ class ActionRegistrationTest : BasePlatformTestCase() {
         // The one most likely to acquire one: a single-gesture paste is exactly the item somebody
         // reaches for a binding on, and the decision not to ship one is not reopened by a new row.
         assertEmpty(manager.getAction(DEANONYMIZE_AND_PASTE).shortcutSet.shortcuts)
+
+        assertEmpty(manager.getAction(ANONYMIZE_PLAN).shortcutSet.shortcuts)
     }
 
     private fun childIdsOf(groupId: String): List<String> {
@@ -154,3 +178,5 @@ private const val ANONYMIZE_WITH_PREVIEW = "SnippetVeil.AnonymizeWithPreview"
 private const val DEANONYMIZE = "SnippetVeil.DeanonymizeClipboard"
 
 private const val DEANONYMIZE_AND_PASTE = "SnippetVeil.DeanonymizeClipboardAndPaste"
+
+private const val ANONYMIZE_PLAN = "SnippetVeil.AnonymizeExecutionPlan"

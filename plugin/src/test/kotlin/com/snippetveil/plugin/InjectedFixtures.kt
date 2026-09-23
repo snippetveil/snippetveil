@@ -8,6 +8,7 @@ import com.intellij.psi.PsiLanguageInjectionHost
 import com.intellij.psi.util.PsiTreeUtil
 import com.snippetveil.core.CommentOccurrence
 import com.snippetveil.core.LiteralOccurrence
+import com.snippetveil.core.PlanOccurrence
 import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.SourceLanguage
 import com.snippetveil.core.SqlKeys
@@ -101,6 +102,13 @@ internal fun describe(plan: SnippetPlan): String = buildString {
                 .append(occurrence.contentEnd).append(' ')
                 .append(occurrence.references.map { "${it.start}:${it.end} ${evidence(it.symbol)}" })
             is CommentOccurrence -> append(occurrence.verdict)
+
+            // No walk over a host file produces one of these — a plan token comes from text a
+            // database engine printed, and there is no PSI anywhere behind it. It is described
+            // anyway, because *byte-identical plan* is a claim about every field of every
+            // occurrence and an arm that said nothing would quietly stop it being one.
+            is PlanOccurrence -> append(occurrence.disposition.javaClass.simpleName).append(' ')
+                .append(occurrence.nameStart).append(':').append(occurrence.nameEnd)
         }
         append('\n')
     }

@@ -557,6 +557,9 @@ enum class MappedKind(val label: String) {
      */
     COLUMN("col"),
     SCHEMA("schema"),
+
+    /** `idx`, as the placeholder is written — an access path, which is what a plan names one for. */
+    INDEX("idx"),
     LITERAL("literal"),
     UNKNOWN("Unknown"),
 }

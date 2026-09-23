@@ -121,6 +121,9 @@ class BalloonFamilyTest : JavaSnippetTestCase() {
         val notify = SnippetVeilNotifications
         return listOf(
             Row("copied", Footprint.WROTE_CLIPBOARD) { notify.copied(project, analysisOf(REVERSAL_SNIPPET)) },
+            Row("copied", Footprint.WROTE_CLIPBOARD) {
+                notify.copied(project, analysisOf(REVERSAL_SNIPPET), Subject.PLAN)
+            },
             Row("installed", Footprint.NO_OPERATION) { notify.installed(project) },
             Row("mappingSaved", Footprint.SAVED_MAPPING) { notify.mappingSaved(project) },
             Row("exportFailed", Footprint.MAPPING_NOT_SAVED) { notify.exportFailed(project, failure) },
@@ -140,6 +143,12 @@ class BalloonFamilyTest : JavaSnippetTestCase() {
                 notify.kotlinUnavailable(project, Unavailable.PATH_NOT_ACTIVATED)
             },
             Row("reversalFailed", Footprint.CLIPBOARD_NOT_WRITTEN) { notify.reversalFailed(project, failure) },
+
+            // The refusal of a paste that is not a plan: nothing was read and nothing written, so it
+            // carries the clipboard clause — and it is a warning, so the rule holds it to having no
+            // report link, which is where *a plugin refusing input correctly is not a defect* is
+            // actually checked.
+            Row("planUnreadable", Footprint.CLIPBOARD_NOT_WRITTEN) { notify.planUnreadable(project) },
         )
     }
 

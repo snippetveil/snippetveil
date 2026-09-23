@@ -1,6 +1,5 @@
 package com.snippetveil.plugin
 
-import com.intellij.ide.highlighter.JavaFileType
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
@@ -99,12 +98,18 @@ import javax.swing.table.TableRowSorter
  * `Unknown`s, the literals that stayed. It highlights every rename equally and is silent on exactly
  * the rows that matter. The original is also still in the editor behind this dialog.
  *
- * ### One dialog, two openings
+ * ### One dialog, three openings
  *
  * [forCopy] is the reduction surface. [forReview] is the balloon's `Show mapping`, and it is **the
  * same object re-rendered** with no Copy button and no toggles. Read-only there is required rather
  * than a simplification: the delta is committed and the text has already left, so offering a
  * reduction would offer to change something that is gone.
+ *
+ * [forPlan] is the same reduction surface over an execution plan, and it is **an opening rather than
+ * a second dialog** — the rows, the unlock, the rename, the export and the commit point are the ones
+ * argued above, unchanged. What differs is what the invocation is *about*, which is collected in
+ * [Subject]: the title, the button, a pane that highlights nothing and a comments tick that is
+ * absent because a plan has none.
  *
  * ### Nothing here commits anything
  *
@@ -116,6 +121,7 @@ internal class PreviewDialog private constructor(
     opening: Analysis,
     private val reducible: Boolean,
     private val files: MappingFiles,
+    private val subject: Subject,
 ) : DialogWrapper(project, true) {
 
     /**
@@ -170,10 +176,18 @@ internal class PreviewDialog private constructor(
     var analysis: Analysis = if (reducible) opening.rendered(settings = settingsNow()) else opening
         private set
 
+    /**
+     * **The pane, opened as whatever the invocation is written in** — and there is no honest way to
+     * show a snapped range, or a plan, except by showing the text that will actually be copied.
+     *
+     * The file type is the [subject]'s rather than this dialog's: a Java snippet is highlighted as
+     * Java, and **a plan is plain**, because nothing here parsed it and colouring it would decorate
+     * the pane with a claim about a grammar this product does not read.
+     */
     private val code = EditorTextField(
         EditorFactory.getInstance().createDocument(analysis.result.text),
         project,
-        JavaFileType.INSTANCE,
+        subject.fileType,
         true,
         false,
     )
@@ -182,7 +196,7 @@ internal class PreviewDialog private constructor(
 
     private val table = JBTable(rows)
 
-    private val strip = JBLabel(stripOf(analysis))
+    private val strip = JBLabel(subject.strip(analysis))
 
     /**
      * **What the output gives no sign of** — one label per notice, and none at all on a snippet with
@@ -248,8 +262,8 @@ internal class PreviewDialog private constructor(
     private val unlock = ActionLink(UNLOCK_LINK) { unlockPreserve() }
 
     init {
-        title = if (reducible) "Anonymize with Preview" else "Anonymized Snippet"
-        if (reducible) setOKButtonText("Copy Anonymized")
+        title = if (reducible) subject.previewTitle else subject.reviewTitle
+        if (reducible) setOKButtonText(subject.copyButton)
         commentsBox.addActionListener { rerender() }
         init()
     }
@@ -360,7 +374,11 @@ internal class PreviewDialog private constructor(
         footer.border = JBUI.Borders.emptyTop(8)
         footer.add(strip)
         footer.add(notices)
-        if (reducible) footer.add(commentsBox)
+
+        // **The tick is absent where it has no population, rather than greyed out.** A plan holds no
+        // comments, so a box that could never be ticked into anything would suggest a state a user
+        // can reach by doing something differently.
+        if (reducible && subject.offersComments) footer.add(commentsBox)
         showNotices()
         return footer
     }
@@ -464,7 +482,7 @@ internal class PreviewDialog private constructor(
         analysis = analysis.rendered(settings = settingsNow())
         code.text = analysis.result.text
         rows.showing = analysis.result.names
-        strip.text = stripOf(analysis)
+        strip.text = subject.strip(analysis)
         export.isEnabled = exportable()
         showNotices()
     }
@@ -496,11 +514,27 @@ internal class PreviewDialog private constructor(
 
         /** The reduction surface: toggles, and a Copy button that is the commit point. */
         fun forCopy(project: Project, analysis: Analysis, files: MappingFiles = SavedMappingFiles): PreviewDialog =
-            PreviewDialog(project, analysis, reducible = true, files = files)
+            PreviewDialog(project, analysis, reducible = true, files = files, subject = Subject.SNIPPET)
+
+        /**
+         * **The same reduction surface over a plan**, and *the only view of the output there is*.
+         *
+         * The two anonymizing actions over source have a fast path because the original is in the
+         * editor behind the dialog and the user can see what they selected. A plan came off a
+         * clipboard that never passed through an editor, what needs vetting is visible only in this
+         * pane, and the controls live only here — so this invocation is preview-first, with no fast
+         * path to be the quicker way round it.
+         */
+        fun forPlan(project: Project, analysis: Analysis, files: MappingFiles = SavedMappingFiles): PreviewDialog =
+            PreviewDialog(project, analysis, reducible = true, files = files, subject = Subject.PLAN)
 
         /** The balloon's `Show mapping`: the same dialog over an invocation that has already left. */
-        fun forReview(project: Project, analysis: Analysis, files: MappingFiles = SavedMappingFiles): PreviewDialog =
-            PreviewDialog(project, analysis, reducible = false, files = files)
+        fun forReview(
+            project: Project,
+            analysis: Analysis,
+            files: MappingFiles = SavedMappingFiles,
+            subject: Subject = Subject.SNIPPET,
+        ): PreviewDialog = PreviewDialog(project, analysis, reducible = false, files = files, subject = subject)
     }
 }
 
@@ -522,6 +556,12 @@ internal fun interface Previews {
 internal object PreviewDialogs : Previews {
     override fun confirm(project: Project, analysis: Analysis): Analysis? =
         PreviewDialog.forCopy(project, analysis).let { if (it.showAndGet()) it.analysis else null }
+}
+
+/** The same seam over a plan, which opens the same dialog in the shape a plan is shown in. */
+internal object PlanPreviewDialogs : Previews {
+    override fun confirm(project: Project, analysis: Analysis): Analysis? =
+        PreviewDialog.forPlan(project, analysis).let { if (it.showAndGet()) it.analysis else null }
 }
 
 /**
@@ -548,12 +588,14 @@ internal object PreviewDialogs : Previews {
  * missing. It would appear for a user whose IDE decomposes queries and not for one whose IDE does
  * not, which makes its *absence* the only in-product signal that a query went out whole — the
  * availability tell this product declines to build.
+ *
+ * **An entry with no population is absent rather than zero**, and that is the one thing the second
+ * [Subject] changed here. A plan has no unresolved names and no comments to strip, so its strip is
+ * `renamed` and `preserved` and nothing else — see [Subject.strip], which is where both shapes are
+ * written down beside each other. Everything above is unmoved: the numbers that *are* said are said
+ * every time, zeroes included.
  */
-internal fun stripOf(analysis: Analysis): String {
-    val counts = analysis.result.counts
-    val strip = "${counts.replaced} renamed · ${counts.unknown} unknown · ${counts.preserved} preserved"
-    return if (analysis.plan.selectionExpanded) "$strip · selection expanded to whole tokens" else strip
-}
+internal fun stripOf(analysis: Analysis, subject: Subject = Subject.SNIPPET): String = subject.strip(analysis)
 
 /**
  * **Rows are placeholders; preservation by design is a count.**

@@ -289,11 +289,18 @@ Worth knowing before relying on it:
   SnippetVeil does nothing for you.
 - **The prompt you type around the snippet** is yours to write. SnippetVeil anonymizes the code, not
   the sentence above it.
-- **Java and Kotlin source files only** for the two anonymizing actions — and `.kts` scripts are
+- **Java and Kotlin source files only** for the two actions that anonymize a selection — and `.kts` scripts are
   not in that set. Kotlin also needs the IDE's Kotlin plugin to be running in K2 mode, which is
   its default from 2025.1; where it is not, a `.kt` file says so rather than offering nothing. The
   two reversals work anywhere — De-anonymize Clipboard needs only a project, De-anonymize
   Clipboard and Paste a writable editor.
+- **An execution plan is PostgreSQL’s `EXPLAIN` text output, and nothing else.** Anonymize
+  Execution Plan… replaces the relation, column, alias and index names in one and leaves every cost
+  and timing as printed, but it reads the default text format only and only from the plan’s first
+  line: a subtree pasted from the middle, a paste carrying the query above the plan, and `psql`’s own
+  `QUERY PLAN` header are refused rather than half-read. Nothing about the plan is looked up in a
+  database, and its placeholders are **not** remembered — a plan has no declarations to file them
+  under, so the same plan pasted twice comes back under different numbers.
 - **It is not a secret scanner.** It replaces names your project owns; it does not look for
   credentials.
 

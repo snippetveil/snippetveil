@@ -30,6 +30,19 @@ fun anonymize(
     val symbols = surviving.filterIsInstance<SymbolOccurrence>()
     val literals = surviving.filterIsInstance<LiteralOccurrence>()
 
+    // The tokens a container with no PSI behind it read out of text — an execution plan's names,
+    // each arriving with what becomes of it already decided, because there was nothing but text to
+    // decide with. See [PlanOccurrence]. Everything below still belongs to this engine: the counter,
+    // the keys, the rows and the ledger are unmoved by a second kind of container.
+    val planNames = surviving.filterIsInstance<PlanOccurrence>()
+
+    // The plan names this invocation replaces — the ones whose words leave the output, which is what
+    // [namesSurviving] wants of them. A token the user ticked stands for itself and stays.
+    val replacedPlanNames = planNames.filter {
+        val disposition = it.disposition
+        disposition is PlanDisposition.Anonymize && disposition.key !in settings.preservedSymbols
+    }
+
     // Which library packages hold the company's own code, resolved once for this invocation from
     // the setting and from the one fact about the file the plan reports. Every ownership question
     // below asks this, because *the project owns it* is now a question two origins can answer.
@@ -111,7 +124,7 @@ fun anonymize(
 
     val allocator = PlaceholderAllocator(
         ledger.nextNumber,
-        namesSurviving(plan, symbols.filter { isReplaced(it.symbol) } + stripped),
+        namesSurviving(plan, symbols.filter { isReplaced(it.symbol) } + stripped + replacedPlanNames),
     )
     val placeholderByKey = ledger.placeholders.mapValuesTo(LinkedHashMap()) { (_, minted) -> minted.placeholder }
 
@@ -348,6 +361,45 @@ fun anonymize(
     }
 
     /**
+     * **What becomes of one name an execution plan printed** — the whole of the plan container's
+     * path through this engine, and deliberately short.
+     *
+     * It shares everything that matters with the identifier path: the same allocator, so a plan name
+     * draws from the one counter every other placeholder is numbered from; the same rename, so a stem
+     * typed in the preview lands here too; the same row, so the table and the export read one kind of
+     * entry; and the same per-invocation preserve, keyed exactly as every other tick is.
+     *
+     * What it does not share is a [SymbolEvidence], because there is none — nothing resolved, so
+     * there is nothing to report about a declaring file, a package or an override chain, and the
+     * rules that read those have nothing to say about a word printed by a database engine. **The kind
+     * and the key arrive decided**, which is [PlanOccurrence]'s whole argument.
+     *
+     * **Nothing here is ever written down.** A plan key is unqualified by construction — see
+     * [PlanKeys] — so it never reaches [persisted], and the number it drew is burnt when the
+     * invocation ends. The same plan pasted twice gets two sets of placeholders.
+     */
+    fun spliceName(occurrence: PlanOccurrence, name: PlanDisposition.Anonymize) {
+        val written = plan.text.substring(occurrence.nameStart, occurrence.nameEnd)
+        val kind = mappedKindOf(name.kind)
+
+        // The one reduction the design authorises, reaching a plan row exactly as it reaches every
+        // other keyed row — and a row *because* it was preserved, so the tick that did it can be
+        // unticked. See [MappedName].
+        if (name.key in settings.preservedSymbols) {
+            names.getOrPut(PRESERVED + name.key) { MappedName(written, null, kind, name.key, Renaming.NONE) }
+            return
+        }
+
+        val placeholder = placeholderByKey.getOrPut(name.key) {
+            allocator.next(stemFor(name.key, name.kind.placeholderPrefix))
+        }
+        edits += Edit(occurrence.nameStart, occurrence.nameEnd, placeholder)
+        names.getOrPut(placeholder) {
+            MappedName(written, placeholder, kind, name.key, renamingUnder(name.key))
+        }
+    }
+
+    /**
      * Splices [symbol]'s placeholder over `[start, end)`, spelled as [language] spells it — and files
      * the row for whichever name reached the output.
      *
@@ -429,6 +481,18 @@ fun anonymize(
 
             is CommentOccurrence -> if (!settings.keepComments) {
                 edits += stripOf(plan.text, occurrence, after = edits.lastOrNull()?.end ?: 0)
+            }
+
+            is PlanOccurrence -> when (val disposition = occurrence.disposition) {
+                is PlanDisposition.Anonymize -> spliceName(occurrence, disposition)
+
+                // Emitted as written, and that is the whole of it: no edit, no number, no row. It is
+                // counted, because `preserved` is a claim about what is on the clipboard.
+                PlanDisposition.Preserve -> Unit
+
+                // **Empty text, and nothing else moves.** A dropped token stands for nothing in the
+                // output, so it allocates nothing, records no row and writes nothing to the ledger.
+                PlanDisposition.Drop -> edits += Edit(occurrence.start, occurrence.end, "")
             }
         }
     }
@@ -512,7 +576,7 @@ fun anonymize(
         names = names.values.toList(),
         unknowns = unknowns,
         flattened = flattenedNamesIn(names.values),
-        counts = countsOf(namedSymbols, ::isReplaced, unknowns.size),
+        counts = countsOf(namedSymbols, ::isReplaced, unknowns.size, planCountsOf(plan, planNames, settings)),
         comments = CommentCounts(
             prose = stripped.count { it.verdict == CommentVerdict.PROSE },
             code = stripped.count { it.verdict == CommentVerdict.CODE },
@@ -680,6 +744,7 @@ private fun countsOf(
     named: List<SymbolEvidence>,
     isReplaced: (SymbolEvidence) -> Boolean,
     unknown: Int,
+    plan: PlanCounts,
 ): NameCounts {
     val unresolvedKeys = named
         .filter { it.origin == SymbolOrigin.UNRESOLVED }
@@ -689,9 +754,47 @@ private fun countsOf(
         .distinctBy(::sharedKeyOf)
 
     return NameCounts(
-        replaced = resolved.count(isReplaced),
+        replaced = resolved.count(isReplaced) + plan.replaced,
         unknown = unknown,
-        preserved = resolved.count { !isReplaced(it) },
+        preserved = resolved.count { !isReplaced(it) } + plan.preserved,
+    )
+}
+
+/** What a plan container contributed to the two counts it has a population for. See [planCountsOf]. */
+private class PlanCounts(val replaced: Int, val preserved: Int)
+
+/**
+ * **The plan's names, partitioned the way every other name is: by outcome, counted distinctly.**
+ *
+ * Distinct means distinct *symbols* on the replaced side, which for a plan name is its key — so a
+ * relation scanned twice is one name, and a qualified name is as many names as it has segments. On
+ * the preserved side it is distinct **spellings**, because a preserved token has no key: what the
+ * count is a claim about is how many different words survived verbatim, and `text` printed five
+ * times is one word.
+ *
+ * A [PlanDisposition.Drop] is in neither, and that is the whole of what dropping costs a count: the
+ * token is not on the clipboard under a placeholder and not on it under its own name, so counting it
+ * either way would be a false statement about the output.
+ *
+ * There is no `unknown` arm and there never will be. Nothing here resolves, so nothing here can have
+ * failed to — [NameCounts.unknown] reports what an IDE could not vouch for, and a container with no
+ * IDE has no population for it at all.
+ */
+private fun planCountsOf(
+    plan: SnippetPlan,
+    occurrences: List<PlanOccurrence>,
+    settings: AnonymizationSettings,
+): PlanCounts {
+    val keys = occurrences
+        .mapNotNull { (it.disposition as? PlanDisposition.Anonymize)?.key }
+        .distinct()
+    val written = occurrences
+        .filter { it.disposition == PlanDisposition.Preserve }
+        .mapTo(HashSet()) { plan.text.substring(it.start, it.end) }
+
+    return PlanCounts(
+        replaced = keys.count { it !in settings.preservedSymbols },
+        preserved = keys.count { it in settings.preservedSymbols } + written.size,
     )
 }
 
@@ -948,25 +1051,31 @@ private fun keepsItsNamespace(symbol: SymbolEvidence): Boolean = symbol.origin =
  * and the placeholder does not carry it either.
  */
 private fun kindOf(symbol: SymbolEvidence): MappedKind =
-    if (symbol.origin == SymbolOrigin.UNRESOLVED) {
-        MappedKind.UNKNOWN
-    } else {
-        when (symbol.role) {
-            SymbolRole.TYPE -> MappedKind.TYPE
-            SymbolRole.TYPE_PARAMETER -> MappedKind.TYPE_PARAMETER
-            SymbolRole.METHOD -> MappedKind.METHOD
-            SymbolRole.FIELD -> MappedKind.FIELD
-            SymbolRole.PARAMETER -> MappedKind.PARAMETER
-            SymbolRole.PACKAGE -> MappedKind.PACKAGE
-            SymbolRole.ANNOTATION -> MappedKind.ANNOTATION
-            SymbolRole.ATTRIBUTE -> MappedKind.ATTRIBUTE
-            SymbolRole.LOCAL -> MappedKind.LOCAL
-            SymbolRole.LABEL -> MappedKind.LABEL
-            SymbolRole.TABLE -> MappedKind.TABLE
-            SymbolRole.COLUMN -> MappedKind.COLUMN
-            SymbolRole.SCHEMA -> MappedKind.SCHEMA
-        }
-    }
+    if (symbol.origin == SymbolOrigin.UNRESOLVED) MappedKind.UNKNOWN else mappedKindOf(symbol.role)
+
+/**
+ * The kind a role reads as in a table — the half of [kindOf] that is a pure translation, split out
+ * because a plan name has a role and no origin to outrank it.
+ *
+ * An exhaustive `when` rather than a lookup, for the reason [isAnonymized]'s is: the day a role is
+ * added, this is a compile error at the one place somebody has to decide what a reader sees.
+ */
+private fun mappedKindOf(role: SymbolRole): MappedKind = when (role) {
+    SymbolRole.TYPE -> MappedKind.TYPE
+    SymbolRole.TYPE_PARAMETER -> MappedKind.TYPE_PARAMETER
+    SymbolRole.METHOD -> MappedKind.METHOD
+    SymbolRole.FIELD -> MappedKind.FIELD
+    SymbolRole.PARAMETER -> MappedKind.PARAMETER
+    SymbolRole.PACKAGE -> MappedKind.PACKAGE
+    SymbolRole.ANNOTATION -> MappedKind.ANNOTATION
+    SymbolRole.ATTRIBUTE -> MappedKind.ATTRIBUTE
+    SymbolRole.LOCAL -> MappedKind.LOCAL
+    SymbolRole.LABEL -> MappedKind.LABEL
+    SymbolRole.TABLE -> MappedKind.TABLE
+    SymbolRole.COLUMN -> MappedKind.COLUMN
+    SymbolRole.SCHEMA -> MappedKind.SCHEMA
+    SymbolRole.INDEX -> MappedKind.INDEX
+}
 
 /**
  * Every identifier-shaped word that survives into the output — which is every word in the snippet

@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+- **An execution plan can be anonymized from the clipboard.** `Anonymize Execution Plan…`, the
+  fifth item in the SnippetVeil menu, reads a PostgreSQL `EXPLAIN` plan off the clipboard and gives
+  back the same plan with the relation, column, alias and index names replaced — `Index Scan using
+  idx1 on table2 table3` — while every cost, row estimate, width and timing stays exactly as it was
+  printed, which is what a plan is pasted for. An index gets a kind of its own, `idx`, because an
+  index is not a table. The item is always enabled and reads the clipboard only when you invoke it.
+  It always opens the preview and has no fast path: the plan never passed through an editor, so the
+  dialog is the only place to read what will be copied, and its button reads `Copy Anonymized Plan`.
+  The counts there are `renamed` and `preserved` and nothing else, and there is no keep-comments
+  tick, because a plan has neither unresolved names nor comments. `Export Mapping…` is where it
+  always was.
+- **A plan's placeholders are not remembered, and only one format is read.** A plan carries no
+  declarations to file placeholders under, so the same plan pasted twice comes back under different
+  numbers and a plan's names never join the mapping an earlier snippet was sent under. Only
+  PostgreSQL's default `EXPLAIN` text output is read, and only from the plan's first line: a paste
+  that starts in the middle of the tree, one that carries the query above the plan, `EXPLAIN (COSTS
+  OFF)` output and `psql`'s own `QUERY PLAN` header and row of dashes are all refused with one
+  message saying what to copy instead. A refusal leaves the clipboard exactly as it was and never
+  quotes what was on it.
+
 - **A JPQL query in a Java string is anonymized name by name**, when every name in it resolves — and
   so is a query in the other persistence query languages the IDE reads the same way.
   `@NamedQuery(query = "SELECT c FROM Customer c WHERE c.merchantRef = :ref")` used to come out as
