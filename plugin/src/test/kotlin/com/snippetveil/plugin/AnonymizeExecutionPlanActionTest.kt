@@ -73,7 +73,7 @@ class AnonymizeExecutionPlanActionTest : JavaSnippetTestCase() {
      * a zero standing where nothing can ever be counted is unreadable in the other direction.
      */
     fun `test the plan strip shows two entries and omits the ones with no population`() {
-        val strip = stripOf(planAnalysis(), Subject.PLAN)
+        val strip = Subject.PLAN.strip(planAnalysis())
 
         assertEquals("9 renamed · 1 preserved", strip)
         assertFalse("the plan strip counts what it cannot have: $strip", "unknown" in strip)

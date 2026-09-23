@@ -293,7 +293,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             """.trimIndent(),
         )
 
-        assertEquals("2 renamed · 1 unknown · 0 preserved", stripOf(whole))
+        assertEquals("2 renamed · 1 unknown · 0 preserved", Subject.SNIPPET.strip(whole))
 
         val cut = analysisOf(
             """
@@ -307,7 +307,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
 
         assertEquals(
             "1 renamed · 0 unknown · 0 preserved · selection expanded to whole tokens",
-            stripOf(cut),
+            Subject.SNIPPET.strip(cut),
         )
     }
 
@@ -375,7 +375,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
 
             assertTrue("the comment did not come back into the render", "reconcile" in dialog.analysis.result.text)
             assertTrue("the code pane still shows the old render", "reconcile" in codeIn(panel).text)
-            assertEquals("1 renamed · 0 unknown · 0 preserved", stripOf(dialog.analysis))
+            assertEquals("1 renamed · 0 unknown · 0 preserved", Subject.SNIPPET.strip(dialog.analysis))
 
             val after = PlaceholderLedger.getInstance().snapshotOf(project)
             assertEquals("a toggle named a symbol", before.placeholders, after.placeholders)
@@ -672,7 +672,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
      * Read off the rendered components rather than off the analysis, because *"the preview carries
      * them"* is a claim about what is on screen.
      *
-     * The strip is told apart by being the strip — the exact string [stripOf] produced for what is
+     * The strip is told apart by being the strip — the exact string [Subject.strip] produced for what is
      * rendered — rather than by anything about how it is worded, so a reworded strip stays a strip
      * here instead of quietly becoming a third notice.
      */
@@ -680,7 +680,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
         descendantsOf(dialog.createCenterPanel())
             .filterIsInstance<JBLabel>()
             .map { it.text }
-            .filterNot { it == stripOf(dialog.analysis) }
+            .filterNot { it == Subject.SNIPPET.strip(dialog.analysis) }
 
     private fun checkBoxesIn(component: Container): List<JCheckBox> =
         component.components.flatMap {

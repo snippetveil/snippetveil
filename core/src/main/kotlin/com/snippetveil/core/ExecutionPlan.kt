@@ -55,19 +55,25 @@ fun parsePlan(text: String): PlanReading {
     val lines = linesOf(text)
     if (lines.isEmpty() || !opensAPlan(lines.first())) return PlanReading.Unreadable
 
-    val occurrences = mutableListOf<Occurrence>()
-
-    // **Declarations first, references second, in two passes over the same lines.** A plan prints
-    // `Filter: (v.status = …)` above the `CTE v` that declares `v` as readily as below it, and a
-    // qualifier that keyed as an invocation-wide relation on one plan and as the plan's own alias on
-    // the next would be identity decided by print order. The passes are disjoint — a line is a node
-    // line or a field line and never both — so nothing is reported twice, and the document order the
-    // engine reads is restored by the sort below.
+    // **Every declaration first, and only then anything keyed against one.** A plan prints
+    // `CTE Scan on recent` above the `CTE recent` that declares `recent` as readily as below it, and
+    // a name that keyed as an invocation-wide relation where it was printed first and as the plan's
+    // own where it was printed second would be identity decided by print order — two placeholders
+    // for one thing, in the output the user reads.
+    //
+    // So the structure is read twice against the same set: **the first reader's occurrences are
+    // thrown away**, because the second reader makes them again with every declaration in hand. That
+    // is cheaper than it looks — the walk allocates a token per name and resolves nothing — and it is
+    // the whole of what makes the two keys agree.
     val declared = mutableSetOf<String>()
-    for (line in lines) readStructure(line, declared, occurrences)
-    for (line in lines) readFields(line, declared, occurrences)
+    val declarations = PlanReader(declared)
+    lines.forEach(declarations::readStructure)
 
-    return PlanReading.Read(SnippetPlan(text, occurrences.sortedBy { it.start }))
+    val reader = PlanReader(declared)
+    lines.forEach(reader::readStructure)
+    lines.forEach(reader::readFields)
+
+    return PlanReading.Read(SnippetPlan(text, reader.occurrences.sortedBy { it.start }))
 }
 
 /**
@@ -113,197 +119,208 @@ private fun opensAPlan(head: PlanLine): Boolean = labelOf(head.text) != null && 
 private const val COST = "  (cost="
 
 /**
- * **A node line, and the names printed at fixed positions on it** — and the CTE headers, which are
- * the other thing a plan's structure declares.
+ * **The reading of one plan** — the names it declares, and the occurrences it produces.
  *
- * Everything this reads is positional: what follows `using` is an index, what follows `on` is a
- * relation, and what follows that is the alias the engine printed for it. Nothing is decided from
- * the shape of a word, which is what keeps the parenthetical at the end of the line — the whole
- * reason a plan is pasted — out of reach of every rule here.
+ * A class rather than a run of functions because [declared] and the list being filled travel
+ * together through every rule below, and threading the pair through seven signatures made the
+ * parameters the loudest thing in the file. It also makes the two passes [parsePlan] runs visible as
+ * what they are: two readers over one set of declarations, of which only the second keeps its work.
  *
- * @param declared the names the plan declares, which this pass **fills**: an alias and a CTE name
- *   belong to the plan, and the fields pass reads this to tell a qualifier naming one of them from a
- *   qualifier naming a relation. See [PlanKeys].
+ * @param declared the names the plan itself introduces — an alias, a CTE. [readStructure] fills it,
+ *   and everything keyed as a relation reads it. See [PlanKeys].
  */
-private fun readStructure(line: PlanLine, declared: MutableSet<String>, into: MutableList<Occurrence>) {
-    val field = line.field
-    if (field != null) {
-        // `Subplan Name: CTE recent` names a CTE on a field line, which is the one declaration that
-        // does not arrive on a line of its own.
-        if (field.label == SUBPLAN_NAME) readCteHeader(line, field.from, declared, into)
-        return
-    }
+private class PlanReader(private val declared: MutableSet<String>) {
 
-    val label = labelOf(line.body)
-    if (label == null) {
-        // `CTE recent`, sitting above the subtree that computes it.
-        readCteHeader(line, line.bodyAt, declared, into)
-        return
-    }
+    val occurrences = mutableListOf<Occurrence>()
 
-    val head = line.body.substringBefore(TAIL)
-    var at = label.length
-
-    val using = head.indexOf(USING, at)
-    if (using >= 0) {
-        at = readQualified(line, head, line.bodyAt, using + USING.length, SymbolRole.INDEX, declared, into)
-    }
-
-    val on = head.indexOf(ON, at)
-    if (on < 0) return
-
-    // **`Bitmap Index Scan on …` names an index where every other node names a relation**, and it is
-    // the one node whose `on` means something else. Reading it as a relation would put a `table`
-    // placeholder on an access path and assert a rowset that is not there.
-    val scanned = if (label == BITMAP_INDEX_SCAN) SymbolRole.INDEX else SymbolRole.TABLE
-    at = readQualified(line, head, line.bodyAt, on + ON.length, scanned, declared, into)
-
-    // The alias, where the engine printed one — `Seq Scan on visits v`. It is a name the **plan**
-    // declares: two plans each calling something `v` are not talking about one thing, and `visits_1`
-    // is an alias this engine invented rather than a relation anybody named.
-    val alias = tokenAt(head, skippingSpaces(head, at), line.bodyAt) ?: return
-    declared += alias.spelling
-    into += alias.anonymized(line, SymbolRole.TABLE, PlanKeys.declared(SymbolRole.TABLE, alias.spelling))
-}
-
-/** `CTE recent` — the name after the keyword, declared by the plan that computes it. */
-private fun readCteHeader(line: PlanLine, from: Int, declared: MutableSet<String>, into: MutableList<Occurrence>) {
-    val at = skippingSpaces(line.text, from)
-    if (!line.text.startsWith(CTE, at)) return
-
-    val name = tokenAt(line.text, at + CTE.length, 0) ?: return
-    declared += name.spelling
-    into += name.anonymized(line, SymbolRole.TABLE, PlanKeys.declared(SymbolRole.TABLE, name.spelling))
-}
-
-/**
- * **A field line's value, read as an expression** — `Filter: (v.status = 'open'::text)`.
- *
- * Every field is read except the ones [QUIET_FIELDS] names, and that direction is the decision: a
- * field this file has never heard of is read for names rather than passed over, so a plan option
- * nobody here anticipated cannot carry a column name out unnoticed. What it costs is a metric word
- * occasionally replaced in a line of counters, which is visible in the pane the user is looking at.
- */
-private fun readFields(line: PlanLine, declared: Set<String>, into: MutableList<Occurrence>) {
-    val field = line.field ?: return
-    if (field.label == SUBPLAN_NAME || field.label in QUIET_FIELDS) return
-    readExpression(line, field.from, declared, into)
-}
-
-/**
- * The dotted chain starting at [at] — `billing.invoices`, `v`, `"Customers"` — with [last] the kind
- * of its final segment and every segment before it a schema.
- *
- * **A qualified name is several symbols and not one**, so each segment is keyed and replaced on its
- * own: `billing.invoices` renders `schema1.table2`, and the reader keeps the fact that the two are
- * different things in different namespaces.
- *
- * @return where the chain ended in [within], so the caller can go on reading the line from there
- */
-private fun readQualified(
-    line: PlanLine,
-    within: String,
-    offset: Int,
-    at: Int,
-    last: SymbolRole,
-    declared: Set<String>,
-    into: MutableList<Occurrence>,
-): Int {
-    val chain = chainAt(within, at, offset)
-    if (chain.isEmpty()) return at
-
-    for ((index, token) in chain.withIndex()) {
-        val kind = if (index == chain.lastIndex) last else SymbolRole.SCHEMA
-        into += token.anonymized(line, kind, keyOf(kind, token.spelling, declared))
-    }
-    return chain.last().after
-}
-
-/**
- * **Which of the two key shapes a name takes** — the plan's own, or the invocation's.
- *
- * A name the plan declared is the plan's however it is written afterwards, which is what makes the
- * alias in `Seq Scan on visits v` and the `v` in `Filter: (v.id = 1)` one symbol. Everything else
- * keys on its spelling across the invocation, exactly as written. See [PlanKeys].
- */
-private fun keyOf(kind: SymbolRole, spelling: String, declared: Set<String>): String =
-    if (kind == SymbolRole.TABLE && spelling in declared) {
-        PlanKeys.declared(kind, spelling)
-    } else {
-        PlanKeys.named(kind, spelling)
-    }
-
-/**
- * **Every name in one expression field, and every word that is not one.**
- *
- * The walk is deliberately small, because everything it could do instead is a guess at a grammar
- * nothing here parses:
- *
- *  - **A single-quoted literal is stepped over**, content untouched. It is a value the planner
- *    printed, and rewriting one would change what the plan says the engine did.
- *  - **A word after `::` is a type name**, and a word this engine's own vocabulary knows is the
- *    engine's. Both are [PlanDisposition.Preserve] — slotted, and emitted as written, which is what
- *    the `preserved` half of the counts counts.
- *  - **A dotted chain is read whole**: `v.created_at` is a qualifier and a column, `billing.t.c` is a
- *    schema, a relation and a column. The last segment is a column **by position**, so a column
- *    genuinely called `text` keeps its kind rather than being mistaken for the type.
- *  - **Everything else identifier-shaped is a column**, which is the fail-closed arm argued on
- *    [parsePlan].
- *
- * A word immediately after a digit is skipped, because it is a unit rather than a word — `25kB` is
- * one token to a reader and two to a scanner.
- */
-private fun readExpression(line: PlanLine, from: Int, declared: Set<String>, into: MutableList<Occurrence>) {
-    val text = line.text
-    var at = from
-    while (at < text.length) {
-        val character = text[at]
-        when {
-            character == '\'' -> at = pastQuote(text, at)
-
-            character == '"' || opensAWord(character) -> {
-                if (opensAWord(character) && at > 0 && text[at - 1].isDigit()) {
-                    at = endOfWord(text, at)
-                    continue
-                }
-                val chain = chainAt(text, at, 0)
-                if (chain.isEmpty()) {
-                    at++
-                    continue
-                }
-                readChain(line, chain, declared, into)
-                at = chain.last().after
-            }
-
-            else -> at++
+    /**
+     * **A node line, and the names printed at fixed positions on it** — and the CTE headers, which
+     * are the other thing a plan's structure declares.
+     *
+     * Everything this reads is positional: what follows `using` is an index, what follows `on` is a
+     * relation, and what follows that is the alias the engine printed for it. Nothing is decided
+     * from the shape of a word, which is what keeps the parenthetical at the end of the line — the
+     * whole reason a plan is pasted — out of reach of every rule here.
+     */
+    fun readStructure(line: PlanLine) {
+        val field = line.field
+        if (field != null) {
+            // `Subplan Name: CTE recent` names a CTE on a field line, which is the one declaration
+            // that does not arrive on a line of its own.
+            if (field.label == SUBPLAN_NAME) readCteHeader(line, field.from)
+            return
         }
-    }
-}
 
-/** What becomes of one dotted chain met in an expression. See [readExpression]. */
-private fun readChain(
-    line: PlanLine,
-    chain: List<PlanToken>,
-    declared: Set<String>,
-    into: MutableList<Occurrence>,
-) {
-    if (chain.size == 1) {
-        val token = chain.single()
-        into += if (token.isTheEnginesOwnWord(line)) {
-            PlanOccurrence(line.start + token.start, line.start + token.end, PlanDisposition.Preserve)
+        val label = labelOf(line.body)
+        if (label == null) {
+            // `CTE recent`, sitting above the subtree that computes it.
+            readCteHeader(line, line.bodyAt)
+            return
+        }
+
+        val head = line.body.substringBefore(TAIL)
+        var at = label.length
+
+        val using = head.indexOf(USING, at)
+        if (using >= 0) {
+            at = readQualified(line, head, line.bodyAt, using + USING.length, SymbolRole.INDEX)
+        }
+
+        // **Where the relation begins, which is one of two places.** `Seq Scan on visits` carries the
+        // keyword in the middle of the line; `Insert on visits`, `Update on`, `Delete on` and
+        // `Merge on` carry it **inside the node's own label**, and a reader that went looking for a
+        // second one would walk past the relation and leave a table name on the clipboard. The
+        // suffix is ` on` rather than `on` so that `Recursive Union` is not read as one of them.
+        val relation = if (label.endsWith(ON.trimEnd())) {
+            skippingSpaces(head, label.length)
         } else {
-            token.anonymized(line, SymbolRole.COLUMN, PlanKeys.named(SymbolRole.COLUMN, token.spelling))
+            head.indexOf(ON, at).takeIf { it >= 0 }?.plus(ON.length)
         }
-        return
+        if (relation == null) return
+
+        // **`Bitmap Index Scan on …` names an index where every other node names a relation**, and it
+        // is the one node whose `on` means something else. Reading it as a relation would put a
+        // `table` placeholder on an access path and assert a rowset that is not there.
+        val scanned = if (label == BITMAP_INDEX_SCAN) SymbolRole.INDEX else SymbolRole.TABLE
+        at = readQualified(line, head, line.bodyAt, relation, scanned)
+
+        // The alias, where the engine printed one — `Seq Scan on visits v`. It is a name the **plan**
+        // declares: two plans each calling something `v` are not talking about one thing, and
+        // `visits_1` is an alias this engine invented rather than a relation anybody named.
+        val alias = tokenAt(head, skippingSpaces(head, at), line.bodyAt) ?: return
+        declared += alias.spelling
+        occurrences += alias.anonymized(line, SymbolRole.TABLE, PlanKeys.declared(SymbolRole.TABLE, alias.spelling))
     }
 
-    for ((index, token) in chain.withIndex()) {
-        val kind = when (index) {
-            chain.lastIndex -> SymbolRole.COLUMN
-            chain.lastIndex - 1 -> SymbolRole.TABLE
-            else -> SymbolRole.SCHEMA
+    /** `CTE recent` — the name after the keyword, declared by the plan that computes it. */
+    private fun readCteHeader(line: PlanLine, from: Int) {
+        val at = skippingSpaces(line.text, from)
+        if (!line.text.startsWith(CTE, at)) return
+
+        val name = tokenAt(line.text, at + CTE.length, 0) ?: return
+        declared += name.spelling
+        occurrences += name.anonymized(line, SymbolRole.TABLE, PlanKeys.declared(SymbolRole.TABLE, name.spelling))
+    }
+
+    /**
+     * **A field line's value, read as an expression** — `Filter: (v.status = 'open'::text)`.
+     *
+     * Every field is read except the ones [QUIET_FIELDS] names, and that direction is the decision: a
+     * field this file has never heard of is read for names rather than passed over, so a plan option
+     * nobody here anticipated cannot carry a column name out unnoticed. What it costs is a metric
+     * word occasionally replaced in a line of counters, which is visible in the pane the user is
+     * looking at.
+     */
+    fun readFields(line: PlanLine) {
+        val field = line.field ?: return
+        if (field.label == SUBPLAN_NAME || field.label in QUIET_FIELDS) return
+        readExpression(line, field.from)
+    }
+
+    /**
+     * The dotted chain starting at [at] — `billing.invoices`, `v`, `"Customers"` — with [last] the
+     * kind of its final segment and every segment before it a schema.
+     *
+     * **A qualified name is several symbols and not one**, so each segment is keyed and replaced on
+     * its own: `billing.invoices` renders `schema1.table2`, and the reader keeps the fact that the
+     * two are different things in different namespaces.
+     *
+     * @param within the string the offsets are read in — a node line's head, or the whole line
+     * @param offset where [within] begins in the line, so a token's offsets are the line's own
+     * @return where the chain ended in [within], so the caller can go on reading the line from there
+     */
+    private fun readQualified(line: PlanLine, within: String, offset: Int, at: Int, last: SymbolRole): Int {
+        val chain = chainAt(within, at, offset)
+        if (chain.isEmpty()) return at
+
+        for ((index, token) in chain.withIndex()) {
+            val kind = if (index == chain.lastIndex) last else SymbolRole.SCHEMA
+            occurrences += token.anonymized(line, kind, keyOf(kind, token.spelling))
         }
-        into += token.anonymized(line, kind, keyOf(kind, token.spelling, declared))
+        return chain.last().after
+    }
+
+    /**
+     * **Which of the two key shapes a name takes** — the plan's own, or the invocation's.
+     *
+     * A name the plan declared is the plan's however it is written afterwards, which is what makes
+     * the alias in `Seq Scan on visits v` and the `v` in `Filter: (v.id = 1)` one symbol. Everything
+     * else keys on its spelling across the invocation, exactly as written. See [PlanKeys].
+     */
+    private fun keyOf(kind: SymbolRole, spelling: String): String =
+        if (kind == SymbolRole.TABLE && spelling in declared) {
+            PlanKeys.declared(kind, spelling)
+        } else {
+            PlanKeys.named(kind, spelling)
+        }
+
+    /**
+     * **Every name in one expression field, and every word that is not one.**
+     *
+     * The walk is deliberately small, because everything it could do instead is a guess at a grammar
+     * nothing here parses:
+     *
+     *  - **A single-quoted literal is stepped over**, content untouched. It is a value the planner
+     *    printed, and rewriting one would change what the plan says the engine did.
+     *  - **A word after `::` is a type name**, and a word this engine's own vocabulary knows is the
+     *    engine's. Both are [PlanDisposition.Preserve] — slotted, and emitted as written, which is
+     *    what the `preserved` half of the counts counts.
+     *  - **A dotted chain is read whole**: `v.created_at` is a qualifier and a column, `billing.t.c`
+     *    is a schema, a relation and a column. The last segment is a column **by position**, so a
+     *    column genuinely called `text` keeps its kind rather than being mistaken for the type.
+     *  - **Everything else identifier-shaped is a column**, which is the fail-closed arm argued on
+     *    [parsePlan].
+     *
+     * A word immediately after a digit is skipped, because it is a unit rather than a word — `25kB`
+     * is one token to a reader and two to a scanner.
+     */
+    private fun readExpression(line: PlanLine, from: Int) {
+        val text = line.text
+        var at = from
+        while (at < text.length) {
+            val character = text[at]
+            when {
+                character == '\'' -> at = pastQuote(text, at)
+
+                character == '"' || opensAWord(character) -> {
+                    if (opensAWord(character) && at > 0 && text[at - 1].isDigit()) {
+                        at = endOfWord(text, at)
+                        continue
+                    }
+                    val chain = chainAt(text, at, 0)
+                    if (chain.isEmpty()) {
+                        at++
+                        continue
+                    }
+                    readChain(line, chain)
+                    at = chain.last().after
+                }
+
+                else -> at++
+            }
+        }
+    }
+
+    /** What becomes of one dotted chain met in an expression. See [readExpression]. */
+    private fun readChain(line: PlanLine, chain: List<PlanToken>) {
+        if (chain.size == 1) {
+            val token = chain.single()
+            occurrences += if (token.isTheEnginesOwnWord(line)) {
+                PlanOccurrence(line.start + token.start, line.start + token.end, PlanDisposition.Preserve)
+            } else {
+                token.anonymized(line, SymbolRole.COLUMN, PlanKeys.named(SymbolRole.COLUMN, token.spelling))
+            }
+            return
+        }
+
+        for ((index, token) in chain.withIndex()) {
+            val kind = when (index) {
+                chain.lastIndex -> SymbolRole.COLUMN
+                chain.lastIndex - 1 -> SymbolRole.TABLE
+                else -> SymbolRole.SCHEMA
+            }
+            occurrences += token.anonymized(line, kind, keyOf(kind, token.spelling))
+        }
     }
 }
 
@@ -439,14 +456,22 @@ private val NODE_LABELS: List<String> = listOf(
     "WindowAgg", "WorkTable Scan",
 )
 
+/** The one node label whose `on` names an access path rather than a rowset. See [PlanReader]. */
 private const val BITMAP_INDEX_SCAN = "Bitmap Index Scan"
 
+/** The field a subplan's own name arrives on, which is a declaration rather than an expression. */
 private const val SUBPLAN_NAME = "Subplan Name"
 
+/** The keyword a plan writes in front of a name it is computing for itself. */
 private const val CTE = "CTE "
 
+/** What an index name follows, spaced as a plan prints it. */
 private const val USING = " using "
 
+/**
+ * What a relation name follows — with its spaces, so that a column called `on` cannot be mistaken
+ * for the keyword, and so that a label ending in ` on` can be told from one merely ending in `on`.
+ */
 private const val ON = " on "
 
 /** Where a node line's parenthetical begins, which is where the names on it stop. */
@@ -469,6 +494,10 @@ private fun labelOf(body: String): String? = NODE_LABELS.firstOrNull { label ->
     body.startsWith(label) && (body.length == label.length || !body[label.length].isLetter())
 }
 
+/**
+ * Where the node body begins in [line] — past the indentation, past the branch arrow, and past the
+ * `Parallel` that marks a worker's copy of a node. All three are layout, and none of them is a name.
+ */
 private fun bodyIn(line: String): Int {
     var at = line.indexOfFirst { !it.isWhitespace() }.takeIf { it >= 0 } ?: line.length
     if (line.startsWith(ARROW, at)) {
@@ -556,14 +585,20 @@ private fun tokenAt(within: String, at: Int, offset: Int): PlanToken? {
     return PlanToken(offset + at, offset + end, offset + at, offset + end, within.substring(at, end), end)
 }
 
+/**
+ * Whether a token can start here — a letter or an underscore, as every engine's identifiers do, and
+ * as Unicode defines a letter rather than as ASCII would.
+ */
 private fun opensAWord(character: Char): Boolean = character.isLetter() || character == '_'
 
+/** Where the word starting at [at] ends: letters, digits, `_` and the `$` a parameter is written with. */
 private fun endOfWord(text: String, at: Int): Int {
     var end = at
     while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '_' || text[end] == '$')) end++
     return end
 }
 
+/** The first index at or after [at] that is not a space — how a plan separates one name from the next. */
 private fun skippingSpaces(text: String, at: Int): Int {
     var next = at
     while (next < text.length && text[next] == ' ') next++

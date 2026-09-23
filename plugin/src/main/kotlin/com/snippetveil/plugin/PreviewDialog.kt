@@ -565,39 +565,6 @@ internal object PlanPreviewDialogs : Previews {
 }
 
 /**
- * **The counts, and one conditional clause.**
- *
- * `14 renamed · 3 unknown · 22 preserved` — every number every time, including the zeroes, because a
- * number that appeared only when it fired would make its absence unreadable. Preserved JDK and
- * third-party symbols are here rather than in the table: their preservation is deliberate and a
- * declared non-goal, so each would be a row the user can do nothing about.
- *
- * **The strip count is no longer one of them.** It became the comment fidelity notice, which
- * carries the same number and the split that makes it actionable — and a footer that said it twice
- * would read as a bug. The notices sit on their own lines below this one and follow the opposite
- * rule: nothing at all when the loss did not happen.
- *
- * *Selection expanded to whole tokens* is the exception among the counts, and it is conditional in
- * the other direction: always-on it is noise, and conditional it is information. It fires only when
- * snapping actually moved an end of the selection — the copy then contains text the user did not
- * select, and the pane beside this line is where they can see what. It stays a clause of this line
- * rather than a third notice because it is a fact about how the snippet was *cut*, which the pane
- * beside it shows in full; the notices are about what is missing from that pane.
- *
- * **No count is split by where its names came from**, and `(n from SQL)` is refused rather than
- * missing. It would appear for a user whose IDE decomposes queries and not for one whose IDE does
- * not, which makes its *absence* the only in-product signal that a query went out whole — the
- * availability tell this product declines to build.
- *
- * **An entry with no population is absent rather than zero**, and that is the one thing the second
- * [Subject] changed here. A plan has no unresolved names and no comments to strip, so its strip is
- * `renamed` and `preserved` and nothing else — see [Subject.strip], which is where both shapes are
- * written down beside each other. Everything above is unmoved: the numbers that *are* said are said
- * every time, zeroes included.
- */
-internal fun stripOf(analysis: Analysis, subject: Subject = Subject.SNIPPET): String = subject.strip(analysis)
-
-/**
  * **Rows are placeholders; preservation by design is a count.**
  *
  * Every symbol that received one is a row, `Unknown`s included, in first-occurrence order — that

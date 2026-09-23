@@ -149,6 +149,64 @@ class ExecutionPlanTest {
     }
 
     /**
+     * **A writing node carries its `on` inside its own label**, and the relation after it is read
+     * like any other.
+     *
+     * `Insert on`, `Update on`, `Delete on` and `Merge on` are the four labels that do, and a reader
+     * that went looking for a second `on` would walk past the relation, the schema and the alias and
+     * leave all three on the clipboard — which is the fail-open direction, and the one this file is
+     * written against.
+     */
+    @Test
+    fun `a writing node reports the relation its own label names`() {
+        val kinds = namesIn(
+            """
+            |Insert on billing.invoices i  (cost=0.00..0.01 rows=1 width=32)
+            |  ->  Result  (cost=0.00..0.01 rows=1 width=32)
+            """.trimMargin(),
+        )
+
+        assertEquals(SymbolRole.SCHEMA, kinds["billing"])
+        assertEquals(SymbolRole.TABLE, kinds["invoices"])
+        assertEquals(SymbolRole.TABLE, kinds["i"])
+    }
+
+    /**
+     * **A CTE is the plan's own name wherever it is printed**, and the declaration is read before
+     * anything is keyed against it.
+     *
+     * PostgreSQL prints the scan of a CTE **above** the subtree that computes it, so the use comes
+     * first and the declaration second. A reader that keyed each name where it met it would file the
+     * use as an invocation-wide relation and the header as the plan's own — two placeholders for one
+     * name, in the output the user reads.
+     */
+    @Test
+    fun `a CTE scanned above its own header is one name`() {
+        val plan = planIn(
+            """
+            |Hash Join  (cost=2.00..4.00 rows=1 width=8)
+            |  CTE recent
+            |    ->  Seq Scan on visits  (cost=0.00..1.00 rows=1 width=4)
+            |  ->  CTE Scan on recent  (cost=0.00..1.00 rows=1 width=4)
+            """.trimMargin(),
+        )
+
+        val keys = plan.occurrences.filterIsInstance<PlanOccurrence>()
+            .mapNotNull { occurrence ->
+                (occurrence.disposition as? PlanDisposition.Anonymize)
+                    ?.takeIf { plan.text.substring(occurrence.nameStart, occurrence.nameEnd) == "recent" }
+                    ?.key
+            }
+
+        assertEquals(2, keys.size, "the CTE was not read at both its header and its scan")
+        assertEquals(1, keys.toSet().size, "the CTE's header and its scan keyed as two different names")
+        assertTrue(
+            keys.first().startsWith("plan-declared:"),
+            "a name the plan declares did not key as the plan's own: ${keys.first()}",
+        )
+    }
+
+    /**
      * **The plan's own vocabulary is slotted and emitted as written** — which is what gives the
      * `preserved` half of the counts a population, and what keeps a cast's type name out of the
      * table.

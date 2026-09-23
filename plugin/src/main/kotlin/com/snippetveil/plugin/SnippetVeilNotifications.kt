@@ -81,10 +81,7 @@ internal object SnippetVeilNotifications {
     fun copied(project: Project, analysis: Analysis, subject: Subject = Subject.SNIPPET) {
         val lines = listOf(subject.balloon(analysis)) + analysis.result.fidelityNotices()
         group().createNotification(
-            when (subject) {
-                Subject.SNIPPET -> "Anonymized snippet copied"
-                Subject.PLAN -> "Anonymized execution plan copied"
-            },
+            subject.balloonTitle,
             // A line each, because the counts are one sentence about the operation and each notice is
             // a sentence about the snippet. Run together behind a separator they read as a fourth
             // number, which is the one thing a disclosure must not look like.

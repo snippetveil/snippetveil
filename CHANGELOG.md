@@ -21,7 +21,6 @@
   OFF)` output and `psql`'s own `QUERY PLAN` header and row of dashes are all refused with one
   message saying what to copy instead. A refusal leaves the clipboard exactly as it was and never
   quotes what was on it.
-
 - **A JPQL query in a Java string is anonymized name by name**, when every name in it resolves — and
   so is a query in the other persistence query languages the IDE reads the same way.
   `@NamedQuery(query = "SELECT c FROM Customer c WHERE c.merchantRef = :ref")` used to come out as
