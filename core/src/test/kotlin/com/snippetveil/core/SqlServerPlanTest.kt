@@ -134,6 +134,31 @@ class SqlServerPlanTest {
     }
 
     /**
+     * **A column whose name carries a tab is one name**, and the tab is the grid's own cell
+     * separator.
+     *
+     * The bracket is what delimits, so a separator inside a name is just a character — which is the
+     * property the whole format rests on, stated over the one case where a name holds the client's
+     * own punctuation. A reader that leaned on the separator would cut this name in half and report
+     * two columns where there is one.
+     */
+    @Test
+    fun `a column whose name carries a tab is one name`() {
+        val result = anonymize(
+            planIn(SQLSERVER_TEXT_TABBED_COLUMN),
+            AnonymizationSettings.DEFAULTS,
+            LedgerSnapshot.EMPTY,
+        )
+
+        result.assertShared("a tab inside a bracketed name does not end it", "Od\td")
+        assertFalse("Od\td" in result.text, "the tabbed column name was left on the clipboard:\n${result.text}")
+        assertTrue(
+            Regex("""\[col\d+] as \[table\d+]\.\[col\d+]='str\d+'""").containsMatchIn(result.text),
+            "the tabbed column did not come back as one placeholder inside its brackets:\n${result.text}",
+        )
+    }
+
+    /**
      * **An alias declared on one row is the same symbol wherever the plan uses it.**
      *
      * A plan draws its tree parent-first, so a parent's `OUTER REFERENCES:([v].[Id])` names an alias

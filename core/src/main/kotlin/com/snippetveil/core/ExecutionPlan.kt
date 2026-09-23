@@ -269,13 +269,9 @@ internal fun opensATextPlan(text: String): Boolean {
  * **Everything the text format's reader reports** — the declarations, the structure and the fields,
  * over a text whose every line has first been shown to be one this reader recognises.
  *
- * Three passes, and the first two are one argument. A plan prints `CTE Scan on recent` above the
- * `CTE recent` that declares `recent` as readily as below it, and a name that keyed as an
- * invocation-wide relation where it was printed first and as the plan's own where it was printed
- * second would be identity decided by print order — two placeholders for one thing, in the output the
- * user reads. So the structure is read twice against the same set and **the first reader's
- * occurrences are thrown away**, because the second reader makes them again with every declaration in
- * hand.
+ * The line closure runs first, and then the plan is read twice against one set of declarations — the
+ * passes [occurrencesOverTwoPasses] argues for, which this format needs because a plan prints
+ * `CTE Scan on recent` above the `CTE recent` that declares `recent` as readily as below it.
  */
 internal fun textOccurrencesIn(text: String): List<PlanOccurrence> {
     val lines = linesOf(text)
@@ -284,16 +280,11 @@ internal fun textOccurrencesIn(text: String): List<PlanOccurrence> {
     // the input, so no later pass is ever looking at a line nothing classified. See [assertRecognised].
     lines.forEach(::assertRecognised)
 
-    val declared = mutableSetOf<String>()
-    val declarations = PlanTextReader(PlanSymbols(declared, POSTGRES))
-    lines.forEach(declarations::readStructure)
-
-    val symbols = PlanSymbols(declared, POSTGRES)
-    val reader = PlanTextReader(symbols)
-    lines.forEach(reader::readStructure)
-    lines.forEach(reader::readFields)
-
-    return symbols.occurrences
+    return occurrencesOverTwoPasses(POSTGRES) { symbols ->
+        val reader = PlanTextReader(symbols)
+        lines.forEach(reader::readStructure)
+        lines.forEach(reader::readFields)
+    }
 }
 
 /**

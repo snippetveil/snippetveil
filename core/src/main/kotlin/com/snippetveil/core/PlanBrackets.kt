@@ -113,7 +113,18 @@ internal fun readBracketedExpression(symbols: PlanSymbols, slot: PlanSlot) {
     }
 }
 
-/** A chain read by position from the right, which is what every reference outside `OBJECT:(` is. */
+/**
+ * A chain read by position from the right, which is what every reference outside `OBJECT:(` is.
+ *
+ * **A lone bracketed name is a column here, including one the optimizer invented** — `[Expr1004]`,
+ * `[Bmk1000]` — and that differs from the same name in Showplan XML, which masks it. The difference
+ * is that the XML carries a **discriminator** and this does not: there, a column element without a
+ * `Table` is visibly computed, and here `[Expr1004]` and `[Status]` are written identically with
+ * nothing to tell them apart. So the reading that does not guess is *a bracketed name is a name*, and
+ * what it costs is fidelity in one direction only — a placeholder that says *column* for something
+ * nobody named. It cannot leak: both readings replace what they find, which is the same property
+ * [PlanTreatment.Discriminated] requires of a discriminator's two branches.
+ */
 private fun readChain(symbols: PlanSymbols, slot: PlanSlot, at: Int): Int {
     val chain = bracketedChainAt(slot, at) ?: throw PlanRefusal(PlanReading.Unreadable)
     for ((position, part) in chain.withIndex()) {

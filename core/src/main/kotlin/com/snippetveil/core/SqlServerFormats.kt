@@ -55,7 +55,7 @@ internal val SQLSERVER_FORMATS: List<PlanFormat> = listOf(
 )
 
 /** **Whether this opens a Showplan XML document** — the writer's own root element, at the head. */
-internal fun opensShowplanXml(text: String): Boolean = opensAnElement(text, SHOWPLAN_ROOT)
+private fun opensShowplanXml(text: String): Boolean = opensAnElement(text, SHOWPLAN_ROOT)
 
 /**
  * **Whether this opens a `SHOWPLAN_TEXT` plan rowset** — which is the rowset's header above a node
@@ -67,7 +67,7 @@ internal fun opensShowplanXml(text: String): Boolean = opensAnElement(text, SHOW
  * paste that begins at the echoing rowset — header, then the user's own statement — is not
  * recognised at all.
  */
-internal fun opensShowplanText(text: String): Boolean {
+private fun opensShowplanText(text: String): Boolean {
     val head = headLinesIn(text, 2)
     val first = head.firstOrNull() ?: return false
     if (nodeBodyIn(first) != null) return true
@@ -75,10 +75,10 @@ internal fun opensShowplanText(text: String): Boolean {
 }
 
 /** **Whether this opens a `SET SHOWPLAN_ALL ON` rowset**, by its header row cell for cell. */
-internal fun opensShowplanAll(text: String): Boolean = opensAGrid(text, SHOWPLAN_ALL_COLUMNS)
+private fun opensShowplanAll(text: String): Boolean = opensAGrid(text, SHOWPLAN_ALL_COLUMNS)
 
 /** **Whether this opens a `SET STATISTICS PROFILE ON` rowset**, by its header row cell for cell. */
-internal fun opensStatisticsProfile(text: String): Boolean = opensAGrid(text, STATISTICS_PROFILE_COLUMNS)
+private fun opensStatisticsProfile(text: String): Boolean = opensAGrid(text, STATISTICS_PROFILE_COLUMNS)
 
 /**
  * A grid whose header row is exactly [columns], as the client writes one: the cells separated by the
@@ -91,24 +91,19 @@ private fun opensAGrid(text: String, columns: List<String>): Boolean =
     headLinesIn(text, 1).firstOrNull()?.split(CELL)?.map(String::trim) == columns
 
 /**
- * **Everything a `SHOWPLAN_TEXT` plan rowset reports** — the rows read twice against one set of
- * declarations, for the reason every format here reads its structure twice.
+ * **Everything a `SHOWPLAN_TEXT` plan rowset reports** — the line closure first, then the rows read
+ * twice against one set of declarations.
  *
- * A plan draws its tree parent-first, so the `AS [v]` that declares an alias is printed on the row
- * *above* the rows that use it — but a seek predicate on a parent row can name an alias a child row
- * declares, and a reader that keyed each name where it met it would hand out two placeholders for
- * one alias. The first pass's occurrences are thrown away.
+ * The two passes are [occurrencesOverTwoPasses]'s, and this format needs them as plainly as any: a
+ * plan draws its tree parent-first, so a parent's `OUTER REFERENCES:([v].[Id])` names an alias the
+ * row *below* it declares with `AS [v]`.
  */
-internal fun showplanTextOccurrencesIn(text: String): List<PlanOccurrence> {
+private fun showplanTextOccurrencesIn(text: String): List<PlanOccurrence> {
     val rows = planRowsIn(text)
 
-    val declared = mutableSetOf<String>()
-    val declarations = PlanSymbols(declared, SQLSERVER)
-    rows.forEach { readBracketedExpression(declarations, it) }
-
-    val symbols = PlanSymbols(declared, SQLSERVER)
-    rows.forEach { readBracketedExpression(symbols, it) }
-    return symbols.occurrences
+    return occurrencesOverTwoPasses(SQLSERVER) { symbols ->
+        rows.forEach { readBracketedExpression(symbols, it) }
+    }
 }
 
 /**
@@ -165,7 +160,7 @@ private fun planRowsIn(text: String): List<PlanSlot> {
  * The run has to **end in a bar**, so the branch is the writer's own marker rather than two hyphens
  * that happened to be indented: a statement echoing `  --a comment` is not a node row.
  */
-internal fun nodeBodyIn(line: String): Int? {
+private fun nodeBodyIn(line: String): Int? {
     var at = 0
     while (at < line.length && (line[at] == ' ' || line[at] == BAR)) at++
     if (at == 0 || line[at - 1] != BAR) return null
@@ -174,7 +169,7 @@ internal fun nodeBodyIn(line: String): Int? {
 }
 
 /** The root element SQL Server's showplan writer writes, which is what says the document is its. */
-internal const val SHOWPLAN_ROOT = "ShowPlanXML"
+private const val SHOWPLAN_ROOT = "ShowPlanXML"
 
 /** The one column a `SHOWPLAN_TEXT` rowset has, which is also the column the statement echo has. */
 private const val PLAN_COLUMN = "StmtText"

@@ -126,10 +126,7 @@ internal class PlanRefusal(val reading: PlanReading) : RuntimeException(null, nu
  * **The reading of a structured document** — the two passes every format runs, and the refusal a
  * document that did not parse produces.
  *
- * Two passes over one set of declarations, for the reason the text format runs two: a plan prints the
- * use of a name it declared as readily above the declaration as below it, and a reader that keyed
- * each name where it met it would hand out two placeholders for one thing. The first pass's
- * occurrences are thrown away.
+ * The passes are [occurrencesOverTwoPasses]'s, which is where the argument for them lives.
  */
 internal fun structuredOccurrencesIn(
     queries: List<PlanMapping>?,
@@ -145,14 +142,10 @@ internal fun structuredOccurrencesIn(
         throw PlanRefusal(PlanReading.Unreadable)
     }
 
-    val declared = mutableSetOf<String>()
-    val declarations = PlanStructureReader(PlanSymbols(declared, vocabulary), root, naming, quote)
-    queries.forEach(declarations::readQuery)
-
-    val symbols = PlanSymbols(declared, vocabulary)
-    val reader = PlanStructureReader(symbols, root, naming, quote)
-    queries.forEach(reader::readQuery)
-    return symbols.occurrences
+    return occurrencesOverTwoPasses(vocabulary) { symbols ->
+        val reader = PlanStructureReader(symbols, root, naming, quote)
+        queries.forEach(reader::readQuery)
+    }
 }
 
 /**

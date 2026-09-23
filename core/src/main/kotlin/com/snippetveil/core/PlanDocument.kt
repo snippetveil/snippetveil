@@ -439,7 +439,7 @@ private class XmlReader(private val source: String, private val attributed: Bool
         val start = at
         at++
         val nameStart = at
-        while (at < source.length && isNameCharacter(source[at])) at++
+        while (at < source.length && isNameCharacter(source[at], prefixed = false)) at++
         val label = source.substring(nameStart, at)
         if (label.isEmpty()) return null
         val opening = PlanSlot(source, nameStart, at)
@@ -525,7 +525,7 @@ private class XmlReader(private val source: String, private val attributed: Bool
         val entries = mutableListOf<PlanEntry>()
         while (at < source.length && source[at] != '>' && !source.startsWith("/>", at)) {
             val nameStart = at
-            while (at < source.length && isNameCharacter(source[at])) at++
+            while (at < source.length && isNameCharacter(source[at], prefixed = true)) at++
             if (at == nameStart) return null
             val name = PlanSlot(source, nameStart, at)
 
@@ -577,12 +577,13 @@ private class XmlReader(private val source: String, private val attributed: Bool
 /**
  * What an element or attribute name may be spelled with.
  *
- * The `:` is here for the prefixed namespace declarations SQL Server's writer puts on its root, and
- * it reaches PostgreSQL's reader too without widening anything: [xmlTagOf] writes every character
- * outside `A-Za-z0-9-_.` as `-`, so no label in that inventory is the image of a tag carrying one.
+ * @param prefixed whether a `:` may appear in it, which is true of **attribute names only** — the
+ *   prefixed namespace declarations SQL Server's writer puts on its root. No element name this
+ *   product reads carries one, so nothing widens for the sake of something only attributes do.
  */
-private fun isNameCharacter(character: Char): Boolean =
-    character.isLetterOrDigit() || character == '-' || character == '_' || character == '.' || character == ':'
+private fun isNameCharacter(character: Char, prefixed: Boolean): Boolean =
+    character.isLetterOrDigit() || character == '-' || character == '_' || character == '.' ||
+        (prefixed && character == ':')
 
 /** The root element of PostgreSQL's XML plan. */
 private const val EXPLAIN = "explain"

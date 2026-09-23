@@ -291,8 +291,11 @@ internal object PlanShapes {
      * The parenthesised part is the slot's **declared width**, which is why this is a shape rather
      * than [ENGINE_TOKEN]: a type name alone would fail the check on every sized column and be
      * masked, which is the one field a reader chasing an implicit conversion has come for.
+     *
+     * The words are spaced the way [ENGINE_ENUM] spaces an enum's — single spaces between them and
+     * none at either end — so `double precision` matches and a value trailing a space does not.
      */
-    val DATA_TYPE = Regex("""[A-Za-z][A-Za-z0-9_ ]*(\(\s*(max|\d+(\s*,\s*\d+)?)\s*\))?""")
+    val DATA_TYPE = Regex("""[A-Za-z][A-Za-z0-9_]*( [A-Za-z0-9_]+)*(\((max|\d+(,\d+)?)\))?""")
 
     /**
      * **The value of a flagged setting** — `on`, `off`, `4MB`, `0.005`, `partition`.

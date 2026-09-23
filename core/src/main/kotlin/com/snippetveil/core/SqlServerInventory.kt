@@ -496,6 +496,15 @@ internal val SQLSERVER_TOP_FIELDS: Map<String, PlanTreatment> = mapOf(
  * these is a row nothing here classified, and **reading past one is how a value leaves in the part
  * nobody looked at**. A label this list is missing refuses the plan carrying it until a capture and a
  * row follow.
+ *
+ * **It is not redundant with the brackets, and the remote rows are what proves it.** The soundness
+ * argument for this format is *every identifier is bracketed*, and that argument has an exception:
+ * a row that prints one raw. Two such rows are known, named, and refused with an option — but *the
+ * exception is the one I know about* is a hope unless something closes the set, and this is what
+ * closes it. A remote insert, update or delete prints its linked server raw exactly as a remote query
+ * does; under a reader with no operator list, the unbracketed name would simply be preserved, because
+ * preserving what is not in brackets is the whole rule. Refusing an operator nobody has captured is
+ * the cost, and it is the same cost the field closure carries everywhere else in this product.
  */
 internal val SQLSERVER_OPERATORS: Set<String> = setOf(
     "Adaptive Join", "Assert", "Bitmap", "Clustered Index Delete", "Clustered Index Insert",

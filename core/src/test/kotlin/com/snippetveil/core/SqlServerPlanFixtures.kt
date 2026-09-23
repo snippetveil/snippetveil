@@ -10,6 +10,12 @@ package com.snippetveil.core
  * than unrelated fixtures, because **the claims are comparisons**: the admitted forms have to carry
  * the same names the refused ones would have leaked, and the recognisers have to tell six shapes of
  * one engine apart.
+ *
+ * **They are written from a reading of this engine's output rather than pasted from a capture taken
+ * in this repository**, and that is recorded here rather than left to be assumed. It is the same
+ * provenance the MySQL fixtures have. What it costs is the direction a fixture can be wrong in:
+ * everything asserted below holds of *these* texts, and a shape SQL Server prints that none of them
+ * has refuses under the closures rather than being read wrongly.
  */
 internal val SQLSERVER_XML_PLAN = """
     |<ShowPlanXML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" Version="1.552" Build="16.0.4135.4" xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan">
@@ -149,6 +155,19 @@ internal val SQLSERVER_TEXT_TWO_STATEMENTS = """
 internal val SQLSERVER_TEXT_AWKWARD_NAME = """
     |StmtText
     |  |--Table Scan(OBJECT:([shop].[dbo].[Odd]]Table, Two] AS [t]), WHERE:([shop].[dbo].[Odd]]Table, Two].[Status] as [t].[Status]='open'))
+""".trimMargin()
+
+/**
+ * **A column whose name carries a tab**, which is the character a grid copy separates its cells with.
+ *
+ * The bracket is what delimits the name, so the tab inside one is just a character — nothing closes
+ * early and no cell is forged. It is the case worth its own fixture because it is the one where the
+ * client's own separator is inside a name, and where a reader that leaned on the separator rather
+ * than on the bracket would cut the name in half.
+ */
+internal val SQLSERVER_TEXT_TABBED_COLUMN = """
+    |StmtText
+    |  |--Table Scan(OBJECT:([shop].[dbo].[Visits] AS [v]), WHERE:([shop].[dbo].[Visits].[Od${'\t'}d] as [v].[Od${'\t'}d]='open'))
 """.trimMargin()
 
 /**

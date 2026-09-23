@@ -224,8 +224,14 @@ internal sealed class PlanTreatment {
  * Whether [treatment] replaces whatever it is given — every name kind, every declaration, and every
  * class that masks. See [PlanTreatment.Discriminated] for the rule this answers.
  *
- * The cascade is over the sealed type and has no default arm, so a treatment class added later has
- * to be placed here rather than falling quietly onto one side of the question.
+ * **A second cascade over the sealed type, and a deliberate one.** [PlanSymbols.readSlot] is still
+ * the only cascade that *reads* anything; this one reads nothing and decides nothing about a slot —
+ * it answers a question about the **class**, asked once at construction. A property on each class
+ * would spread that answer over twenty declarations, and *which treatments may emit what they were
+ * given* is exactly the kind of question a reviewer wants answered in one list.
+ *
+ * It has no default arm, so a treatment class added later has to be placed here rather than falling
+ * quietly onto one side of the question.
  */
 private fun anonymizes(treatment: PlanTreatment): Boolean = when (treatment) {
     is PlanTreatment.Name, is PlanTreatment.Bracketed, is PlanTreatment.Reference,

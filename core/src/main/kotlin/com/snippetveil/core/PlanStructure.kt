@@ -40,9 +40,11 @@ internal class PlanStructureReader(
      * [readRendered].
      *
      * **That arm is an addition to this dispatch and not a second place a new treatment can hide.**
-     * The cascade over the sealed type is still [PlanSymbols.readSlot]'s alone, exhaustive and
-     * compiler-checked, and it answers `false` for a rendered line — so a rendered field reaching any
-     * other path refuses rather than being read under a rule meant for something else.
+     * The cascade that decides **what becomes of a slot** is still [PlanSymbols.readSlot]'s alone,
+     * exhaustive and compiler-checked, and it answers `false` for a rendered line — so a rendered
+     * field reaching any other path refuses rather than being read under a rule meant for something
+     * else. The one other cascade over this sealed type answers a different question and never reads
+     * anything: see `anonymizes` in [PlanTreatment]'s file.
      */
     private fun readMapping(mapping: PlanMapping, fields: Map<String, PlanTreatment>) {
         for (entry in mapping.entries) {

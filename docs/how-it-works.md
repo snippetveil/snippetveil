@@ -295,7 +295,8 @@ Worth knowing before relying on it:
   two reversals work anywhere — De-anonymize Clipboard needs only a project, De-anonymize
   Clipboard and Paste a writable editor.
 - **An execution plan is PostgreSQL’s `EXPLAIN` output in any of its four formats, MySQL’s in
-  JSON, or SQL Server’s Showplan XML and `SHOWPLAN_TEXT` plan rowset.** Anonymize Execution Plan… replaces the relation, column, alias and index names and leaves
+  JSON, or SQL Server’s Showplan XML and `SHOWPLAN_TEXT` plan rowset.** Anonymize Execution Plan…
+  replaces the relation, column, alias and index names and leaves
   every cost and timing as printed. It still reads only from the plan’s first line: a subtree
   pasted from the middle and a paste carrying the query above the plan are refused rather than
   half-read. `psql`’s own table — the `QUERY PLAN` header, the rule, the padding and the row
