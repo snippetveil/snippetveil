@@ -50,9 +50,24 @@ internal class PlanStructureReader(
             if (treatment is PlanTreatment.Rendered) {
                 readRendered(entry.value, mapping, fields, treatment.templates)
             } else {
-                read(entry.value, treatment)
+                read(entry.value, chosen(treatment, mapping))
             }
         }
+    }
+
+    /**
+     * **A discriminated field's branch, picked by whether the mapping carries the sibling it names.**
+     *
+     * The second of the two rows whose reading needs the *other* entries of the mapping it sits in,
+     * and it is resolved here for the reason [readRendered] is called from here: this is where the
+     * siblings are. What it resolves **to** is an ordinary treatment, read by the cascade like any
+     * other — so a discriminator adds a choice and not a second path. Both branches replace whatever
+     * they are given, which [PlanTreatment.Discriminated] is what enforces.
+     */
+    private fun chosen(treatment: PlanTreatment, mapping: PlanMapping): PlanTreatment {
+        if (treatment !is PlanTreatment.Discriminated) return treatment
+        val carried = mapping.entries.any { naming(it.label) == treatment.by }
+        return chosen(if (carried) treatment.present else treatment.absent, mapping)
     }
 
     /**

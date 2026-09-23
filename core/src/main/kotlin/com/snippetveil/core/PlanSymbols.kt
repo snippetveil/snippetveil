@@ -40,6 +40,9 @@ internal class PlanSymbols(private val declared: MutableSet<String>, val vocabul
     fun readSlot(slot: PlanSlot, treatment: PlanTreatment): Boolean {
         when (treatment) {
             is PlanTreatment.Name -> name(slot, treatment.kind)
+            is PlanTreatment.Bracketed -> bracketedName(slot, treatment.kind)
+            PlanTreatment.BracketedDeclaration -> bracketedDeclaration(slot)
+            PlanTreatment.BracketedExpression -> readBracketedExpression(this, slot)
             PlanTreatment.Declared -> declareWritten(slot)
             PlanTreatment.Expression -> readExpression(slot)
             is PlanTreatment.Reference -> readReference(slot, treatment.kinds)
@@ -52,9 +55,68 @@ internal class PlanSymbols(private val declared: MutableSet<String>, val vocabul
             PlanTreatment.Deployment -> occurrences += PlanTreatments.deployment(slot)
             PlanTreatment.AppendedRaw -> occurrences += PlanTreatments.appendedRaw(slot)
 
-            is PlanTreatment.Subtree, PlanTreatment.SettingsMap, is PlanTreatment.Rendered -> return false
+            is PlanTreatment.Subtree, PlanTreatment.SettingsMap, is PlanTreatment.Rendered,
+            is PlanTreatment.Discriminated,
+            -> return false
         }
         return true
+    }
+
+    /**
+     * **One bracketed name, written over the whole of [slot]** — and a slot that is not exactly one
+     * refuses the input.
+     *
+     * *Exactly one* is the assertion rather than a tidiness check. A field the inventory says holds a
+     * name is a field whose whole value is that name, so anything left over after the bracket closed
+     * is text this reader did not place — and placing part of a value is how the part nobody looked
+     * at leaves the machine. See [BracketedName].
+     *
+     * @throws PlanRefusal where the value is not one soundly bracketed name
+     */
+    fun bracketedName(slot: PlanSlot, kind: SymbolRole) {
+        bracketed(wholeBracketedName(slot) ?: return, kind)
+    }
+
+    /** **A bracketed name the plan introduced** — an alias. See [bracketedName] and [declare]. */
+    fun bracketedDeclaration(slot: PlanSlot) {
+        declareBracketed(wholeBracketedName(slot) ?: return)
+    }
+
+    /** One bracketed name reported as a name of [kind], with the placeholder written inside the brackets. */
+    fun bracketed(name: BracketedName, kind: SymbolRole) {
+        occurrences += PlanOccurrence(
+            name.slot.start,
+            name.slot.end,
+            PlanDisposition.Anonymize(kind, keyOf(kind, name.recovered)),
+            name.name.start,
+            name.name.end,
+        )
+    }
+
+    /**
+     * **A bracketed name the plan itself introduced**, filed as the plan's own — and keyed on the
+     * **recovered** spelling, so that the alias declared as `[v]` and the `[v]` of `[v].[OwnerId]`
+     * are one symbol. See [keyOf].
+     */
+    fun declareBracketed(name: BracketedName) {
+        declared += name.recovered
+        occurrences += PlanOccurrence(
+            name.slot.start,
+            name.slot.end,
+            PlanDisposition.Anonymize(SymbolRole.TABLE, PlanKeys.declared(SymbolRole.TABLE, name.recovered)),
+            name.name.start,
+            name.name.end,
+        )
+    }
+
+    /** The one bracketed name [slot] is, `null` where it is empty, and a refusal where it is neither. */
+    private fun wholeBracketedName(slot: PlanSlot): BracketedName? {
+        val value = slot.trimmed()
+        if (value.isBlank) return null
+
+        val name = bracketedNameAt(value, value.start) ?: throw PlanRefusal(PlanReading.Unreadable)
+        if (name.slot.end != value.end) throw PlanRefusal(PlanReading.Unreadable)
+        return name
     }
 
     /**
@@ -355,6 +417,22 @@ internal fun linesIn(text: String): List<PlanTextLine> {
         at = end + 1
     }
 }
+
+/**
+ * The first [count] lines of [text] that have anything on them, each with the carriage return of a
+ * Windows line ending taken off — what every **recognition predicate** here reads and the whole of
+ * what one may read.
+ *
+ * A bounded prefix rather than the whole input, because *head-anchored* has to be true of the work as
+ * well as of the rule: a predicate that walked a ten-thousand-line paste to decide it was not a plan
+ * would be doing the scanning those predicates refuse to do.
+ */
+internal fun headLinesIn(text: String, count: Int): List<String> =
+    text.lineSequence()
+        .map { it.removeSuffix(RETURN) }
+        .filter { it.isNotBlank() }
+        .take(count)
+        .toList()
 
 /** `CTE recent` — the keyword the engine writes in front of a name the plan is computing for itself. */
 internal val CTE_HEADER = Regex("""CTE (\S+)""")

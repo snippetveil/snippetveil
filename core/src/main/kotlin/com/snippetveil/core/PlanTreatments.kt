@@ -273,6 +273,28 @@ internal object PlanShapes {
     val BOOLEAN = Regex("""true|false""")
 
     /**
+     * **A boolean written the way XML Schema defines one** — `true`, `false`, `1`, `0`.
+     *
+     * A shape of its own rather than a widening of [BOOLEAN], because the two are claims about
+     * different writers: PostgreSQL's printers write the word, and a document typed against
+     * `xsd:boolean` may write either spelling for one attribute and the other for the next.
+     */
+    val XML_BOOLEAN = Regex("""true|false|0|1""")
+
+    /** **A count the engine printed as a bare integer** — a trace flag's number, a declared length. */
+    val COUNT = Regex("""\d+""")
+
+    /**
+     * **A data type as a dialect writes one in a plan** — `int`, `varchar(10)`, `nvarchar(max)`,
+     * `decimal(18,2)`.
+     *
+     * The parenthesised part is the slot's **declared width**, which is why this is a shape rather
+     * than [ENGINE_TOKEN]: a type name alone would fail the check on every sized column and be
+     * masked, which is the one field a reader chasing an implicit conversion has come for.
+     */
+    val DATA_TYPE = Regex("""[A-Za-z][A-Za-z0-9_ ]*(\(\s*(max|\d+(\s*,\s*\d+)?)\s*\))?""")
+
+    /**
      * **The value of a flagged setting** — `on`, `off`, `4MB`, `0.005`, `partition`.
      *
      * Deliberately broad, and the breadth is the point rather than a weakness: the slot is already

@@ -98,6 +98,33 @@
   comes back byte for byte — `\G` is a keystroke you type per statement rather than a client setting,
   so the frame it draws is fixed. The bordered table the default `;` draws around a JSON plan is a
   different thing and is refused until SnippetVeil has a capture of it.
+- **SQL Server plans are read, as Showplan XML and as the `SET SHOWPLAN_TEXT ON` plan rowset.**
+  Showplan XML is the form you copy out of the result grid, and it needs no client frame peeled off
+  it because SQL Server draws none — it is the one engine here that arrives bare. Its content is in
+  its attributes rather than in elements, so a column arrives already split into the table it belongs
+  to and its own name, and almost nothing in it has to be scanned: the relation, schema, index, alias
+  and column names are replaced, the statement it echoes back is redacted whole, and every estimate,
+  cost, row size and timing stays as printed. In the text rowset every name is bracketed with the
+  closing bracket doubled, so a table called `Odd]Table, Two` comes back as one name rather than as
+  two — and everything outside a bracket is SQL Server's own, so `Inner Join`, `SEEK:` and `ORDERED
+  FORWARD` survive without SnippetVeil keeping a list of them.
+- **Four of SQL Server's things are refused, and the two wide rowsets get different fixes.** A paste
+  that begins at the statement echo is refused: `SHOWPLAN_TEXT` returns the statement in a rowset of
+  its own above the plan, so copying both grids hands over the query — copy from the plan rowset, and
+  a multi-statement output carrying a second echo is refused too. A plan with a **remote query** or
+  **remote scan** row in it is refused, because those two rows print the linked server unbracketed
+  and the remote statement verbatim; `SET SHOWPLAN_XML ON` is named as the fix. `SET SHOWPLAN_ALL ON`
+  and `SET STATISTICS PROFILE ON` are refused because the first row of the plan rowset carries your
+  statement in its text cell, in a grid whose tab and newline separators are the client's with
+  nothing escaping them — and they name **different** fixes, `SET SHOWPLAN_XML ON` and `SET
+  STATISTICS XML ON`, because telling somebody who asked for actual row counts to run the estimated
+  plan would throw away what they came for. The results-to-text client mode, which truncates every
+  column at a fixed width and so cuts names in half, is refused with the general message.
+- **Trace flags, a parameter's declared type and a conversion's length are kept.** They are what
+  explains an implicit conversion, which is one of the first things anyone reads a plan for: the
+  declared type is the same for every value that slot ever holds and the length is the target
+  column's width, so neither says anything about your data. The average row size and the cached plan
+  size are kept for the same reason — they are magnitudes about the table and the plan.
 - **A JPQL query in a Java string is anonymized name by name**, when every name in it resolves — and
   so is a query in the other persistence query languages the IDE reads the same way.
   `@NamedQuery(query = "SELECT c FROM Customer c WHERE c.merchantRef = :ref")` used to come out as

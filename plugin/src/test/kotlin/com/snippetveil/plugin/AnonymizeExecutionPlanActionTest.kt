@@ -241,6 +241,9 @@ class AnonymizeExecutionPlanActionTest : JavaSnippetTestCase() {
             PlanRefusedForm.MYSQL_TREE to MYSQL_TREE,
             PlanRefusedForm.MYSQL_TABULAR to MYSQL_TABULAR,
             PlanRefusedForm.MARIADB to MARIADB_TABULAR,
+            PlanRefusedForm.SQLSERVER_SHOWPLAN_TEXT_REMOTE to SQLSERVER_REMOTE_ROW,
+            PlanRefusedForm.SQLSERVER_SHOWPLAN_ALL to SQLSERVER_SHOWPLAN_ALL,
+            PlanRefusedForm.SQLSERVER_STATISTICS_PROFILE to SQLSERVER_STATISTICS_PROFILE,
         )
 
         assertEquals(
@@ -432,6 +435,7 @@ private const val PREVIOUS_CLIPBOARD = "the raw plan the user copied a minute ag
  */
 private val REFUSED_PASTE_NAMES = listOf(
     "visits_by_owner", "owner_id", "created_at", "work_mem", "visits", "billing", "SIMPLE",
+    "Visits", "IX_Visits_OwnerId", "LEDGER", "Invoices",
 )
 
 /** The names [PRIVATE_QUERY] carries — the words a refusal may not contain. */
@@ -456,6 +460,40 @@ private val MYSQL_TREE = """
     -> Sort: shop.v.created_at  (cost=0.85 rows=2)
         -> Index lookup on v using visits_by_owner (owner_id = 42)  (cost=0.70 rows=2)
 """.trimIndent()
+
+/**
+ * **A `SHOWPLAN_TEXT` row SQL Server prints raw** — the linked server unbracketed and the remote
+ * statement verbatim, which is the one exception that format's admission is told about.
+ */
+private val SQLSERVER_REMOTE_ROW = """
+    StmtText
+      |--Remote Query(SOURCE:(LEDGER), QUERY:(SELECT "Tbl1001"."Total" FROM "billing"."Invoices" "Tbl1001"))
+""".trimIndent()
+
+/** **`SET SHOWPLAN_ALL ON`**, whose first row carries the statement in its text cell. */
+private val SQLSERVER_SHOWPLAN_ALL = listOf(
+    listOf(
+        "StmtText", "StmtId", "NodeId", "Parent", "PhysicalOp", "LogicalOp", "Argument",
+        "DefinedValues", "EstimateRows", "EstimateIO", "EstimateCPU", "AvgRowSize",
+        "TotalSubtreeCost", "OutputList", "Warnings", "Type", "Parallel", "EstimateExecutions",
+    ),
+    listOf(
+        "SELECT v.Id FROM shop.dbo.Visits AS v", "1", "1", "NULL", "NULL", "NULL", "NULL", "NULL",
+        "2", "NULL", "NULL", "NULL", "0.0065704", "NULL", "NULL", "SELECT", "NULL", "NULL",
+    ),
+    listOf(
+        "  |--Index Seek(OBJECT:([shop].[dbo].[Visits].[IX_Visits_OwnerId] AS [v]))", "1", "1", "0",
+        "Index Seek", "Index Seek", "OBJECT:([shop].[dbo].[Visits].[IX_Visits_OwnerId] AS [v])",
+        "[v].[Id]", "2", "0.003125", "0.0001581", "36", "0.0065704", "[v].[Id]", "", "PLAN_ROW",
+        "0", "1",
+    ),
+).joinToString("\n") { it.joinToString("\t") }
+
+/** **`SET STATISTICS PROFILE ON`**, which is the same rowset with what actually ran in front of it. */
+private val SQLSERVER_STATISTICS_PROFILE = SQLSERVER_SHOWPLAN_ALL
+    .lines()
+    .mapIndexed { row, line -> if (row == 0) "Rows\tExecutes\t$line" else "2\t1\t$line" }
+    .joinToString("\n")
 
 /** MariaDB's `EXPLAIN`, which prints neither of the two columns MySQL's table has. */
 private val MARIADB_TABULAR = """

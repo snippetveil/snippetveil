@@ -294,8 +294,8 @@ Worth knowing before relying on it:
   its default from 2025.1; where it is not, a `.kt` file says so rather than offering nothing. The
   two reversals work anywhere — De-anonymize Clipboard needs only a project, De-anonymize
   Clipboard and Paste a writable editor.
-- **An execution plan is PostgreSQL’s `EXPLAIN` output in any of its four formats, or MySQL’s in
-  JSON.** Anonymize Execution Plan… replaces the relation, column, alias and index names and leaves
+- **An execution plan is PostgreSQL’s `EXPLAIN` output in any of its four formats, MySQL’s in
+  JSON, or SQL Server’s Showplan XML and `SHOWPLAN_TEXT` plan rowset.** Anonymize Execution Plan… replaces the relation, column, alias and index names and leaves
   every cost and timing as printed. It still reads only from the plan’s first line: a subtree
   pasted from the middle and a paste carrying the query above the plan are refused rather than
   half-read. `psql`’s own table — the `QUERY PLAN` header, the rule, the padding and the row
@@ -325,6 +325,26 @@ Worth knowing before relying on it:
   engine you are not running. MariaDB is recognised by its **own** output, not as a broken MySQL;
   where the two engines print something genuinely identical, the paste is refused as *not a readable
   plan* rather than attributed to a guess.
+- **A SQL Server plan is read as Showplan XML, or as the plan rowset of `SET SHOWPLAN_TEXT ON`.**
+  SQL Server is the one engine here with **no client frame at all** — its plans come out of a result
+  grid bare — so there is nothing to peel and nothing to hand back. Showplan XML carries its content
+  in attributes, so a column arrives already split into the table it belongs to and its own name;
+  a column with no table is one the optimizer computed, and it is redacted rather than given a
+  column’s placeholder, because it is not a column of yours. The text rowset brackets every name it
+  prints, with a closing bracket inside one doubled — so a name carrying `]` or `,` comes back whole,
+  and a name carrying a newline leaves its bracket unclosed and refuses rather than being guessed at.
+  Everything outside a bracket is the engine’s own and is left alone, which is why no list of SQL
+  Server keywords exists anywhere in SnippetVeil.
+- **Four SQL Server shapes are refused.** A paste beginning at the **statement echo** — the rowset
+  `SHOWPLAN_TEXT` prints above the plan — is refused, as is a multi-statement output carrying a
+  second echo: copy from the plan rowset. A plan with a **remote query** or **remote scan** row is
+  refused, because those rows print the linked server unbracketed and the remote statement verbatim;
+  `SET SHOWPLAN_XML ON` is named as the fix. `SET SHOWPLAN_ALL ON` and `SET STATISTICS PROFILE ON`
+  are refused because the first row of the plan rowset holds your statement in its text cell, and
+  they name **different** fixes — `SET SHOWPLAN_XML ON` and `SET STATISTICS XML ON` — because the
+  second is the only one that keeps the actual row counts the first was asked for. The
+  results-to-text client mode truncates each column at a fixed width, cutting names in half, and is
+  refused with the general message.
 - **A field SnippetVeil has no rule for refuses the whole plan.** The field set is closed, and the
   reason it is closed is the opposite of the reason an unknown *word* inside a field is replaced: a
   word arrives in a slot something already typed, and a field arrives with nothing saying whether it
