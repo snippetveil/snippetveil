@@ -39,29 +39,46 @@ internal class PlanFormat(
 internal val POSTGRES_FORMATS: List<PlanFormat> = listOf(
     PlanFormat("text", ::opensATextPlan, ::textOccurrencesIn),
     PlanFormat("json", { it.trimStart().startsWith("[") }) {
-        structuredOccurrencesIn(jsonQueriesIn(it), AS_WRITTEN, JSON_QUOTE)
+        structuredOccurrencesIn(jsonQueriesIn(it), POSTGRES_QUERY_FIELDS, POSTGRES, AS_WRITTEN, JSON_QUOTE)
     },
     PlanFormat("yaml", ::opensAYamlPlan) {
-        structuredOccurrencesIn(yamlQueriesIn(it), AS_WRITTEN, JSON_QUOTE)
+        structuredOccurrencesIn(yamlQueriesIn(it), POSTGRES_QUERY_FIELDS, POSTGRES, AS_WRITTEN, JSON_QUOTE)
     },
     PlanFormat("xml", { it.trimStart().startsWith("<") }) {
-        structuredOccurrencesIn(xmlQueriesIn(it), { label -> POSTGRES_XML_LABELS[label] ?: label }, XML_QUOTE)
+        structuredOccurrencesIn(
+            xmlQueriesIn(it),
+            POSTGRES_QUERY_FIELDS,
+            POSTGRES,
+            { label -> POSTGRES_XML_LABELS[label] ?: label },
+            XML_QUOTE,
+        )
     },
 )
 
+/**
+ * **Every format this product recognises, of every engine it recognises** — the list [readingOf]
+ * decides over, and the list the exactly-one rule is applied to.
+ *
+ * One list rather than a list per engine, and that is the whole of how *ambiguity falls to the
+ * general refusal* is enforced: a text that opens like MySQL's JSON v1 **and** like MariaDB's JSON
+ * matches two entries here, and two is answered the same way zero is. Nothing picks the engine first
+ * and then the format — there is no step at which an engine could be guessed.
+ */
+internal val PLAN_FORMATS: List<PlanFormat> = POSTGRES_FORMATS + MYSQL_FORMATS + MARIADB_FORMATS
+
 /** The naming of a format that writes the inventory's labels as they are — which is JSON's and YAML's. */
-private val AS_WRITTEN: (String) -> String = { it }
+internal val AS_WRITTEN: (String) -> String = { it }
 
 /**
  * **What [parsePlan] reads** — the frame off, the format decided, the plan read, and the offsets put
  * back where the input had them.
  *
- * @param formats the vocabularies to try, which is [POSTGRES_FORMATS] everywhere but in the test that
- *   asserts what happens when two of them accept. That case cannot be built out of the real four,
- *   because they are exclusive — and a rule that can only be asserted by inspection is one that stops
- *   being asserted the day it stops being true.
+ * @param formats the vocabularies to try, which is [PLAN_FORMATS] everywhere but in the test that
+ *   asserts what happens when two of them accept over a text the real list keeps exclusive — a rule
+ *   that can only be asserted by inspection is one that stops being asserted the day it stops being
+ *   true.
  */
-internal fun readingOf(text: String, formats: List<PlanFormat> = POSTGRES_FORMATS): PlanReading {
+internal fun readingOf(text: String, formats: List<PlanFormat> = PLAN_FORMATS): PlanReading {
     val framing = framingOf(text)
     val matched = formats.filter { it.recognises(framing.inner) }
 
@@ -102,8 +119,10 @@ internal class PlanRefusal(val reading: PlanReading) : RuntimeException(null, nu
  * each name where it met it would hand out two placeholders for one thing. The first pass's
  * occurrences are thrown away.
  */
-private fun structuredOccurrencesIn(
+internal fun structuredOccurrencesIn(
     queries: List<PlanMapping>?,
+    root: Map<String, PlanTreatment>,
+    vocabulary: PlanVocabulary,
     naming: (String) -> String,
     quote: String,
 ): List<PlanOccurrence> {
@@ -115,11 +134,11 @@ private fun structuredOccurrencesIn(
     }
 
     val declared = mutableSetOf<String>()
-    val declarations = PlanStructureReader(PlanSymbols(declared, POSTGRES), naming, quote)
+    val declarations = PlanStructureReader(PlanSymbols(declared, vocabulary), root, naming, quote)
     queries.forEach(declarations::readQuery)
 
-    val symbols = PlanSymbols(declared, POSTGRES)
-    val reader = PlanStructureReader(symbols, naming, quote)
+    val symbols = PlanSymbols(declared, vocabulary)
+    val reader = PlanStructureReader(symbols, root, naming, quote)
     queries.forEach(reader::readQuery)
     return symbols.occurrences
 }
@@ -137,7 +156,7 @@ private fun opensAYamlPlan(text: String): Boolean {
 }
 
 /** How JSON and YAML write a double quote inside a scalar. See [PlanStructureReader]. */
-private const val JSON_QUOTE = "\\\""
+internal const val JSON_QUOTE = "\\\""
 
 /** How XML writes one, which is as itself: element content escapes `&`, `<` and `>` and nothing else. */
 private const val XML_QUOTE = "\""

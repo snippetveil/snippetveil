@@ -67,6 +67,17 @@ internal class PlanEntry(val label: String, val names: List<PlanSlot>, val value
 internal fun jsonQueriesIn(text: String): List<PlanMapping>? = JsonReader(text).document()
 
 /**
+ * **A JSON document whose top level is one object**, read by the same strict reader — and `null` for
+ * anything that is not exactly that.
+ *
+ * PostgreSQL prints an **array** of queries because one `EXPLAIN` can describe several; MySQL prints
+ * **one object**, because one `EXPLAIN` describes one statement. That is the whole of the difference
+ * between the two entry points, and it is a difference in the printer rather than in the reader: the
+ * strictness, the offsets and the refusal on anything that does not parse whole are the same.
+ */
+internal fun jsonObjectIn(text: String): PlanMapping? = JsonReader(text).objectDocument()
+
+/**
  * **PostgreSQL's `EXPLAIN (FORMAT YAML)`, read strictly** — and `null` for anything else.
  *
  * It reads **the printer's YAML and not YAML**, which is stated rather than hidden: the accepted
@@ -109,6 +120,14 @@ private class JsonReader(private val source: String) {
         skipSpace()
         if (at != source.length) return null
         return root.items.map { it as? PlanMapping ?: return null }
+    }
+
+    /** The document whose top level is one object, read to the last character. See [jsonObjectIn]. */
+    fun objectDocument(): PlanMapping? {
+        val root = value() as? PlanMapping ?: return null
+        skipSpace()
+        if (at != source.length) return null
+        return root
     }
 
     private fun value(): PlanNode? {

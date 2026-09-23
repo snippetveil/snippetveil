@@ -137,7 +137,7 @@ class PlanSettingsTest {
         )
 
         assertTrue(reading is PlanReading.Refused, "the text settings row was read rather than refused")
-        assertEquals(PlanRecourse.FORMAT_JSON, (reading as PlanReading.Refused).recourse)
+        assertEquals(PlanRecourse.POSTGRES_FORMAT_JSON, (reading as PlanReading.Refused).form.recourse)
     }
 }
 

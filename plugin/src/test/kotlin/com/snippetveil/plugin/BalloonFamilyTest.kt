@@ -2,7 +2,7 @@ package com.snippetveil.plugin
 
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
-import com.snippetveil.core.PlanRecourse
+import com.snippetveil.core.PlanRefusedForm
 import com.snippetveil.core.Reversal
 import com.snippetveil.core.Unrestored
 import com.snippetveil.core.UnrestoredReason
@@ -156,7 +156,7 @@ class BalloonFamilyTest : JavaSnippetTestCase() {
             // refusing correctly is not a defect — and differs only in naming the engine's own
             // option that would work.
             Row("planRefused", Footprint.CLIPBOARD_NOT_WRITTEN) {
-                notify.planRefused(project, PlanRecourse.FORMAT_JSON)
+                notify.planRefused(project, PlanRefusedForm.MYSQL_TABULAR)
             },
         )
     }

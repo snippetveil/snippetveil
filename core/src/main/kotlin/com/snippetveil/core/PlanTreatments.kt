@@ -113,6 +113,39 @@ internal object PlanTreatments {
     fun unreadable(slot: PlanSlot): List<PlanOccurrence> = maskOf(slot.trimmed())
 
     /**
+     * **A field whose names the engine appended raw: one redacted literal, whole.**
+     *
+     * The same one literal [unreadable] produces, and it is a separate function because the two are
+     * separate claims. *This did not scan* is a fact about one field's quoting; *this engine prints
+     * identifiers with nothing around them* is a fact about the engine, and a reader who found only
+     * the first would go looking for the parse failure that never happened. See [PlanTreatment.Raw].
+     */
+    fun appendedRaw(slot: PlanSlot): List<PlanOccurrence> = maskOf(slot.trimmed())
+
+    /**
+     * **An unescaped field, admitted only for a value the engine itself writes** — and **an off-list
+     * value refuses the input**, rather than being masked.
+     *
+     * Masking is what [engineFact] does, and it is right there because the value arrived inside
+     * delimiters the engine maintained: the worst an unrecognised value can be is a value, and
+     * replacing it costs fidelity and leaks nothing. **Here there are no delimiters to trust.** The
+     * engine wrote the value into the document without escaping it, so a value that is not one the
+     * engine can write is a value that may have closed its own slot and written siblings of its own
+     * — and a mask replaces a range, not an invented neighbour it never saw.
+     *
+     * So the check is not a shape over the value; it is a question about the writer. See
+     * [PlanTreatment.Unescaped].
+     *
+     * @throws PlanRefusal where the value is not one this engine release writes
+     */
+    fun unescaped(slot: PlanSlot, admits: (String) -> Boolean): List<PlanOccurrence> {
+        val value = slot.trimmed()
+        if (value.isBlank) return emptyList()
+        if (!admits(value.written)) throw PlanRefusal(PlanReading.Unreadable)
+        return listOf(PlanOccurrence(value.start, value.end, PlanDisposition.Preserve))
+    }
+
+    /**
      * **A value the planner printed, inside an expression** — masked, content only, delimiters left
      * where they were.
      *
@@ -225,6 +258,16 @@ internal object PlanShapes {
      * value with anything else in it is a slot this release has not seen, and it is masked.
      */
     val ENGINE_ENUM = Regex("""[A-Za-z][A-Za-z0-9]*( [A-Za-z0-9]+)*""")
+
+    /**
+     * **One of the engine's own enumerations written as a single token** — `index_lookup`, `eq_ref`,
+     * `nested_loop`, `ALL`.
+     *
+     * The same statement [ENGINE_ENUM] makes for a printer that spaces the words of an enum, for one
+     * that joins them with an underscore instead. A value carrying anything but letters, digits and
+     * underscores is a slot this release has not seen, and it is masked.
+     */
+    val ENGINE_TOKEN = Regex("""[A-Za-z][A-Za-z0-9_]*""")
 
     /** **A boolean the engine printed**, lower case as every one of the four formats writes it. */
     val BOOLEAN = Regex("""true|false""")

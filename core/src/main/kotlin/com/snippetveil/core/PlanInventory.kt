@@ -57,6 +57,73 @@ internal sealed class PlanTreatment {
     /** **An expression field, handed to the lexer** — where the token residual runs. See [scanOf]. */
     object Expression : PlanTreatment()
 
+    /**
+     * **A qualified reference, split by `.` and read by position** — `schema.alias.column`.
+     *
+     * Its own row rather than an [Expression], because the two are protected by opposite arguments.
+     * An expression field is scanned, and the residual is safe *because* the slot's boundaries were
+     * fixed by the engine's escaping. A reference field is not scanned at all: it is a fixed number
+     * of parts, and **a split that does not give exactly that many refuses the input.**
+     *
+     * The guard is a name with a `.` in it. An alias a user wrote as `a.b` is printed into a
+     * reference with nothing around it, so the reference has one part more than it should — and the
+     * reader that shrugged and took the last part as the column would have read somebody's alias as
+     * a relation and their relation as a schema. Counting is the only thing here that can tell the
+     * two apart, so counting is what decides.
+     *
+     * @param kinds what each part is, in order — as many entries as the reference has parts
+     */
+    class Reference(val kinds: List<SymbolRole>) : PlanTreatment()
+
+    /**
+     * **A rendered line, cross-checked against a template instantiated from the node's own fields.**
+     *
+     * The line is prose the engine assembled, and it is **parsed against the templates rather than
+     * read as prose**: each template is instantiated from the sibling fields of the node the line
+     * belongs to, and the line has to equal exactly one of the results. A line that matches none
+     * refuses.
+     *
+     * **Nothing here ever scans the line for something name-shaped**, and that is the whole reason
+     * the row exists. A scanner would have to decide, out of a sentence, which words are the user's —
+     * on a line where the engine's own keywords are spelled exactly as a user's table could be. The
+     * template says where each name is because the engine put it there, and every character the
+     * template did not account for is the engine's own.
+     *
+     * Each part the template took from a field is then read **under that field's own row**, so a name
+     * in the line takes the placeholder its field takes and a masked value in the line is masked.
+     *
+     * @param templates the fixed set the line is assembled from. See [PlanTemplate].
+     */
+    class Rendered(val templates: List<PlanTemplate>) : PlanTreatment()
+
+    /**
+     * **A field the engine writes without escaping it** — admitted only for the values the engine
+     * itself can produce, and **an off-list value refuses the input.**
+     *
+     * Refusing rather than masking, which is the opposite of what [Fact] does with a surprise, and
+     * the difference is the escaping. A [Fact] arrives inside delimiters the engine maintained, so a
+     * value nobody recognises is at worst a value: mask it and nothing leaks. An unescaped field's
+     * value was written into the document **with no delimiter this product can trust**, so a value
+     * that is not one the engine writes may have closed its own slot and **forged its siblings** —
+     * and a mask cannot see a sibling that was never real. There is nothing safe to keep, so nothing
+     * is kept.
+     *
+     * @param admits whether the engine itself can print this value — a closed list per engine
+     *   release, or the shape that release's writer is limited to
+     */
+    class Unescaped(val admits: (String) -> Boolean) : PlanTreatment()
+
+    /**
+     * **A field the engine assembled with names appended raw: one redacted literal, whole.**
+     *
+     * The same output as [PlanTreatments.unreadable] and a different reason, which is why it is a row
+     * of its own: nothing failed to parse here. The field is a rendered condition, and the engine
+     * that rendered it put every identifier in bare — so there is no delimiter to read a name's
+     * boundary from, and no quoting rule to preserve a bare word under. Scanning it would be the
+     * prose-reading that [Rendered] exists to refuse, one layer down.
+     */
+    object Raw : PlanTreatment()
+
     /** **A measured quantity, preserved as printed.** See [PlanTreatments.measured]. */
     object Measured : PlanTreatment()
 

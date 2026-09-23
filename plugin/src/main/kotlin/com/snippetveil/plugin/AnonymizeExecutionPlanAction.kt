@@ -12,7 +12,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.PlanReading
-import com.snippetveil.core.PlanRecourse
+import com.snippetveil.core.PlanRefusedForm
 import com.snippetveil.core.parsePlan
 
 /**
@@ -94,10 +94,10 @@ class AnonymizeExecutionPlanAction internal constructor(
  * which is the rule that put the parse there rather than here.
  *
  * The one thing this side does with the reading is choose which of three things happens next: the
- * preview, the general refusal, or the refusal that names an option of the engine's. **Which option
- * that is arrives as an enumeration**, and this side renders it — the same division of labour the
- * verdict itself follows, and the reason the refusal still cannot quote: there is nothing in the
- * verdict to quote.
+ * preview, the general refusal, or the refusal that names the shape that arrived. **Which shape that
+ * is arrives as an enumeration**, and this side renders it — the same division of labour the verdict
+ * itself follows, and the reason the refusal still cannot quote: there is nothing in the verdict to
+ * quote.
  *
  * ### Background, cancellable, and fail-closed
  *
@@ -136,7 +136,7 @@ internal fun anonymizePlanOnClipboard(project: Project, clipboard: Clipboard, pr
                             previews.confirm(project, analysis.analysis)?.let { deliver(project, it, Subject.PLAN) }
 
                         PlanAnalysis.Unreadable -> SnippetVeilNotifications.planUnreadable(project)
-                        is PlanAnalysis.Refused -> SnippetVeilNotifications.planRefused(project, analysis.recourse)
+                        is PlanAnalysis.Refused -> SnippetVeilNotifications.planRefused(project, analysis.form)
                     }
                 },
                 ModalityState.defaultModalityState(),
@@ -161,8 +161,8 @@ private sealed class PlanAnalysis {
     /** The text is not a plan this engine reads, and there is nothing to suggest instead. */
     object Unreadable : PlanAnalysis()
 
-    /** A shape the engine recognises and cannot read soundly, whose own engine offers a better one. */
-    class Refused(val recourse: PlanRecourse) : PlanAnalysis()
+    /** A shape the engine recognises and cannot read soundly, named so the refusal can say which. */
+    class Refused(val form: PlanRefusedForm) : PlanAnalysis()
 }
 
 /**
@@ -182,7 +182,7 @@ private sealed class PlanAnalysis {
 private fun analysePlan(project: Project, pasted: String): PlanAnalysis = when (val reading = parsePlan(pasted)) {
     PlanReading.Unreadable -> PlanAnalysis.Unreadable
 
-    is PlanReading.Refused -> PlanAnalysis.Refused(reading.recourse)
+    is PlanReading.Refused -> PlanAnalysis.Refused(reading.form)
 
     is PlanReading.Read -> PlanAnalysis.Read(
         Analysis.of(

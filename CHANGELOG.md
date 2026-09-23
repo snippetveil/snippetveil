@@ -66,6 +66,37 @@
   is anonymized, and the table comes back byte for byte — for text and JSON plans alike, in the
   unicode line style as well as the default one. `psql` at a non-default setting is refused, and so
   is an input carrying an echoed statement or a prompt: a table is decoration, a statement is not.
+- **MySQL plans are read, as `EXPLAIN FORMAT=JSON` and in no other form.** Both of MySQL's JSON
+  schema versions are accepted, and in them the relation, schema, index and column names are replaced
+  while every cost, row estimate and timing stays as printed, exactly as in a PostgreSQL plan. The
+  node line each operation is described by is **rebuilt from that node's own fields and compared**
+  rather than read as prose — nothing in SnippetVeil ever looks in it for something that resembles a
+  name — and a line that does not match refuses. A dotted reference is split by position, and one
+  whose parts do not come out to the expected count refuses too, which is what an alias with a `.` in
+  it produces. In the older schema version, `access_type`, `key_length` and `message` are written
+  without escaping, so each is accepted only for a value MySQL itself writes: anything else refuses
+  rather than being replaced, because a value that could have ended its own slot could have invented
+  the fields printed after it.
+- **MySQL's `TREE` output, `EXPLAIN ANALYZE` and the plain `EXPLAIN` table are refused, and each says
+  which one it recognised.** This is the uncomfortable half and it is worth saying plainly: **what
+  you get from MySQL without asking for anything is refused.** The table writes names into its cells
+  unquoted and separates the cells with a bare `|`; `TREE` and `EXPLAIN ANALYZE` append aliases and
+  index names with nothing around them at all, so a name someone chose can forge a line that reads as
+  well-formed. None of it can be recovered from the text. Each of them names the one thing that
+  works — re-run with `EXPLAIN FORMAT=JSON` — and the table's message describes the table rather than
+  borrowing a sentence about some other shape. Your clipboard is left exactly as it was.
+- **MariaDB is refused in every form, and deliberately offers nothing instead.** MariaDB's JSON
+  writer does not escape the strings it writes, so what comes out is not valid JSON, and its other
+  forms carry the same unquoted names its tables do. There is no output of MariaDB's that SnippetVeil
+  knows would work, so the message names none: telling a MariaDB user to run a MySQL command would be
+  a false statement about the engine they are running. MariaDB is recognised by **its own** output
+  rather than as a broken MySQL, and where the two engines print something genuinely identical the
+  paste is refused as *not a readable plan* instead of being attributed to either.
+- **The `mysql` client's `\G` frame is read rather than refused.** The row banner, the `EXPLAIN:`
+  label and the `1 row in set` count are peeled off, the plan inside is anonymized, and the frame
+  comes back byte for byte — `\G` is a keystroke you type per statement rather than a client setting,
+  so the frame it draws is fixed. The bordered table the default `;` draws around a JSON plan is a
+  different thing and is refused until SnippetVeil has a capture of it.
 - **A JPQL query in a Java string is anonymized name by name**, when every name in it resolves — and
   so is a query in the other persistence query languages the IDE reads the same way.
   `@NamedQuery(query = "SELECT c FROM Customer c WHERE c.merchantRef = :ref")` used to come out as
