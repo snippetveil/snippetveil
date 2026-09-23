@@ -301,6 +301,17 @@ Worth knowing before relying on it:
   `QUERY PLAN` header are refused rather than half-read. Nothing about the plan is looked up in a
   database, and its placeholders are **not** remembered — a plan has no declarations to file them
   under, so the same plan pasted twice comes back under different numbers.
+- **A plan’s expression fields are read by a lexer, not by a SQL parser.** What survives in a
+  `Filter` or an output list is a short list: operators, brackets, casts, numbers, `true`/`false`,
+  PostgreSQL’s own keywords, and its built-in function and type names. **Everything else there is
+  replaced**, so a function or a type of your own reads as a placeholder — under-fidelity rather
+  than under-replacement, on purpose. The one thing that goes the other way: a column or a function
+  of yours spelled like a built-in, such as `count`, is kept under its own name, because a plan
+  prints the two identically and there is nothing in the text to tell them apart.
+- **A plan’s numbers are a disclosure.** Row counts, cardinalities, timings, buffers and memory
+  figures are copied exactly as printed, because they are the reason a plan is pasted at all — and a
+  row count describes your data. There is no toggle and no bucketing for them: the recourse is to
+  run the plan with fewer numbers.
 - **It is not a secret scanner.** It replaces names your project owns; it does not look for
   credentials.
 

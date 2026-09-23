@@ -254,9 +254,6 @@ private fun rowsIn(text: String): Map<String, MappedName> =
         .names
         .associateBy { it.original }
 
-private fun anonymizedText(text: String): String =
-    anonymize(planIn(text), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY).text
-
 /**
  * The parts of [JOIN] a plan is pasted for. Every one of them has to come back byte-identical — a
  * cost, a row estimate, a width, an actual time and a loop count.

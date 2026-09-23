@@ -47,6 +47,7 @@ class AnonymizeExecutionPlanActionTest : JavaSnippetTestCase() {
         assertFalse("a relation name is still in the copy:\n$copied", "visits" in copied)
         assertFalse("an index name is still in the copy:\n$copied", "visits_pkey" in copied)
         assertFalse("a schema name is still in the copy:\n$copied", "billing" in copied)
+        assertFalse("a value the planner printed is still in the copy:\n$copied", "'open'" in copied)
         assertTrue("the costs did not survive verbatim:\n$copied", "(cost=0.29..8.30 rows=1 width=36)" in copied)
         assertTrue("the timing did not survive verbatim:\n$copied", "Execution Time: 0.456 ms" in copied)
     }

@@ -39,17 +39,19 @@ package com.snippetveil.core
  *
  * ### What it reports, and what it never touches
  *
- * Relations, columns, schemas, aliases and indexes — and **nothing numeric**. The costs, the row
- * estimates, the widths and the timings are read straight past: names are taken from positions on a
- * node line, which is why no rule here can reach the parentheticals at all, and the expression fields
- * report identifier-shaped words alone. A plan is pasted *for* its numbers, and an anonymizer that
- * moved one would have destroyed the reason it was sent.
+ * Relations, columns, schemas, aliases and indexes; the values the planner printed, masked; and
+ * **nothing numeric**. The costs, the row estimates, the widths and the timings are read straight
+ * past: names are taken from positions on a node line, which is why no rule here can reach the
+ * parentheticals at all, and a field of measurements is reported as nothing at all. A plan is pasted
+ * *for* its numbers, and an anonymizer that moved one would have destroyed the reason it was sent.
  *
- * A word this file does not recognise is reported as a **column** rather than passed through, which
+ * A token this file does not recognise is reported as a **column** rather than passed through, which
  * is the fail-closed direction and is stated rather than tidy: over-reporting costs a visible,
  * obviously-anonymized artifact in a line of plan vocabulary, and under-reporting puts the
- * employer's domain on a clipboard. [SQL_WORDS] is what keeps that from eating the plan's own
- * language, and it holds the engine's vocabulary rather than anybody's names.
+ * employer's domain on a clipboard. [POSTGRES] is what keeps that residual from eating the plan's
+ * own language, and it holds the engine's vocabulary rather than anybody's names — see [scanOf] for
+ * the argument that lets any of it be preserved at all, and [PlanTreatments] for the classes the
+ * fields are read under.
  */
 fun parsePlan(text: String): PlanReading {
     val lines = linesOf(text)
@@ -203,18 +205,37 @@ private class PlanReader(private val declared: MutableSet<String>) {
     }
 
     /**
-     * **A field line's value, read as an expression** — `Filter: (v.status = 'open'::text)`.
+     * **One field line, handed to the treatment its label names** — which is the whole of this
+     * format's field inventory, and the only place a label decides anything.
      *
-     * Every field is read except the ones [QUIET_FIELDS] names, and that direction is the decision: a
-     * field this file has never heard of is read for names rather than passed over, so a plan option
-     * nobody here anticipated cannot carry a column name out unnoticed. What it costs is a metric
-     * word occasionally replaced in a line of counters, which is visible in the pane the user is
-     * looking at.
+     * The classes are [PlanTreatments]'; what is here is the mapping from PostgreSQL's text output to
+     * them. The default arm is the decision: **a field this file has never heard of is read as an
+     * expression** rather than passed over, so a plan option nobody anticipated cannot carry a column
+     * name out unnoticed. What that costs is a metric word occasionally replaced in a line of
+     * counters, which is visible in the pane the user is looking at.
+     *
+     * Three of the labels below — the echoed query, the parameters and the query identifier — are
+     * printed by `EXPLAIN (VERBOSE)` and by `auto_explain` **above** the tree rather than inside it,
+     * where this reader's anchored recognition does not yet admit them. They are inventory rows all
+     * the same: a field is treated by what it is wherever it is printed, and a reader that answered
+     * only for the positions seen so far would be one more thing to remember when the next format
+     * arrives.
      */
     fun readFields(line: PlanLine) {
         val field = line.field ?: return
-        if (field.label == SUBPLAN_NAME || field.label in QUIET_FIELDS) return
-        readExpression(line, field.from)
+        val slot = PlanSlot(line.text, line.start + field.from, line.start + line.text.length, line.start)
+
+        when {
+            // A declaration, read whole by `readStructure` before anything was keyed against it.
+            field.label == SUBPLAN_NAME -> return
+
+            field.label in MEASURED_FIELDS -> occurrences += PlanTreatments.measured()
+            field.label in ECHOED_QUERY_FIELDS -> occurrences += PlanTreatments.echoedQuery(slot)
+            field.label in PARAMETER_FIELDS -> occurrences += PlanTreatments.parameters(slot, POSTGRES)
+            field.label in IDENTIFYING_FIELDS -> occurrences += PlanTreatments.identifying(slot)
+
+            else -> readExpression(slot)
+        }
     }
 
     /**
@@ -255,73 +276,113 @@ private class PlanReader(private val declared: MutableSet<String>) {
         }
 
     /**
-     * **Every name in one expression field, and every word that is not one.**
+     * **Every token in one expression field, and what the residual closure makes of each.**
      *
-     * The walk is deliberately small, because everything it could do instead is a guess at a grammar
-     * nothing here parses:
+     * The field is scanned once by [scanOf] and then walked cell by cell. What decides a cell is its
+     * shape and the vocabulary, and nothing else — there is no tree, and no rule here asks what a
+     * token might mean:
      *
-     *  - **A single-quoted literal is stepped over**, content untouched. It is a value the planner
-     *    printed, and rewriting one would change what the plan says the engine did.
-     *  - **A word after `::` is a type name**, and a word this engine's own vocabulary knows is the
-     *    engine's. Both are [PlanDisposition.Preserve] — slotted, and emitted as written, which is
-     *    what the `preserved` half of the counts counts.
+     *  - **The field is checked for soundness first.** A field whose quoting the engine does not
+     *    make unforgeable is never parsed and becomes one redacted literal, whole. See
+     *    [PlanTreatments.unreadable].
+     *  - **A literal is masked**, content only. It is a value the planner printed — an address, an
+     *    account id, a token — and it is the one thing in a plan that is unambiguously the user's.
+     *  - **Numbers and punctuation survive by not being reported**, which is what keeps a plan's
+     *    measurements out of reach of every rule here.
      *  - **A dotted chain is read whole**: `v.created_at` is a qualifier and a column, `billing.t.c`
      *    is a schema, a relation and a column. The last segment is a column **by position**, so a
      *    column genuinely called `text` keeps its kind rather than being mistaken for the type.
-     *  - **Everything else identifier-shaped is a column**, which is the fail-closed arm argued on
-     *    [parsePlan].
-     *
-     * A word immediately after a digit is skipped, because it is a unit rather than a word — `25kB`
-     * is one token to a reader and two to a scanner.
+     *  - **A phrase the vocabulary holds survives whole**, and may not span a name slot.
+     *  - **A word the vocabulary knows survives**; a delimited token never does, because a delimited
+     *    token is always a name.
+     *  - **Everything else is a column** — the residual, running toward replacement, argued in
+     *    [scanOf] and on [parsePlan].
      */
-    private fun readExpression(line: PlanLine, from: Int) {
-        val text = line.text
-        var at = from
-        while (at < text.length) {
-            val character = text[at]
-            when {
-                character == '\'' -> at = pastQuote(text, at)
-
-                character == '"' || opensAWord(character) -> {
-                    if (opensAWord(character) && at > 0 && text[at - 1].isDigit()) {
-                        at = endOfWord(text, at)
-                        continue
-                    }
-                    val chain = chainAt(text, at, 0)
-                    if (chain.isEmpty()) {
-                        at++
-                        continue
-                    }
-                    readChain(line, chain)
-                    at = chain.last().after
-                }
-
-                else -> at++
-            }
-        }
-    }
-
-    /** What becomes of one dotted chain met in an expression. See [readExpression]. */
-    private fun readChain(line: PlanLine, chain: List<PlanToken>) {
-        if (chain.size == 1) {
-            val token = chain.single()
-            occurrences += if (token.isTheEnginesOwnWord(line)) {
-                PlanOccurrence(line.start + token.start, line.start + token.end, PlanDisposition.Preserve)
-            } else {
-                token.anonymized(line, SymbolRole.COLUMN, PlanKeys.named(SymbolRole.COLUMN, token.spelling))
-            }
+    private fun readExpression(slot: PlanSlot) {
+        val scan = scanOf(slot)
+        if (!scan.sound) {
+            occurrences += PlanTreatments.unreadable(slot)
             return
         }
 
-        for ((index, token) in chain.withIndex()) {
-            val kind = when (index) {
-                chain.lastIndex -> SymbolRole.COLUMN
-                chain.lastIndex - 1 -> SymbolRole.TABLE
-                else -> SymbolRole.SCHEMA
+        var at = 0
+        while (at < scan.cells.size) {
+            val cell = scan.cells[at]
+            at = when (cell.kind) {
+                PlanCellKind.MARK, PlanCellKind.NUMBER -> at + 1
+                PlanCellKind.LITERAL -> {
+                    occurrences += PlanTreatments.literal(cell)
+                    at + 1
+                }
+
+                PlanCellKind.WORD, PlanCellKind.DELIMITED -> readCell(scan.cells, at)
             }
-            occurrences += token.anonymized(line, kind, keyOf(kind, token.spelling))
         }
     }
+
+    /**
+     * What becomes of the name-shaped cell at [at], and where the walk goes next.
+     *
+     * **The chain is asked first**, because the kinds in one are positional and a word that belongs
+     * to a qualified name is a name whatever else it is spelled like. The phrase is asked next, and
+     * the bare word last, which is the order the delimitation argument comes in: a space is a
+     * stronger warrant than a spelling.
+     */
+    private fun readCell(cells: List<PlanCell>, at: Int): Int {
+        val chain = chainOf(cells, at)
+        if (chain.size > 1) {
+            for ((index, cell) in chain.withIndex()) {
+                val kind = when (index) {
+                    chain.lastIndex -> SymbolRole.COLUMN
+                    chain.lastIndex - 1 -> SymbolRole.TABLE
+                    else -> SymbolRole.SCHEMA
+                }
+                occurrences += anonymized(cell, kind)
+            }
+            return at + chain.size * 2 - 1
+        }
+
+        val phrase = POSTGRES.phraseAt(cells, at)
+        if (phrase > 0) {
+            occurrences += PlanOccurrence(cells[at].start, cells[at + phrase - 1].end, PlanDisposition.Preserve)
+            return at + phrase
+        }
+
+        val cell = cells[at]
+        if (cell.kind == PlanCellKind.WORD && POSTGRES.knows(cell.text)) {
+            occurrences += PlanOccurrence(cell.start, cell.end, PlanDisposition.Preserve)
+            return at + 1
+        }
+
+        occurrences += anonymized(cell, SymbolRole.COLUMN)
+        return at + 1
+    }
+
+    /** One cell replaced by a placeholder of [kind], written inside its delimiters. */
+    private fun anonymized(cell: PlanCell, kind: SymbolRole) = PlanOccurrence(
+        cell.start,
+        cell.end,
+        PlanDisposition.Anonymize(kind, keyOf(kind, cell.text)),
+        cell.nameStart,
+        cell.nameEnd,
+    )
+}
+
+/**
+ * The dotted chain beginning at [at] — one cell, or several joined by `.`.
+ *
+ * Read whole rather than a cell at a time because the kinds are **positional**: what a segment is
+ * depends on how many follow it, and a reader that classified each as it met it would have to change
+ * its mind about the one before.
+ */
+private fun chainOf(cells: List<PlanCell>, at: Int): List<PlanCell> {
+    val chain = mutableListOf(cells[at])
+    var next = at + 1
+    while (next + 1 < cells.size && cells[next].isDot && cells[next + 1].isName) {
+        chain += cells[next + 1]
+        next += 2
+    }
+    return chain
 }
 
 /** One line of the input, and the two readings of it every rule above asks for. */
@@ -373,61 +434,19 @@ private class PlanToken(
         line.start + nameStart,
         line.start + nameEnd,
     )
-
-    /** Whether this is a word of the engine's own — a type after a cast, or one [SQL_WORDS] holds. */
-    fun isTheEnginesOwnWord(line: PlanLine): Boolean =
-        line.text.startsWith(CAST, start - CAST.length) ||
-            (nameStart == start && spelling.uppercase() in SQL_WORDS)
 }
 
-private const val CAST = "::"
-
 /**
- * **The engine's own vocabulary** — the words a plan's expressions are written in, which are the
- * engine's and never the user's.
+ * **The fields that hold measured quantities** — the numbers a plan is pasted *for*, preserved
+ * exactly as printed. See [PlanTreatments.measured] for what that costs and why the cost is stated
+ * rather than closed.
  *
- * It is a list of words rather than a lexer because there is no lexer here: text assigned the slot,
- * and this is the whole of what text can say about a word it did not have to resolve. **It holds no
- * name**: every entry is SQL's or PostgreSQL's, so the list cannot grow into the plaintext glossary
- * of somebody's schema that a preserve-by-spelling list becomes.
- *
- * The stated cost: a column genuinely called `count` is preserved where it stands alone. It carries
- * no domain — that is the entry test for this list — and a column met in a dotted chain keeps its
- * kind regardless, because position outranks spelling there.
+ * A list of the measured fields rather than a list of the name-bearing ones, because the direction
+ * of the mistake differs: a field missing from this list is read as an expression and its counters
+ * come out anonymized, which is visible and ugly; a *name-bearing* field missing from a list of loud
+ * fields would leave a column name on the clipboard, which is invisible and is the whole failure.
  */
-private val SQL_WORDS: Set<String> = setOf(
-    // Operators, predicates and the shapes an expression is built from.
-    "AND", "OR", "NOT", "NULL", "IS", "IN", "EXISTS", "LIKE", "ILIKE", "SIMILAR", "BETWEEN", "CASE",
-    "WHEN", "THEN", "ELSE", "END", "ANY", "ALL", "SOME", "AS", "ASC", "DESC", "NULLS", "FIRST",
-    "LAST", "DISTINCT", "ON", "USING", "COLLATE", "ARRAY", "ROW", "TRUE", "FALSE", "UNKNOWN", "CAST",
-    "INTERVAL", "AT", "TIME", "ZONE", "FOR", "FROM", "WITH", "WITHOUT", "RECURSIVE", "NEVER",
-    "EXECUTED", "LOOPS", "ROWS", "WIDTH", "COST", "ACTUAL",
-    // Types, which is what follows a cast.
-    "BOOL", "BOOLEAN", "BYTEA", "CHAR", "BPCHAR", "VARCHAR", "TEXT", "NAME", "INT", "INT2", "INT4",
-    "INT8", "SMALLINT", "INTEGER", "BIGINT", "NUMERIC", "DECIMAL", "REAL", "FLOAT", "FLOAT4",
-    "FLOAT8", "DOUBLE", "PRECISION", "MONEY", "DATE", "TIMESTAMP", "TIMESTAMPTZ", "TIMETZ", "UUID",
-    "JSON", "JSONB", "XML", "INET", "CIDR", "MACADDR", "OID", "REGCLASS", "RECORD", "SERIAL",
-    "BIGSERIAL", "TSVECTOR", "TSQUERY", "POINT", "LINE", "BOX", "CIRCLE", "POLYGON",
-    // The functions an engine prints into a plan of its own accord.
-    "COUNT", "SUM", "MIN", "MAX", "AVG", "COALESCE", "NULLIF", "GREATEST", "LEAST", "ABS", "ROUND",
-    "CEIL", "FLOOR", "LOWER", "UPPER", "INITCAP", "LENGTH", "SUBSTRING", "SUBSTR", "POSITION",
-    "OVERLAY", "TRIM", "BTRIM", "LTRIM", "RTRIM", "REPLACE", "SPLIT_PART", "CONCAT", "FORMAT",
-    "NOW", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "LOCALTIME", "LOCALTIMESTAMP",
-    "AGE", "DATE_PART", "DATE_TRUNC", "EXTRACT", "TO_CHAR", "TO_DATE", "TO_NUMBER", "TO_TIMESTAMP",
-    "GENERATE_SERIES", "RANDOM", "NEXTVAL", "CURRVAL", "ROW_NUMBER", "RANK", "DENSE_RANK",
-    "LAG", "LEAD", "OVER", "PARTITION", "BY", "ARRAY_AGG", "STRING_AGG", "JSONB_AGG", "UNNEST",
-)
-
-/**
- * **The fields that hold counters rather than names** — the measurements a plan is pasted *for*, and
- * the one place this file passes a line over rather than reading it.
- *
- * A list of the quiet fields rather than a list of the loud ones, because the direction of the
- * mistake differs: a field missing from this list is read for names and its counters come out
- * anonymized, which is visible and ugly; a *name-bearing* field missing from a list of loud fields
- * would leave a column name on the clipboard, which is invisible and is the whole failure.
- */
-private val QUIET_FIELDS: Set<String> = setOf(
+private val MEASURED_FIELDS: Set<String> = setOf(
     "Planning Time", "Execution Time", "Planning", "Execution", "Buffers", "I/O Timings",
     "Sort Method", "Sort Space Used", "Sort Space Type", "Workers Planned", "Workers Launched",
     "Worker", "Heap Blocks", "Exact Heap Blocks", "Lossy Heap Blocks", "Buckets", "Batches",
@@ -435,7 +454,26 @@ private val QUIET_FIELDS: Set<String> = setOf(
     "Rows Removed by Index Recheck", "Rows Removed by Join Filter", "Rows Removed by Conflict Filter",
     "Functions", "Options", "Timing", "JIT", "Settings", "Full-sort Groups", "Pre-sorted Groups",
     "Hits", "Misses", "Evictions", "Overflows", "Storage", "Tuples Inserted", "Conflicting Tuples",
+    "Heap Fetches",
 )
+
+/**
+ * **The fields holding the user's own statement text** — `auto_explain`'s echo of the query, and the
+ * statement a foreign scan is about to send to another server.
+ *
+ * Each is one redacted literal and is never parsed. See [PlanTreatments.echoedQuery].
+ */
+private val ECHOED_QUERY_FIELDS: Set<String> = setOf("Query Text", "Remote SQL")
+
+/** **The fields holding a parameter list** — each value a literal. See [PlanTreatments.parameters]. */
+private val PARAMETER_FIELDS: Set<String> = setOf("Query Parameters")
+
+/**
+ * **The fields holding a value that identifies rather than describes** — PostgreSQL's query id is a
+ * hash of the statement, and a receiver holding one can confirm a guessed query against it. See
+ * [PlanTreatments.identifying].
+ */
+private val IDENTIFYING_FIELDS: Set<String> = setOf("Query Identifier")
 
 /**
  * **The node labels a plan line can begin with** — the fixed literals recognition is anchored on.
@@ -585,34 +623,9 @@ private fun tokenAt(within: String, at: Int, offset: Int): PlanToken? {
     return PlanToken(offset + at, offset + end, offset + at, offset + end, within.substring(at, end), end)
 }
 
-/**
- * Whether a token can start here — a letter or an underscore, as every engine's identifiers do, and
- * as Unicode defines a letter rather than as ASCII would.
- */
-private fun opensAWord(character: Char): Boolean = character.isLetter() || character == '_'
-
-/** Where the word starting at [at] ends: letters, digits, `_` and the `$` a parameter is written with. */
-private fun endOfWord(text: String, at: Int): Int {
-    var end = at
-    while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '_' || text[end] == '$')) end++
-    return end
-}
-
 /** The first index at or after [at] that is not a space — how a plan separates one name from the next. */
 private fun skippingSpaces(text: String, at: Int): Int {
     var next = at
     while (next < text.length && text[next] == ' ') next++
     return next
-}
-
-/** Past a single-quoted literal, whose content is the planner's and is never read. */
-private fun pastQuote(text: String, at: Int): Int {
-    var next = at + 1
-    while (next < text.length) {
-        if (text[next] == '\'') {
-            if (next + 1 < text.length && text[next + 1] == '\'') next++ else return next + 1
-        }
-        next++
-    }
-    return text.length
 }

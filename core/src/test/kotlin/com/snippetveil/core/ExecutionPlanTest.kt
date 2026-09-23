@@ -311,3 +311,15 @@ internal fun preservedIn(text: String): Set<String> {
         .filter { it.disposition == PlanDisposition.Preserve }
         .mapTo(mutableSetOf()) { plan.text.substring(it.start, it.end) }
 }
+
+/** Every value the plan masked, in document order and exactly as it was printed. */
+internal fun maskedIn(text: String): List<String> {
+    val plan = planIn(text)
+    return plan.occurrences.filterIsInstance<PlanOccurrence>()
+        .filter { it.disposition is PlanDisposition.Mask }
+        .map { plan.text.substring(it.nameStart, it.nameEnd) }
+}
+
+/** The plan as this product would put it on the clipboard, under the default settings. */
+internal fun anonymizedText(text: String): String =
+    anonymize(planIn(text), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY).text

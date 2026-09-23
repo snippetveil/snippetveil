@@ -617,10 +617,15 @@ class PlanOccurrence(
 }
 
 /**
- * **What becomes of one token an execution plan printed** — anonymize it under a kind, emit it as
- * written, or take it out of the output altogether.
+ * **What becomes of one token an execution plan printed** — anonymize it under a kind, mask it as a
+ * redacted literal, emit it as written, or take it out of the output altogether.
  *
- * Three outcomes rather than the two this format needs, and the third is carried deliberately:
+ * The split that matters is [Anonymize] against [Mask]: a **name** renders as the kind of thing it
+ * names, because that identity is what a reader needs in order to follow the plan; a **value** has no
+ * such kind and renders as `str1`, because the only true thing to say about it is that something was
+ * there. Which of the two a slot holds is the field inventory's answer, never the lexer's.
+ *
+ * Four outcomes rather than the three this format needs, and [Drop] is carried deliberately:
  * **nothing drops in the PostgreSQL text format**, and a later format has a token whose presence is
  * itself the disclosure. Retrofitting an outcome through the plan type afterwards is worse than
  * carrying it now — every reader of a disposition would have to be found again, and the one that was
@@ -636,6 +641,26 @@ sealed class PlanDisposition {
      *   ever reaches the persisted ledger.
      */
     class Anonymize(val kind: SymbolRole, val key: String) : PlanDisposition()
+
+    /**
+     * **Replaced by a redacted literal** — for a token that is a **value** rather than a name.
+     *
+     * A string the planner printed, an echoed query, a query hash, a hostname, a field the lexer
+     * could not scan soundly: each is something that must not leave the machine and that no
+     * placeholder kind describes, because none of them is a name of anything. See [PlanTreatments]
+     * for the classes that produce one and the argument behind each.
+     *
+     * **It draws on the existing redacted-literal family and counter** — `str1`, out of the same
+     * allocator every other placeholder is numbered from. A family per class was refused: it is a
+     * new output-grammar surface that serves no debugging purpose, and a class name in a placeholder
+     * is a forever-surface in text a model reads.
+     *
+     * @param key what identifies this value across the invocation, so that **equal spellings share
+     *   one token** and within-plan correlation survives the mask. Spelled by [PlanKeys.masked],
+     *   which is also where the fact that a mask does **not** join name identity lives: a hostname
+     *   spelled like a schema keys differently from that schema and takes a different placeholder.
+     */
+    class Mask(val key: String) : PlanDisposition()
 
     /**
      * **Emitted exactly as written** — a keyword, a type name, a function the engine itself printed.
