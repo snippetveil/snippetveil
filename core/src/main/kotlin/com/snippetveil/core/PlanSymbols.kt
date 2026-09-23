@@ -50,7 +50,7 @@ internal class PlanSymbols(private val declared: MutableSet<String>, val vocabul
             PlanTreatment.Parameters -> occurrences += PlanTreatments.parameters(slot, vocabulary)
             PlanTreatment.Identifying -> occurrences += PlanTreatments.identifying(slot)
             PlanTreatment.Deployment -> occurrences += PlanTreatments.deployment(slot)
-            PlanTreatment.Raw -> occurrences += PlanTreatments.appendedRaw(slot)
+            PlanTreatment.AppendedRaw -> occurrences += PlanTreatments.appendedRaw(slot)
 
             is PlanTreatment.Subtree, PlanTreatment.SettingsMap, is PlanTreatment.Rendered -> return false
         }
@@ -70,6 +70,9 @@ internal class PlanSymbols(private val declared: MutableSet<String>, val vocabul
      * An alias a user spelled `a.b` is the case that makes this necessary and it is the case a
      * tolerant reader silently gets wrong: the reference has one part too many, every kind shifts by
      * one, and the output confidently calls somebody's alias a schema.
+     *
+     * A field with **nothing in it** is nothing to place, which is the answer every other treatment
+     * gives an empty slot; an **empty part inside a reference** is a different thing, and refuses.
      *
      * @throws PlanRefusal where the split does not give exactly one part per kind, or where a part is
      *   empty — a reference that begins, ends or doubles a `.` is not one this reader can place

@@ -82,9 +82,10 @@
   you get from MySQL without asking for anything is refused.** The table writes names into its cells
   unquoted and separates the cells with a bare `|`; `TREE` and `EXPLAIN ANALYZE` append aliases and
   index names with nothing around them at all, so a name someone chose can forge a line that reads as
-  well-formed. None of it can be recovered from the text. Each of them names the one thing that
-  works — re-run with `EXPLAIN FORMAT=JSON` — and the table's message describes the table rather than
-  borrowing a sentence about some other shape. Your clipboard is left exactly as it was.
+  well-formed. None of it can be recovered from the text. The warnings overlay `SHOW WARNINGS` hands
+  back after an `EXPLAIN` is refused with them. Each of them names the one thing that works — re-run
+  with `EXPLAIN FORMAT=JSON` — and the table's message describes the table rather than borrowing a
+  sentence about some other shape. Your clipboard is left exactly as it was.
 - **MariaDB is refused in every form, and deliberately offers nothing instead.** MariaDB's JSON
   writer does not escape the strings it writes, so what comes out is not valid JSON, and its other
   forms carry the same unquoted names its tables do. There is no output of MariaDB's that SnippetVeil

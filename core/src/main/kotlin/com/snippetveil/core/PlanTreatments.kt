@@ -118,7 +118,7 @@ internal object PlanTreatments {
      * The same one literal [unreadable] produces, and it is a separate function because the two are
      * separate claims. *This did not scan* is a fact about one field's quoting; *this engine prints
      * identifiers with nothing around them* is a fact about the engine, and a reader who found only
-     * the first would go looking for the parse failure that never happened. See [PlanTreatment.Raw].
+     * the first would go looking for the parse failure that never happened. See [PlanTreatment.AppendedRaw].
      */
     fun appendedRaw(slot: PlanSlot): List<PlanOccurrence> = maskOf(slot.trimmed())
 

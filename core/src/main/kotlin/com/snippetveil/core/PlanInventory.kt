@@ -122,7 +122,7 @@ internal sealed class PlanTreatment {
      * boundary from, and no quoting rule to preserve a bare word under. Scanning it would be the
      * prose-reading that [Rendered] exists to refuse, one layer down.
      */
-    object Raw : PlanTreatment()
+    object AppendedRaw : PlanTreatment()
 
     /** **A measured quantity, preserved as printed.** See [PlanTreatments.measured]. */
     object Measured : PlanTreatment()

@@ -311,8 +311,9 @@ Worth knowing before relying on it:
   asking: the default `EXPLAIN` table writes names into its cells unquoted and separates the cells
   with a bare `|`, and the `TREE` format and `EXPLAIN ANALYZE` append aliases and index names with
   nothing around them at all — so a name someone chose can forge a line that reads as well-formed,
-  and nothing can recover the boundary afterwards. Each of those says which shape it recognised and
-  names `EXPLAIN FORMAT=JSON` as the fix. In the JSON formats the node line is not read as prose: it
+  and nothing can recover the boundary afterwards; the warnings overlay `SHOW WARNINGS` prints after
+  an `EXPLAIN` is refused with them. Each of those says which shape it recognised and names
+  `EXPLAIN FORMAT=JSON` as the fix. In the JSON formats the node line is not read as prose: it
   is rebuilt from the node’s own fields and compared, and a line that does not match refuses. Version
   1’s `access_type`, `key_length` and `message` are written unescaped, so each is accepted only for a
   value MySQL itself writes — anything else refuses rather than being replaced, because a value that

@@ -37,6 +37,17 @@ internal object SnippetVeilNotifications {
     private const val GROUP = "SnippetVeil"
 
     /**
+     * **The clause a balloon from an invocation that wrote nothing ends in**, in the one place a plan
+     * refusal can read it from.
+     *
+     * A constant rather than four literals because [sentenceFor] *claims* every one of its sentences
+     * ends in it, and a claim four separately-typed strings have to keep is a claim one of them
+     * eventually breaks. `BalloonFamilyTest` holds every balloon in this file to the statement its
+     * invocation's footprint demands; this makes one family of them structural as well.
+     */
+    private const val CLIPBOARD_UNCHANGED = "Your clipboard was not changed."
+
+    /**
      * The Kotlin settings page — *Languages & Frameworks → Kotlin* — as a string id, which is how
      * the Kotlin plugin's own descriptor spells it. See [openSettingsAt] for why it cannot be a class.
      */
@@ -440,36 +451,42 @@ internal object SnippetVeilNotifications {
      * MySQL user gets from `EXPLAIN` without asking for anything is refused, and a message that
      * described some other shape in order to cover both would be describing neither.
      *
-     * Every sentence ends in the clipboard clause, which is true by construction here: the refusal
-     * happens on invoke, before anything has been read or written. See `AnonymizeExecutionPlanAction`.
+     * **The clipboard clause is appended once rather than written into four literals**, so *every
+     * sentence ends in it* is structural rather than a habit four strings have to keep. It is true by
+     * construction: the refusal happens on invoke, before anything has been read or written. See
+     * [AnonymizeExecutionPlanAction].
      */
-    private fun sentenceFor(form: PlanRefusedForm): String = when (form) {
+    private fun sentenceFor(form: PlanRefusedForm): String = "${shapeOf(form)} $CLIPBOARD_UNCHANGED"
+
+    /** What is said about the shape that arrived, without the clause every one of them ends in. */
+    private fun shapeOf(form: PlanRefusedForm): String = when (form) {
         PlanRefusedForm.POSTGRES_TEXT_RAW_NAME_ROW ->
             "SnippetVeil cannot read this plan soundly \u2014 re-run the same statement with " +
-                "${optionFor(form.recourse)} and copy that instead. Your clipboard was not changed."
+                "${optionFor(form)} and copy that instead."
 
         PlanRefusedForm.MYSQL_TREE ->
-            "SnippetVeil cannot safely anonymize MySQL's TREE format. Run ${optionFor(form.recourse)} " +
-                "and copy that instead. Your clipboard was not changed."
+            "SnippetVeil cannot safely anonymize MySQL's TREE format. Run ${optionFor(form)} and copy that instead."
 
         PlanRefusedForm.MYSQL_TABULAR ->
-            "SnippetVeil cannot safely anonymize MySQL's tabular EXPLAIN output. Run " +
-                "${optionFor(form.recourse)} and copy that instead. Your clipboard was not changed."
+            "SnippetVeil cannot safely anonymize MySQL's tabular EXPLAIN output. Run ${optionFor(form)} " +
+                "and copy that instead."
 
-        PlanRefusedForm.MARIADB ->
-            "SnippetVeil does not anonymize MariaDB plans in any format. Your clipboard was not changed."
+        PlanRefusedForm.MARIADB -> "SnippetVeil does not anonymize MariaDB plans in any format."
     }
 
     /**
-     * The engine option a recourse names, spelled as the user would type it **into that engine** —
-     * which is why there is a row per engine rather than one spelling shared by two.
+     * The engine option [form] names, spelled as the user would type it **into that engine** — which
+     * is why there is a row per engine rather than one spelling shared by two.
+     *
+     * A form that names none never reaches here: its sentence offers nothing, which is the whole of
+     * what `PlanRefusedForm.MARIADB` is for. The arm says so with the form's own name, so a sentence
+     * that grew a recourse clause with no recourse behind it fails loudly rather than printing one.
      */
-    private fun optionFor(recourse: PlanRecourse?): String = when (recourse) {
+    private fun optionFor(form: PlanRefusedForm): String = when (form.recourse) {
         PlanRecourse.POSTGRES_FORMAT_JSON -> "EXPLAIN (FORMAT JSON)"
         PlanRecourse.MYSQL_FORMAT_JSON -> "EXPLAIN FORMAT=JSON"
-        null -> error("a sentence asked for the option of a form that names none")
+        null -> error("${form.name} names no engine option, and its sentence asked for one")
     }
-
     /**
      * **The source-file gate's third outcome, said out loud** — the one refusal in this product that
      * fires on a file the tool *would* have anonymized on a correctly-configured IDE.

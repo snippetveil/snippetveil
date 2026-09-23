@@ -12,6 +12,7 @@ import com.intellij.ui.EditorTextField
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.PlanReading
+import com.snippetveil.core.PlanRefusedForm
 import com.snippetveil.core.parsePlan
 import java.awt.Container
 import javax.swing.Action
@@ -227,6 +228,43 @@ class AnonymizeExecutionPlanActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **Every recognised refused shape leaves the clipboard byte-identical and quotes none of it** —
+     * asserted over the whole enumeration rather than over the two shapes that happen to have a test.
+     *
+     * The pastes carry names nothing may repeat back, and the sentence each produces is checked
+     * against every one of them. A form added later without a test of its own is still held here, so
+     * the guarantee is about the *set* of refusals rather than about the ones somebody remembered.
+     */
+    fun `test every recognised refused shape leaves the clipboard alone and quotes nothing of it`() {
+        val pastes = mapOf(
+            PlanRefusedForm.POSTGRES_TEXT_RAW_NAME_ROW to "$PLAN\nSettings: work_mem = '8MB'",
+            PlanRefusedForm.MYSQL_TREE to MYSQL_TREE,
+            PlanRefusedForm.MYSQL_TABULAR to MYSQL_TABULAR,
+            PlanRefusedForm.MARIADB to MARIADB_TABULAR,
+        )
+
+        assertEquals(
+            "a refused shape has no paste here, so the set is not covered",
+            PlanRefusedForm.entries.toSet(),
+            pastes.keys,
+        )
+        for ((form, paste) in pastes) {
+            setClipboard(paste)
+            invokePlan(FakeClipboard(paste)) { _, analysis -> analysis }
+            awaitBackgroundWork()
+
+            assertEquals("$form changed the clipboard", paste, clipboard())
+
+            val said = notifications.single().content
+            assertEquals("$form is not a warning", NotificationType.WARNING, notifications.single().type)
+            assertTrue("$form does not say the clipboard is unchanged: $said", "was not changed" in said)
+            for (word in REFUSED_PASTE_NAMES) {
+                assertFalse("$form quotes `$word`: $said", word in said)
+            }
+        }
+    }
+
+    /**
      * **A mid-tree paste and a query above the plan both refuse** — the pair of mistakes the head
      * anchor exists for, and the pair the message is written to answer.
      */
@@ -387,6 +425,14 @@ private val PRIVATE_QUERY = """
 
 /** What a user's clipboard held before an invocation that must not touch it. */
 private const val PREVIOUS_CLIPBOARD = "the raw plan the user copied a minute ago"
+
+/**
+ * The names the refused pastes carry — the words no refusal may contain, whichever shape it
+ * recognised.
+ */
+private val REFUSED_PASTE_NAMES = listOf(
+    "visits_by_owner", "owner_id", "created_at", "work_mem", "visits", "billing", "SIMPLE",
+)
 
 /** The names [PRIVATE_QUERY] carries — the words a refusal may not contain. */
 private val PRIVATE_NAMES = listOf(

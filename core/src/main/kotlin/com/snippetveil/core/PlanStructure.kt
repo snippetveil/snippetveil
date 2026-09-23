@@ -38,6 +38,11 @@ internal class PlanStructureReader(
      * A **rendered line** is the one row read here rather than in [read], and it has to be: it is the
      * only treatment whose reading needs the *other* entries of the mapping it sits in. See
      * [readRendered].
+     *
+     * **That arm is an addition to this dispatch and not a second place a new treatment can hide.**
+     * The cascade over the sealed type is still [PlanSymbols.readSlot]'s alone, exhaustive and
+     * compiler-checked, and it answers `false` for a rendered line — so a rendered field reaching any
+     * other path refuses rather than being read under a rule meant for something else.
      */
     private fun readMapping(mapping: PlanMapping, fields: Map<String, PlanTreatment>) {
         for (entry in mapping.entries) {

@@ -24,30 +24,14 @@ package com.snippetveil.core
  *
  * ### Where the two engines are genuinely indistinguishable, the answer is the general refusal
  *
- * MySQL's JSON version 1 and MariaDB's JSON **share an opening key**, and their warnings overlays are
- * byte-identical. A text matching both predicates matches two entries of [PLAN_FORMATS], and two is
+ * MySQL's JSON version 1 and MariaDB's JSON **share an opening key**: a plan going straight to its
+ * table opens identically in both. Such a text matches two entries of [PLAN_FORMATS], and two is
  * answered exactly the way zero is: *this is not a readable plan*. **Ambiguity never falls to a
  * guess** — see [readingOf].
  */
 internal val MYSQL_FORMATS: List<PlanFormat> = listOf(
-    PlanFormat("mysql-json-v2", ::opensMysqlJsonV2) {
-        structuredOccurrencesIn(
-            jsonObjectIn(it)?.let(::listOf),
-            MYSQL_V2_QUERY_FIELDS,
-            MYSQL,
-            AS_WRITTEN,
-            JSON_QUOTE,
-        )
-    },
-    PlanFormat("mysql-json-v1", ::opensMysqlJsonV1) {
-        structuredOccurrencesIn(
-            jsonObjectIn(it)?.let(::listOf),
-            MYSQL_V1_QUERY_FIELDS,
-            MYSQL,
-            AS_WRITTEN,
-            JSON_QUOTE,
-        )
-    },
+    readsJson("mysql-json-v2", ::opensMysqlJsonV2, MYSQL_V2_QUERY_FIELDS),
+    readsJson("mysql-json-v1", ::opensMysqlJsonV1, MYSQL_V1_QUERY_FIELDS),
     refuses("mysql-tree", ::opensMysqlTree, PlanRefusedForm.MYSQL_TREE),
     refuses("mysql-tabular", ::opensMysqlTabular, PlanRefusedForm.MYSQL_TABULAR),
 )
@@ -69,6 +53,18 @@ internal val MARIADB_FORMATS: List<PlanFormat> = listOf(
     refuses("mariadb-json", ::opensMariadbJson, PlanRefusedForm.MARIADB),
     refuses("mariadb-tabular", ::opensMariadbTabular, PlanRefusedForm.MARIADB),
 )
+
+/**
+ * One of MySQL's JSON formats: the same reader and the same document shape, against [fields].
+ *
+ * The two differ in their inventory and in nothing else, so the difference is the argument and the
+ * rest is one line. A second spelling of the call would be a second place for the document shape,
+ * the vocabulary or the escaping to be stated — and a second place is where they come apart.
+ */
+private fun readsJson(name: String, recognises: (String) -> Boolean, fields: Map<String, PlanTreatment>) =
+    PlanFormat(name, recognises) {
+        structuredOccurrencesIn(jsonObjectIn(it)?.let(::listOf), fields, MYSQL, AS_WRITTEN, JSON_QUOTE)
+    }
 
 /**
  * A format that is recognised and never read — the shape is known, and knowing it is what lets the
@@ -185,7 +181,11 @@ internal fun opensMysqlTree(text: String): Boolean {
     if (first.size == 1 && first[0].startsWith(TREE_ARROW)) return true
 
     // The same plan inside the client's bordered table, whose one column is headed `EXPLAIN`. The
-    // frame is not peeled — that awaits a capture — but it does not hide the head literal either.
+    // frame is **not peeled** — that awaits a capture — but it does not hide the head literal either,
+    // and the asymmetry with a bordered JSON plan is the point rather than an oversight: **looking
+    // past a frame to choose a sentence costs nothing, because nothing is emitted either way, while
+    // peeling one in order to emit needs a capture.** So a framed tree plan is refused in its own
+    // words, and a framed JSON plan is refused as a text this product cannot place.
     return first == listOf(EXPLAIN_COLUMN) && rows.getOrNull(1)?.singleOrNull()?.startsWith(TREE_ARROW) == true
 }
 
@@ -206,7 +206,17 @@ internal fun opensMariadbTabular(text: String): Boolean = opensATable(text, MARI
 private fun opensATable(text: String, headers: List<List<String>>): Boolean =
     clientRowsIn(text).firstOrNull() in headers
 
-/** The header `SHOW WARNINGS` prints, which both engines print identically. */
+/**
+ * The header the warnings overlay prints — the rewritten statement `SHOW WARNINGS` hands back after
+ * an `EXPLAIN`.
+ *
+ * It is on MySQL's list because the overlay is one of the forms that engine prints, and it is on no
+ * other: MariaDB prints the same three columns, so a MariaDB overlay takes MySQL's sentence. That is
+ * recorded rather than hidden. The overlay says nothing about the plan and names no engine, and the
+ * option it points at — ask for the plan as JSON — is the true advice for whichever engine printed
+ * it; the near-identical *plan* forms, where the recourse would genuinely be wrong, are told apart by
+ * literals of their own.
+ */
 private val WARNINGS_OVERLAY: List<String> = listOf("Level", "Code", "Message")
 
 /**
@@ -231,6 +241,10 @@ private val MYSQL_TABULAR_HEADERS: List<List<String>> = listOf(
 /**
  * **The column headers MariaDB's tabular family prints**, cell for cell — its `EXPLAIN`, its
  * `EXPLAIN EXTENDED` and its `ANALYZE`, none of which carries MySQL's `partitions` column.
+ *
+ * The vertical form of any of them is a capture this product has not taken: `EXPLAIN …\G` prints one
+ * label per line rather than a header row, and the first labels it prints are ones both engines
+ * write. It falls to the general refusal until a capture settles how far down the two diverge.
  */
 private val MARIADB_TABULAR_HEADERS: List<List<String>> = listOf(
     listOf("id", "select_type", "table", "type", "possible_keys", "key", "key_len", "ref", "rows", "Extra"),
@@ -242,7 +256,6 @@ private val MARIADB_TABULAR_HEADERS: List<List<String>> = listOf(
         "id", "select_type", "table", "type", "possible_keys", "key", "key_len", "ref", "rows",
         "r_rows", "filtered", "r_filtered", "Extra",
     ),
-    WARNINGS_OVERLAY,
 )
 
 /**

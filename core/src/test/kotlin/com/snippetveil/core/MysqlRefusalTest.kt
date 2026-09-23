@@ -113,21 +113,37 @@ class MysqlRefusalTest {
     /**
      * **A text both engines could have printed falls to the general refusal, never to a guess.**
      *
-     * MySQL's JSON version 1 and MariaDB's JSON share an opening key, and their warnings overlays are
-     * byte-identical. Each of those matches two entries of the format list, and two is answered the
-     * way zero is — *this is not a readable plan* — rather than by picking the engine whose predicate
-     * happens to be listed first.
+     * MySQL's JSON version 1 and MariaDB's JSON share an opening key: a query block going straight to
+     * its table opens identically in both. Such a text matches two entries of the format list, and
+     * two is answered the way zero is — *this is not a readable plan* — rather than by picking the
+     * engine whose predicate happens to be listed first.
      */
     @Test
     fun `a document both engines could have printed takes the general refusal`() {
-        for ((printed, plan) in mapOf("JSON" to AMBIGUOUS_JSON_PLAN, "warnings" to WARNINGS_OVERLAY_PLAN)) {
-            assertTrue(
-                opensMysqlJsonV1(plan) && opensMariadbJson(plan) ||
-                    opensMysqlTabular(plan) && opensMariadbTabular(plan),
-                "the $printed fixture is not ambiguous, so this asserts nothing",
-            )
-            assertEquals(PlanReading.Unreadable, parsePlan(plan), "an ambiguous $printed paste was given a message")
-        }
+        assertTrue(
+            opensMysqlJsonV1(AMBIGUOUS_JSON_PLAN) && opensMariadbJson(AMBIGUOUS_JSON_PLAN),
+            "the fixture is not ambiguous, so this asserts nothing",
+        )
+        assertEquals(PlanReading.Unreadable, parsePlan(AMBIGUOUS_JSON_PLAN), "an ambiguous paste was given a message")
+    }
+
+    /**
+     * **The warnings overlay is refused as one of MySQL's tabular forms**, with the same recourse the
+     * rest of that family carries.
+     *
+     * It is the one head literal the two engines print identically, and it is MySQL's all the same —
+     * which is recorded rather than hidden. The overlay names no engine and says nothing about the
+     * plan, and *ask for the plan as JSON* is the true advice whichever engine printed it; the
+     * near-identical **plan** forms, where a recourse would genuinely be wrong, are told apart by
+     * literals of their own, which the MariaDB test above is what checks.
+     */
+    @Test
+    fun `the warnings overlay is refused as a tabular form of MySQL's`() {
+        val reading = parsePlan(WARNINGS_OVERLAY_PLAN)
+
+        assertTrue(reading is PlanReading.Refused, "the warnings overlay was not refused as a recognised shape")
+        assertEquals(PlanRefusedForm.MYSQL_TABULAR, (reading as PlanReading.Refused).form)
+        assertEquals(PlanRecourse.MYSQL_FORMAT_JSON, reading.form.recourse)
     }
 
     /**
@@ -189,6 +205,23 @@ class MysqlRefusalTest {
             )
             assertTrue(text.endsWith("1 row in set (0.00 sec)"), "the $format frame's count was not re-emitted:\n$text")
         }
+    }
+
+    /**
+     * **The count under a vertical frame is chrome, and a paste that stops before it still reads** —
+     * but a prompt after it does not, because a prompt is a transcript rather than chrome.
+     *
+     * The pair is the frame's whole boundary said in one place: what the client drew around the
+     * result is peeled, and what the user's own session wrote into the input is not.
+     */
+    @Test
+    fun `a vertical frame copied without its count reads, and one carrying a prompt does not`() {
+        val withoutCount = "*************************** 1. row ***************************\nEXPLAIN: $MYSQL_V2_PLAN"
+        val withPrompt = verticalFrameAround(MYSQL_V2_PLAN) + "\nmysql> "
+
+        assertTrue(parsePlan(withoutCount) is PlanReading.Read, "a paste stopping before the count was refused")
+        assertFalse("visits_by_owner" in anonymizedText(withoutCount), "an index reached the clipboard")
+        assertEquals(PlanReading.Unreadable, parsePlan(withPrompt), "an input carrying a prompt was read")
     }
 
     /**
@@ -262,6 +295,7 @@ class MysqlRefusalTest {
             "mysql-tabular" to MYSQL_TABULAR_PLAN,
             "mariadb-tabular" to MARIADB_TABULAR_PLAN,
             "mariadb-analyze" to MARIADB_ANALYZE_PLAN,
+            "mysql-warnings-overlay" to WARNINGS_OVERLAY_PLAN,
         )
 
         for ((printed, plan) in plans) {

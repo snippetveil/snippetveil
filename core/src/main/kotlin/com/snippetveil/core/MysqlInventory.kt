@@ -77,7 +77,7 @@ internal val MYSQL_V2_OPERATIONS: List<PlanTemplate> = listOf(
  * in kind from PostgreSQL's. PostgreSQL prints every identifier inside an expression through
  * `quote_identifier()`, which is what lets a bare token be preserved there; MySQL appends identifiers
  * to a rendered condition **with nothing around them**, so there is no quoting rule for a vocabulary
- * to lean on and no boundary for a lexer to find. See [PlanTreatment.Raw] and [MYSQL].
+ * to lean on and no boundary for a lexer to find. See [PlanTreatment.AppendedRaw] and [MYSQL].
  */
 internal val MYSQL_V2_NODE_FIELDS: Map<String, PlanTreatment> = buildMap {
     // **The rendered line**, cross-checked against the templates it was assembled from and never
@@ -103,7 +103,7 @@ internal val MYSQL_V2_NODE_FIELDS: Map<String, PlanTreatment> = buildMap {
 
     // **The rendered conditions**, each one redacted literal. See the note above.
     for (label in listOf("condition", "lookup_condition", "hash_condition", "index_range", "aggregate_function")) {
-        put(label, PlanTreatment.Raw)
+        put(label, PlanTreatment.AppendedRaw)
     }
 
     // **The measured quantities** — the numbers a plan is pasted *for*, preserved exactly as printed
@@ -197,7 +197,7 @@ internal val MYSQL_V1_TABLE_FIELDS: Map<String, PlanTreatment> = buildMap {
     // **The rendered conditions and the reference list**, each one redacted literal: every identifier
     // in them was appended by a printer that delimits nothing this reader can trust.
     for (label in listOf("attached_condition", "index_condition", "ref")) {
-        put(label, PlanTreatment.Raw)
+        put(label, PlanTreatment.AppendedRaw)
     }
 
     for (label in listOf("using_index", "using_temporary_table", "using_filesort")) {
@@ -218,8 +218,14 @@ internal val MYSQL_V1_COST_FIELDS: Map<String, PlanTreatment> = listOf(
 ).associateWith { PlanTreatment.Measured }
 
 /**
- * **The one-line messages MySQL's optimizer prints**, as a closed list — a per-release vocabulary row
- * like any other, and the one that makes version 1's `message` field admissible at all.
+ * **The one-line messages MySQL's optimizer prints**, as a closed list — **a per-version vocabulary
+ * row**, and the one that makes version 1's `message` field admissible at all.
+ *
+ * Per-version, and **the union across the versions this product has captured**, because a plan does
+ * not say which release printed it: there is no version in the document to key on, so a message any
+ * captured release writes is admitted for all of them. The cost of the union is fidelity in the
+ * other direction — a message a release *stopped* writing stays admissible — and it costs nothing in
+ * the direction that matters, because every spelling here is one the engine itself writes.
  *
  * Every one of these is a **fixed string in the engine**: the optimizer chooses a constant, and there
  * is no path by which a user's table, column or value reaches this field. That is what makes the list
@@ -279,7 +285,7 @@ internal val MYSQL_KEY_LENGTH: Regex = Regex("""\d+(,\d+)*""")
  * user's object cannot also be printed under — and a `words` list here would be a list of names this
  * product had decided to hand back.
  *
- * So MySQL's expression-shaped fields are not scanned at all: they are [PlanTreatment.Raw], one
+ * So MySQL's expression-shaped fields are not scanned at all: they are [PlanTreatment.AppendedRaw], one
  * redacted literal each. This vocabulary exists because [PlanSymbols] takes one, and it is empty
  * because the honest answer to *which bare words may be preserved* is none.
  */
