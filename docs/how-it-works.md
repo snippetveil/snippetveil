@@ -294,13 +294,21 @@ Worth knowing before relying on it:
   its default from 2025.1; where it is not, a `.kt` file says so rather than offering nothing. The
   two reversals work anywhere — De-anonymize Clipboard needs only a project, De-anonymize
   Clipboard and Paste a writable editor.
-- **An execution plan is PostgreSQL’s `EXPLAIN` text output, and nothing else.** Anonymize
-  Execution Plan… replaces the relation, column, alias and index names in one and leaves every cost
-  and timing as printed, but it reads the default text format only and only from the plan’s first
-  line: a subtree pasted from the middle, a paste carrying the query above the plan, and `psql`’s own
-  `QUERY PLAN` header are refused rather than half-read. Nothing about the plan is looked up in a
-  database, and its placeholders are **not** remembered — a plan has no declarations to file them
-  under, so the same plan pasted twice comes back under different numbers.
+- **An execution plan is PostgreSQL’s `EXPLAIN` output, in any of its four formats.** Anonymize
+  Execution Plan… replaces the relation, column, alias and index names in a text, JSON, YAML or XML
+  plan and leaves every cost and timing as printed. It still reads only from the plan’s first line: a
+  subtree pasted from the middle and a paste carrying the query above the plan are refused rather
+  than half-read. `psql`’s own table — the `QUERY PLAN` header, the rule, the padding and the row
+  count — is peeled off and handed back byte for byte, but `psql` at a non-default setting, and any
+  input carrying an echoed statement, are refused. Nothing about the plan is looked up in a database,
+  and its placeholders are **not** remembered — a plan has no declarations to file them under, so the
+  same plan pasted twice comes back under different numbers.
+- **A field SnippetVeil has no rule for refuses the whole plan.** The field set is closed, and the
+  reason it is closed is the opposite of the reason an unknown *word* inside a field is replaced: a
+  word arrives in a slot something already typed, and a field arrives with nothing saying whether it
+  holds a name, a magnitude, a hostname or your query. A PostgreSQL release that adds a field
+  therefore refuses every plan carrying it until SnippetVeil ships a row for it — a real cost,
+  accepted rather than discovered later, with re-running without that option as the way out.
 - **A plan’s expression fields are read by a lexer, not by a SQL parser.** What survives in a
   `Filter` or an output list is a short list: operators, brackets, casts, numbers, `true`/`false`,
   PostgreSQL’s own keywords, and its built-in function and type names. **Everything else there is

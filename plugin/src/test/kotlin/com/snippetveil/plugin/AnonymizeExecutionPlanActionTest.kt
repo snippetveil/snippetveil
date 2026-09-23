@@ -129,6 +129,39 @@ class AnonymizeExecutionPlanActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **A plan this product recognises and cannot read soundly names the engine's own better
+     * option** — and it is a different balloon from the general refusal, which is the point.
+     *
+     * The text format prints a handful of rows with raw unquoted names in them; the same plan as
+     * JSON escapes every one. Telling the user *copy the whole plan from its first line* here would
+     * be advice that does not work on input where they already did, so the two sentences are asserted
+     * as a pair rather than one at a time.
+     */
+    fun `test a plan carrying a raw-name row names the engine option that would work`() {
+        val raw = "$PLAN\nSettings: work_mem = '8MB'"
+        setClipboard(raw)
+
+        var opened = false
+        invokePlan(FakeClipboard(raw)) { _, analysis -> analysis.also { opened = true } }
+        awaitBackgroundWork()
+
+        assertFalse("a refused paste opened the preview", opened)
+        assertEquals("the refusal changed the clipboard", raw, clipboard())
+
+        val balloon = notifications.single()
+        assertEquals(NotificationType.WARNING, balloon.type)
+        assertEmpty(balloon.actions)
+        assertEquals(
+            "SnippetVeil cannot read this plan soundly — re-run the same statement with " +
+                "EXPLAIN (FORMAT JSON) and copy that instead. Your clipboard was not changed.",
+            balloon.content,
+        )
+        for (name in listOf("work_mem", "visits", "billing")) {
+            assertFalse("the refusal quotes `$name`: ${balloon.content}", name in balloon.content)
+        }
+    }
+
+    /**
      * **A mid-tree paste and a query above the plan both refuse** — the pair of mistakes the head
      * anchor exists for, and the pair the message is written to answer.
      */

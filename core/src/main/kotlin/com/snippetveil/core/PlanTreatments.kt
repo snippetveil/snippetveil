@@ -89,12 +89,18 @@ internal object PlanTreatments {
     fun identifying(slot: PlanSlot): List<PlanOccurrence> = maskOf(slot.trimmed())
 
     /**
-     * **A deployment identifier, masked** — a hostname, a database user, a service or cluster name.
+     * **A deployment or object identifier, masked** — a hostname, a database user, a service or
+     * cluster name, a custom-scan provider, a trigger, a constraint.
      *
      * These are precisely the organization-identifying strings this product exists to replace, and
      * they are **not names**: they do not join name identity, so a database user spelled like a
      * schema does not share that schema's placeholder. The key is what says so, and it says so by
      * being a different key rather than by a rule somebody has to keep. See [PlanKeys.masked].
+     *
+     * **A database object outside the four name kinds lands here too, and lands here deliberately.**
+     * A trigger is not a rowset, a column, a schema or an access path, so there is no placeholder
+     * kind that would be true of it — and giving it a *false* kind would have a reader looking for a
+     * table that does not exist. Masking says the one true thing: something was named here.
      */
     fun deployment(slot: PlanSlot): List<PlanOccurrence> = maskOf(slot.trimmed())
 
@@ -211,4 +217,25 @@ internal object PlanShapes {
 
     /** A dotted version — `16`, `16.2`, `9.6.24`. */
     val VERSION = Regex("""\d+(\.\d+)*""")
+
+    /**
+     * **One of the engine's own enumerations** — `Seq Scan`, `Outer`, `Finalize`, `NoMovement`.
+     *
+     * Letters, digits and the single spaces the printer writes between the words of a node type. A
+     * value with anything else in it is a slot this release has not seen, and it is masked.
+     */
+    val ENGINE_ENUM = Regex("""[A-Za-z][A-Za-z0-9]*( [A-Za-z0-9]+)*""")
+
+    /** **A boolean the engine printed**, lower case as every one of the four formats writes it. */
+    val BOOLEAN = Regex("""true|false""")
+
+    /**
+     * **The value of a flagged setting** — `on`, `off`, `4MB`, `0.005`, `partition`.
+     *
+     * Deliberately broad, and the breadth is the point rather than a weakness: the slot is already
+     * known to be a **core setting this release flags**, which is what the vocabulary row asserts, so
+     * the shape's job is to catch a value that stopped looking like a setting at all — a quoted
+     * string, a list, a path — and to mask it. See [POSTGRES_FLAGGED_SETTINGS].
+     */
+    val SETTING = Regex("""[-+]?[A-Za-z0-9_.]+""")
 }

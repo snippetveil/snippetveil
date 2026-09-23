@@ -61,13 +61,16 @@ class ExecutionPlanTest {
     }
 
     /**
-     * **`psql`'s own table decoration is not `EXPLAIN`'s output**, so a paste carrying it does not
-     * begin at the plan's first line. Stated as a test rather than only in prose because it is the
-     * shape a user is most likely to arrive with, and refusing it is a decision rather than a gap.
+     * **A client's own table decoration is not part of the plan, and is not a reason to refuse one
+     * either** — it is peeled, and the plan inside is read.
+     *
+     * The frame's own rows are asserted in `PlanFrameTest`; what is asserted here is only that the
+     * shape a user is most likely to arrive with reaches the reader at all. A subtree pasted from the
+     * middle of a framed table still refuses, because peeling a frame does not move the anchor.
      */
     @Test
-    fun `a psql table around the plan refuses`() {
-        assertRefused(
+    fun `a psql table around the plan is peeled rather than refused`() {
+        val kinds = namesIn(
             """
             |                       QUERY PLAN
             |------------------------------------------------------
@@ -75,6 +78,8 @@ class ExecutionPlanTest {
             |(1 row)
             """.trimMargin(),
         )
+
+        assertEquals(SymbolRole.TABLE, kinds["visits"])
     }
 
     /**
@@ -290,6 +295,8 @@ internal val JOIN = """
 internal fun planIn(text: String): SnippetPlan = when (val reading = parsePlan(text)) {
     is PlanReading.Read -> reading.plan
     PlanReading.Unreadable -> throw AssertionError("this was refused, and is a plan:\n$text")
+    is PlanReading.Refused ->
+        throw AssertionError("this was refused with ${reading.recourse}, and is a plan:\n$text")
 }
 
 /** The name written at each anonymized token, and the kind it was read as. */

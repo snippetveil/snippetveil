@@ -12,6 +12,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.PlanReading
+import com.snippetveil.core.PlanRecourse
 import com.snippetveil.core.parsePlan
 
 /**
@@ -92,9 +93,11 @@ class AnonymizeExecutionPlanAction internal constructor(
  * counts its occurrences or decides what any of them are: **the engine decides what the text is**,
  * which is the rule that put the parse there rather than here.
  *
- * The one thing this side does with the reading is choose which of two things happens next, and the
- * verdict stops being a type at that point because there is exactly one thing to say about it. What
- * the refusal may not do is *quote* — and it cannot, because the verdict has nothing in it to quote.
+ * The one thing this side does with the reading is choose which of three things happens next: the
+ * preview, the general refusal, or the refusal that names an option of the engine's. **Which option
+ * that is arrives as an enumeration**, and this side renders it — the same division of labour the
+ * verdict itself follows, and the reason the refusal still cannot quote: there is nothing in the
+ * verdict to quote.
  *
  * ### Background, cancellable, and fail-closed
  *
@@ -128,10 +131,12 @@ internal fun anonymizePlanOnClipboard(project: Project, clipboard: Clipboard, pr
 
             ApplicationManager.getApplication().invokeLater(
                 {
-                    if (analysis == null) {
-                        SnippetVeilNotifications.planUnreadable(project)
-                    } else {
-                        previews.confirm(project, analysis)?.let { deliver(project, it, Subject.PLAN) }
+                    when (analysis) {
+                        is PlanAnalysis.Read ->
+                            previews.confirm(project, analysis.analysis)?.let { deliver(project, it, Subject.PLAN) }
+
+                        PlanAnalysis.Unreadable -> SnippetVeilNotifications.planUnreadable(project)
+                        is PlanAnalysis.Refused -> SnippetVeilNotifications.planRefused(project, analysis.recourse)
                     }
                 },
                 ModalityState.defaultModalityState(),
@@ -142,7 +147,27 @@ internal fun anonymizePlanOnClipboard(project: Project, clipboard: Clipboard, pr
 }
 
 /**
- * The parse and the engine, both on the background thread — and `null` where the text is not a plan.
+ * **What the background thread carries back to the EDT** — the finished analysis, or which of the
+ * two refusals the engine returned.
+ *
+ * It mirrors `PlanReading` rather than collapsing it, and it carries no `String` for the same reason
+ * that type does not: there is nowhere for a line of the user's plan to travel from. What this side
+ * adds is only that the `Read` arm has already been through the engine.
+ */
+private sealed class PlanAnalysis {
+
+    class Read(val analysis: Analysis) : PlanAnalysis()
+
+    /** The text is not a plan this engine reads, and there is nothing to suggest instead. */
+    object Unreadable : PlanAnalysis()
+
+    /** A shape the engine recognises and cannot read soundly, whose own engine offers a better one. */
+    class Refused(val recourse: PlanRecourse) : PlanAnalysis()
+}
+
+/**
+ * The parse and the engine, both on the background thread — and the verdict where the text is not a
+ * plan this product reads.
  *
  * **The defaults, and not one setting more.** Every reduction the design authorises is
  * per-invocation and lives in the preview, which is the same rule the source actions follow. The
@@ -154,12 +179,16 @@ internal fun anonymizePlanOnClipboard(project: Project, clipboard: Clipboard, pr
  * plan names is ever written into it: a plan key is unqualified by construction, so this invocation
  * draws numbers, burns them, and leaves the mapping as it was.
  */
-private fun analysePlan(project: Project, pasted: String): Analysis? = when (val reading = parsePlan(pasted)) {
-    PlanReading.Unreadable -> null
+private fun analysePlan(project: Project, pasted: String): PlanAnalysis = when (val reading = parsePlan(pasted)) {
+    PlanReading.Unreadable -> PlanAnalysis.Unreadable
 
-    is PlanReading.Read -> Analysis.of(
-        reading.plan,
-        AnonymizationSettings.DEFAULTS,
-        PlaceholderLedger.getInstance().snapshotOf(project),
+    is PlanReading.Refused -> PlanAnalysis.Refused(reading.recourse)
+
+    is PlanReading.Read -> PlanAnalysis.Read(
+        Analysis.of(
+            reading.plan,
+            AnonymizationSettings.DEFAULTS,
+            PlaceholderLedger.getInstance().snapshotOf(project),
+        ),
     )
 }

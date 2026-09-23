@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
+import com.snippetveil.core.PlanRecourse
 import com.snippetveil.core.Reversal
 import com.snippetveil.core.Unrestored
 import com.snippetveil.core.fidelityNotices
@@ -402,6 +403,37 @@ internal object SnippetVeilNotifications {
                 "its first line, without the query. Your clipboard was not changed.",
             NotificationType.WARNING,
         ).notify(project)
+    }
+
+    /**
+     * **A plan this product recognises and cannot read soundly — whose engine offers a form it
+     * can.**
+     *
+     * It differs from [planUnreadable] in exactly one way, and the difference is the whole reason it
+     * is a second balloon: here the product **knows what the user should do instead**, and saying
+     * *copy the whole plan from its first line* would be advice that does not work, on input where
+     * the user already did.
+     *
+     * **The engine's own option is named, and the recourse decides which.** The engine says *that*
+     * there is a better form and *which* — see `PlanRecourse` — and this says how that reads.
+     * Rendering the option name here rather than in the engine keeps the product's words on this side
+     * of the boundary, which is the same rule that keeps the refusal from quoting anything: the
+     * verdict carries an enumeration, and an enumeration cannot hold a line of the user's plan.
+     *
+     * **Warning rather than error, and no report link**, for the reason [planUnreadable] has none:
+     * a plugin truthfully refusing input it cannot read soundly is not a defect.
+     */
+    fun planRefused(project: Project?, recourse: PlanRecourse) {
+        group().createNotification(
+            "SnippetVeil cannot read this plan soundly \u2014 re-run the same statement with " +
+                "${optionFor(recourse)} and copy that instead. Your clipboard was not changed.",
+            NotificationType.WARNING,
+        ).notify(project)
+    }
+
+    /** The engine option a recourse names, spelled as the user would type it. See [planRefused]. */
+    private fun optionFor(recourse: PlanRecourse): String = when (recourse) {
+        PlanRecourse.FORMAT_JSON -> "EXPLAIN (FORMAT JSON)"
     }
 
     /**
