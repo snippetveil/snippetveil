@@ -254,9 +254,11 @@ internal object PlanTreatments {
      *
      * **A value that does not parse is masked whole**, the answer everything here gives a slot it did
      * not understand. Keeping the part that looked familiar is how the part nobody looked at leaves
-     * the machine. See [PlanTreatment.TypeName].
+     * the machine. **A word outside [names] does not parse**, which is what keeps a type somebody
+     * wrote — an object type, a collection — from being emitted as written. See
+     * [PlanTreatment.TypeName].
      */
-    fun typeName(slot: PlanSlot): List<PlanOccurrence> {
+    fun typeName(slot: PlanSlot, names: Set<String>): List<PlanOccurrence> {
         val value = slot.trimmed()
         if (value.isBlank) return emptyList()
 
@@ -265,6 +267,7 @@ internal object PlanTreatments {
         while (at < value.end) {
             if (!opensAWord(value.at(at))) return maskOf(value)
             val word = value.endOfWordAt(at)
+            if (value.narrowed(at, word).written !in names) return maskOf(value)
             occurrences += PlanOccurrence(at, word, PlanDisposition.Preserve)
             at = word
 
@@ -347,7 +350,7 @@ internal object PlanTreatments {
      * unread**: it is the closure that says the characters being removed are a size and not something
      * else the engine printed in the same position.
      */
-    private val SIZE = Regex("""\*|max|MAX|\d+(,\d+)?( (BYTE|CHAR))?""")
+    private val SIZE = Regex("""(\d+|\*)(,\d+)?( (BYTE|CHAR))?""")
 }
 
 /**

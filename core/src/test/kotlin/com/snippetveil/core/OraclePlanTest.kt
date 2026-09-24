@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Instant
 
 /**
  * **The two Oracle formats this product reads** — the `|`-ruled grid its text output draws, and the
@@ -79,7 +80,11 @@ class OraclePlanTest {
      */
     @Test
     fun `a wide-character name is read whole, by count rather than by offset`() {
-        val result = anonymize(planIn(ORACLE_GRID_WIDE_NAME), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+        val result = anonymize(
+            planIn(ORACLE_GRID_WIDE_NAME),
+            AnonymizationSettings(keepComments = true),
+            LedgerSnapshot.EMPTY,
+        )
 
         result.assertShared("a name is one symbol however wide its characters print", "訪問記録")
         assertFalse("訪問" in result.text, "half the wide name was left on the clipboard:\n${result.text}")
@@ -87,6 +92,17 @@ class OraclePlanTest {
             Regex("""\| table\d+ +\|""").containsMatchIn(result.text),
             "the wide name did not come back as one placeholder in its own cell:\n${result.text}",
         )
+
+        // And the whole grid comes back, character for character — which is what says the cells were
+        // cut where the separators are and nowhere else.
+        val back = deanonymize(
+            result.text,
+            Sidecar.EMPTY.recording(RecordedInvocation(Instant.now(), result.mapping)),
+            LedgerSnapshot.EMPTY + result.delta,
+        )
+
+        assertEquals(ORACLE_GRID_WIDE_NAME, back.text, "the wide-character grid did not round-trip")
+        assertEquals(emptyList<Unrestored>(), back.unrestored, "the reversal left a placeholder behind")
     }
 
     /**

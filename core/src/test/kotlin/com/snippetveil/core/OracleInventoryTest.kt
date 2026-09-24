@@ -1,6 +1,7 @@
 package com.snippetveil.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -110,20 +111,30 @@ class OracleInventoryTest {
 
     /**
      * **A declared type that does not parse against the closed grammar is masked whole**, rather than
-     * being edited.
+     * being edited — and so is one whose **words** are not this engine's.
      *
-     * That is what makes the strip a decomposition: the reader knows which characters are the type and
-     * which are the width, and a value it cannot take apart is replaced instead of having a substring
-     * taken out of it.
+     * The first is what makes the strip a decomposition: the reader knows which characters are the
+     * type and which are the width, and a value it cannot take apart is replaced instead of having a
+     * substring taken out of it. The second is what keeps a type **somebody wrote** — an object type,
+     * a collection — from being emitted as written, since that spelling is a schema object's name like
+     * any other.
      */
     @Test
-    fun `a declared type outside the grammar is masked whole`() {
-        val text = anonymizedText(ORACLE_MONITOR_XML.replace("""dtystr="DATE"""", """dtystr="DATE @ 'utc'""""))
-
-        assertTrue(
-            Regex("""dtystr="str\d+"""").containsMatchIn(text),
-            "a type outside the grammar was not masked whole:\n$text",
+    fun `a declared type outside the grammar or outside the vocabulary is masked whole`() {
+        val shapes = mapOf(
+            "a value that does not take apart" to """dtystr="DATE @ 'utc'"""",
+            "a type somebody wrote" to """dtystr="ACME_ADDRESS_T"""",
         )
+
+        for ((printed, written) in shapes) {
+            val text = anonymizedText(ORACLE_MONITOR_XML.replace("""dtystr="DATE"""", written))
+
+            assertTrue(
+                Regex("""dtystr="str\d+"""").containsMatchIn(text),
+                "$printed was not masked whole:\n$text",
+            )
+            assertFalse("ACME_ADDRESS_T" in text, "a user-written type was left on the clipboard:\n$text")
+        }
     }
 }
 

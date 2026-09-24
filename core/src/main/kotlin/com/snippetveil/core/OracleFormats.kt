@@ -81,12 +81,12 @@ private fun opensAnOracleGrid(text: String): Boolean {
     val first = head.firstOrNull() ?: return false
 
     if (PLAN_HASH.matches(first.trim())) return true
-    if (isARule(first)) return head.getOrNull(1)?.let(::opensAGridRow) == true
-    return opensAGridRow(first)
+    if (isARule(first)) return head.getOrNull(1)?.let(::opensAGridHeader) == true
+    return opensAGridHeader(first)
 }
 
-/** Whether this line is a grid row whose cells are all columns this product reads. */
-private fun opensAGridRow(line: String): Boolean {
+/** Whether this line is the grid's header row — a `|`-ruled row of columns this product reads. */
+private fun opensAGridHeader(line: String): Boolean {
     val cells = line.trim().takeIf { it.startsWith(BAR) && it.endsWith(BAR) }?.split(BAR) ?: return false
     val columns = cells.subList(1, cells.size - 1).map(String::trim)
     return columns.isNotEmpty() && columns.all { it in ORACLE_GRID_COLUMNS }
@@ -144,8 +144,8 @@ private class OracleGridReader(private val symbols: PlanSymbols) {
     /** The grid's columns, in order — `null` until the header row has been read. */
     private var columns: List<String>? = null
 
-    /** How many separators the header row drew, which every row after it has to draw too. */
-    private var separators = 0
+    /** Which cell of a row carries its operation, or `null` where the grid prints no such column. */
+    private var operation: Int? = null
 
     /** Whether the outline's own comment has been opened, which is where its hints begin. */
     private var opened = false
@@ -166,9 +166,9 @@ private class OracleGridReader(private val symbols: PlanSymbols) {
         // section may be printed under any of the sections this reader does read.
         if (body.startsWith(PEEKED_BINDS)) throw PlanRefusal(PlanReading.Unreadable)
 
-        val opened = SECTIONS[body]
-        if (opened != null) {
-            section = opened
+        val titled = SECTIONS[body]
+        if (titled != null) {
+            section = titled
             return
         }
 
@@ -211,8 +211,9 @@ private class OracleGridReader(private val symbols: PlanSymbols) {
      * **One row of the grid, cut into cells by counting separators** — the header where none has been
      * read yet, and a row of the plan otherwise.
      *
-     * @throws PlanRefusal where the row draws a different number of separators than the header did.
-     *   That is the whole of what admits this format: a `|` inside a name prints raw, so it can only
+     * @throws PlanRefusal where the row draws a different number of separators than the header did,
+     *   which is the same statement as its having a different number of cells — a row's cells are
+     *   what lie between its separators. That is the whole of what admits this format: a `|` inside a name prints raw, so it can only
      *   ever **add** a cell, and a row carrying one is malformed rather than misread. It is also what
      *   refuses a grid a client wrapped, which loses the separators at the end of every row it broke.
      */
@@ -225,14 +226,14 @@ private class OracleGridReader(private val symbols: PlanSymbols) {
             readHeader(cells)
             return
         }
-        if (cells.size + 1 != separators) throw PlanRefusal(PlanReading.Unreadable)
+        if (cells.size != header.size) throw PlanRefusal(PlanReading.Unreadable)
 
         // A second header row is a second grid — an adaptive plan's, or two plans in one paste —
         // and no capture of one was taken here, so it refuses rather than being read as a row.
         val written = cells.map { it.trimmed().written }
         if (written == header) throw PlanRefusal(PlanReading.Unreadable)
 
-        val operation = header.indexOf(OPERATION_COLUMN).takeIf { it >= 0 }?.let { written[it] }.orEmpty()
+        val operation = this.operation?.let { written[it] }.orEmpty()
         for ((position, cell) in cells.withIndex()) {
             val column = header[position]
 
@@ -248,8 +249,8 @@ private class OracleGridReader(private val symbols: PlanSymbols) {
     }
 
     /**
-     * **The header row, which fixes the columns and the count** — and the field closure, which is the
-     * whole of what this function is.
+     * **The header row, which fixes the columns and, with them, how many cells every row after it
+     * has** — and the field closure, which is the whole of what this function is.
      *
      * A column the vocabulary does not hold refuses the input. It is the same closure every format
      * here is read under, spelled for a format whose fields are columns: nothing says what an
@@ -262,7 +263,7 @@ private class OracleGridReader(private val symbols: PlanSymbols) {
             throw PlanRefusal(PlanReading.Unreadable)
         }
         columns = written
-        separators = cells.size + 1
+        operation = written.indexOf(OPERATION_COLUMN).takeIf { it >= 0 }
     }
 
     /**
@@ -270,7 +271,7 @@ private class OracleGridReader(private val symbols: PlanSymbols) {
      * first and after the last dropped — they are the row's own edges rather than cells.
      */
     private fun cellsOf(line: PlanTextLine): List<PlanSlot> {
-        val bars = line.text.indices.filter { line.text[it] == BAR_CHARACTER }
+        val bars = line.text.indices.filter { line.text[it] == BAR }
         return (0 until bars.size - 1).map {
             PlanSlot(line.text, line.start + bars[it] + 1, line.start + bars[it + 1], line.start)
         }
@@ -295,7 +296,9 @@ private class OracleGridReader(private val symbols: PlanSymbols) {
 
         val from = entry?.range?.last?.plus(1) ?: 0
         val slot = PlanSlot(line.text, line.start + from, line.start + line.text.length, line.start)
-        symbols.readSlot(slot.trimmed(), PlanTreatment.Expression)
+        if (!symbols.readSlot(slot.trimmed(), PlanTreatment.Expression)) {
+            throw PlanRefusal(PlanReading.Unreadable)
+        }
     }
 
     /**
@@ -424,9 +427,12 @@ private fun hintIn(symbols: PlanSymbols, slot: PlanSlot): List<PlanOccurrence>? 
 /**
  * What the segment at [position] of a chain of [length] names.
  *
+ * The same positional ladder [PlanSymbols.readName] and `readChain` walk, and it is written out again
+ * rather than shared because the three **disagree about a lone token**, each for a reason of its own.
  * A lone quoted token in a hint is an **object** — the table or the alias the hint is about — where
- * the same token at the end of a dotted chain is a column. The kinds are positional for the reason
- * they are positional everywhere else here: what a segment is depends on how many follow it.
+ * a lone bracketed name in a `SHOWPLAN_TEXT` row is a column, since that writer has nothing to tell
+ * a computed name from a real one. Folding them together would need a flag naming the difference and
+ * would leave neither argument next to the rule it decides.
  */
 private fun chainKindAt(length: Int, position: Int): SymbolRole = when {
     length == 1 -> SymbolRole.TABLE
@@ -491,16 +497,14 @@ private const val OUTLINE_CLOSE = "*/"
 /** The punctuation a hint's arguments are written with, outside the names themselves. */
 private val HINT_MARKS: Set<String> = setOf("(", ")", ",", "=")
 
-/** The separator this format's grid draws its cells with. */
-private const val BAR = "|"
-
-private const val BAR_CHARACTER = '|'
+/** The separator this format's grid draws its cells with, and counts by. */
+private const val BAR = '|'
 
 /** Whether this line is one of the rules the printer draws under a header or a title. */
 private fun isARule(line: String): Boolean {
     val body = line.trim()
-    return body.length >= RULE && body.all { it == '-' }
+    return body.length >= SHORTEST_RULE && body.all { it == '-' }
 }
 
 /** How short a run of dashes may be and still be a rule rather than something else. */
-private const val RULE = 3
+private const val SHORTEST_RULE = 3

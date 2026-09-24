@@ -54,7 +54,7 @@ internal class PlanSymbols(private val declared: MutableSet<String>, val vocabul
             PlanTreatment.Identifying -> occurrences += PlanTreatments.identifying(slot)
             PlanTreatment.Deployment -> occurrences += PlanTreatments.deployment(slot)
             PlanTreatment.AppendedRaw -> occurrences += PlanTreatments.appendedRaw(slot)
-            PlanTreatment.TypeName -> occurrences += PlanTreatments.typeName(slot)
+            is PlanTreatment.TypeName -> occurrences += PlanTreatments.typeName(slot, treatment.names)
             PlanTreatment.BoundName -> occurrences += PlanTreatments.boundName(slot)
             PlanTreatment.BoundValue -> occurrences += PlanTreatments.boundValue(slot)
             PlanTreatment.BoundNumber -> occurrences += PlanTreatments.boundNumber(slot)

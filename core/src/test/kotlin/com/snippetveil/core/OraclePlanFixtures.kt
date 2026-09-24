@@ -246,9 +246,17 @@ internal val ORACLE_MONITOR_XML_SPLIT_VALUE = ORACLE_MONITOR_XML.replace(
         """<![CDATA[a]]]]><![CDATA[>b]]></bind>""",
 )
 
-/** The same report with the two dropped fields never written, which is what the output says. */
-internal val ORACLE_MONITOR_XML_WITHOUT_LENGTHS =
-    ORACLE_MONITOR_XML.replace(Regex(""" maxlen="\d+"| len="\d+""""), "")
+/**
+ * **The same report with everything the drop rule removes never written** — the two lengths, and the
+ * declared size inside the type name.
+ *
+ * It is the comparison the counter, the ledger and the notices are asserted against, so it has to
+ * differ from the report above **only** by what is dropped: a fixture that still carried the declared
+ * size would leave that drop's non-counting unasserted.
+ */
+internal val ORACLE_MONITOR_XML_WITHOUT_LENGTHS = ORACLE_MONITOR_XML
+    .replace(Regex(""" maxlen="\d+"| len="\d+""""), "")
+    .replace("VARCHAR2(32)", "VARCHAR2")
 
 /**
  * **A report whose bind value is a type no row types**, which is every type outside the numeric

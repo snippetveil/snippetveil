@@ -17,6 +17,26 @@ internal val ORACLE_OPERATION = Regex("""[A-Z][A-Z0-9_]*( [A-Z0-9_()*/'-]+)*""")
 internal val ORACLE_STATUS = Regex("""[A-Z][A-Z ]*(\([A-Z ]+\))?""")
 
 /**
+ * **The words Oracle writes a bind's declared type with** — the type names it ships, and the words
+ * the datetime types are spelled with.
+ *
+ * A vocabulary row rather than a shape, because a bind can be declared of a type **somebody wrote** —
+ * an object type, a collection — and that spelling is a schema object's name like any other. A
+ * shape-only check would emit it as written; a word outside this list makes the whole field one
+ * redacted literal instead. A type this list is missing therefore costs fidelity rather than the
+ * plan, which is the right direction for a row nobody has a capture behind.
+ */
+internal val ORACLE_TYPE_WORDS: Set<String> = setOf(
+    "NUMBER", "FLOAT", "BINARY_FLOAT", "BINARY_DOUBLE", "INTEGER", "SMALLINT", "DECIMAL", "NUMERIC",
+    "REAL", "DOUBLE", "PRECISION", "PLS_INTEGER", "BINARY_INTEGER", "BOOLEAN",
+    "VARCHAR2", "NVARCHAR2", "VARCHAR", "CHAR", "NCHAR", "LONG", "RAW", "CLOB", "NCLOB", "BLOB",
+    "BFILE", "JSON", "XMLTYPE", "VECTOR", "ROWID", "UROWID", "REF", "CURSOR",
+    // The datetime and interval types, whose spellings are several words each.
+    "DATE", "TIMESTAMP", "INTERVAL", "YEAR", "MONTH", "DAY", "SECOND", "TO", "WITH", "WITHOUT",
+    "LOCAL", "TIME", "ZONE",
+)
+
+/**
  * **The type codes Oracle numbers its numeric types with** — `NUMBER`, and the two machine floats.
  *
  * A closed list, and the one branch of the bind's value that can emit anything as written. Everything
@@ -198,7 +218,7 @@ internal val ORACLE_BIND_FIELDS: Map<String, PlanTreatment> = mapOf(
     "name" to PlanTreatment.BoundName,
     "pos" to PlanTreatment.Measured,
     "dty" to PlanTreatment.Fact(PlanShapes.COUNT),
-    "dtystr" to PlanTreatment.TypeName,
+    "dtystr" to PlanTreatment.TypeName(ORACLE_TYPE_WORDS),
     "maxlen" to PlanTreatment.Dropped,
     "len" to PlanTreatment.Dropped,
     "csid" to PlanTreatment.Fact(PlanShapes.COUNT),
@@ -338,6 +358,13 @@ internal val ORACLE = PlanVocabulary(
  * **Rejected: treating every hint as one opaque literal.** It leaks nothing, and it throws the
  * section away — the outline stops lining up with the plan it describes, which is the whole reason
  * anyone reads it.
+ *
+ * **Per-version means what it means for every other vocabulary row here**: the list is a fact about an
+ * engine *release*, and a release that prints a hint this list lacks is answered by shipping the row,
+ * exactly as [POSTGRES_FLAGGED_SETTINGS] is. It is deliberately **not keyed by version** — the grid
+ * carries no version at all to key on, and a version-keyed list would have this product decide which
+ * release's grammar to read a paste under, which is the guess every rule in this container refuses.
+ * The failure that keying would buy back is one hint's fidelity, and it is the cheapest failure here.
  */
 internal val ORACLE_OUTLINE_HINTS: Set<String> = setOf(
     // What the outline opens and closes with, and what it says about itself.

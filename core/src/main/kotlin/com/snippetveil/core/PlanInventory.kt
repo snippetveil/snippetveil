@@ -266,8 +266,17 @@ internal sealed class PlanTreatment {
      * masked whole rather than edited. The bare type name is a spelling the engine never prints in
      * this field — a small dose of the objection that killed bucketing — and it is accepted because
      * the grammar is closed. See [PlanTreatments.typeName].
+     *
+     * **Closed means the words too, and not only the shape.** A bind can be declared of a type
+     * somebody wrote — an object type, a collection — and that spelling is a schema object's name
+     * like any other. A shape-only check would emit it as written, so the words are checked against
+     * [names] and a value carrying one that is not there is masked whole. It is also what lets this
+     * be a branch of [Typed]: nothing is preserved that was not first checked.
+     *
+     * @param names the type words this engine's writer prints in the field — a per-engine vocabulary
+     *   row, and one whose miss costs fidelity rather than the input
      */
-    object TypeName : PlanTreatment()
+    class TypeName(val names: Set<String>) : PlanTreatment()
 
     /**
      * **The name a statement gave a bind, masked** — `:city`, `:1`.
@@ -353,7 +362,7 @@ private fun admissibleBranch(treatment: PlanTreatment): Boolean = when (treatmen
     // emitted only where it lexes as one; a type name emits only the words of a closed grammar; and a
     // drop emits nothing at all, which is stronger than replacing.
     is PlanTreatment.Fact, is PlanTreatment.Unescaped, PlanTreatment.BoundNumber,
-    PlanTreatment.TypeName, PlanTreatment.Dropped,
+    is PlanTreatment.TypeName, PlanTreatment.Dropped,
     -> true
 
     is PlanTreatment.Typed -> (treatment.branches.values + treatment.otherwise).all(::admissibleBranch)
@@ -392,7 +401,7 @@ private fun anonymizes(treatment: PlanTreatment): Boolean = when (treatment) {
     is PlanTreatment.Subtree, is PlanTreatment.Fact, is PlanTreatment.Unescaped,
     is PlanTreatment.Rendered, PlanTreatment.Expression, PlanTreatment.BracketedExpression,
     PlanTreatment.Measured, PlanTreatment.Parameters, PlanTreatment.SettingsMap,
-    PlanTreatment.TypeName, PlanTreatment.BoundNumber, is PlanTreatment.Typed,
+    is PlanTreatment.TypeName, PlanTreatment.BoundNumber, is PlanTreatment.Typed,
     -> false
 }
 

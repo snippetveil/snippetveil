@@ -114,7 +114,7 @@ internal fun xmlQueriesIn(text: String): List<PlanMapping>? = XmlReader(text).do
  * are the same fail-closed answer to *this document said something I have no row for*.
  */
 internal fun attributedXmlDocumentIn(text: String, root: String): PlanMapping? =
-    XmlReader(text, attributed = true).attributedDocument(root)
+    XmlReader(text, XmlSpelling.ATTRIBUTES).attributedDocument(root)
 
 /**
  * **An attributed XML document whose elements may also carry character data**, read by the same
@@ -134,7 +134,7 @@ internal fun attributedXmlDocumentIn(text: String, root: String): PlanMapping? =
  * assembled.
  */
 internal fun contentXmlDocumentIn(text: String, root: String): PlanMapping? =
-    XmlReader(text, attributed = true, characterData = true).attributedDocument(root)
+    XmlReader(text, XmlSpelling.ATTRIBUTES_AND_DATA).attributedDocument(root)
 
 /**
  * **How a label is spelled as an XML element name** — the printer's own transform, applied here so
@@ -419,15 +419,39 @@ private const val DASH = "- "
 internal const val RETURN = "\r"
 
 /**
+ * **How one plan writer spells its content in XML** — the whole of what this reader has to be told
+ * about the document in front of it.
+ *
+ * One enumeration rather than a flag per difference, because the differences are not independent:
+ * there is no writer here that puts its content in character data *and* keeps PostgreSQL's
+ * one-element-per-field spelling, and a pair of booleans would have said there was. Each row is one
+ * writer's spelling, and the reader asks which it is rather than asking two questions whose
+ * combinations it would then have to rule out.
+ */
+private enum class XmlSpelling {
+
+    /** **One element per field**, and the one namespace declaration PostgreSQL's printer writes. */
+    ELEMENTS,
+
+    /** **The content is in the attributes** — SQL Server's showplan writer. */
+    ATTRIBUTES,
+
+    /**
+     * **The content is in the attributes and in the element's own character data** — Oracle's
+     * monitoring writer, which describes a bind in attributes and puts the value it bound inside the
+     * element. See [contentXmlDocumentIn].
+     */
+    ATTRIBUTES_AND_DATA,
+}
+
+/**
  * The XML document, read a character at a time. See [xmlQueriesIn] and [attributedXmlDocumentIn].
  *
- * @param attributed whether an element's attributes are **entries of it** — SQL Server's spelling —
- *   or the one namespace declaration PostgreSQL's printer writes and nothing else.
+ * @param spelling how this document's writer spells its content. See [XmlSpelling].
  */
 private class XmlReader(
     private val source: String,
-    private val attributed: Boolean = false,
-    private val characterData: Boolean = false,
+    private val spelling: XmlSpelling = XmlSpelling.ELEMENTS,
 ) {
 
     private var at = 0
@@ -487,7 +511,7 @@ private class XmlReader(
         // **Character data, where this writer writes it beside attributes.** It is asked first and
         // asked once: an element whose content is elements answers `null` here, with the scan left
         // exactly where it was, and is read below as any other element is.
-        if (characterData) {
+        if (spelling == XmlSpelling.ATTRIBUTES_AND_DATA) {
             val content = characterDataFrom(contentStart)
             if (content != null) return dataElement(start, label, opening, contentStart, written, content)
         }
@@ -625,7 +649,7 @@ private class XmlReader(
      */
     private fun attributes(): List<PlanEntry>? {
         skipSpace()
-        if (!attributed) return if (skipNamespace()) emptyList() else null
+        if (spelling == XmlSpelling.ELEMENTS) return if (skipNamespace()) emptyList() else null
 
         val entries = mutableListOf<PlanEntry>()
         while (at < source.length && source[at] != '>' && !source.startsWith("/>", at)) {
