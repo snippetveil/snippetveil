@@ -111,9 +111,12 @@
 - **Four of SQL Server's things are refused, and the two wide rowsets get different fixes.** A paste
   that begins at the statement echo is refused: `SHOWPLAN_TEXT` returns the statement in a rowset of
   its own above the plan, so copying both grids hands over the query — copy from the plan rowset, and
-  a multi-statement output carrying a second echo is refused too. A plan with a **remote query** or
-  **remote scan** row in it is refused, because those two rows print the linked server unbracketed
-  and the remote statement verbatim; `SET SHOWPLAN_XML ON` is named as the fix. `SET SHOWPLAN_ALL ON`
+  a multi-statement output carrying a second echo is refused too. A plan with a **remote** row in it
+  is refused — a remote query, scan, insert, update or delete — because every one of them prints the
+  linked server unbracketed, and a remote query prints the remote statement verbatim;
+  `SET SHOWPLAN_XML ON` is named as the fix. Every other row is read, including one whose operator
+  SnippetVeil has never seen: in this format the brackets are what make a row safe, and they do not
+  depend on knowing the operator's name. `SET SHOWPLAN_ALL ON`
   and `SET STATISTICS PROFILE ON` are refused because the first row of the plan rowset carries your
   statement in its text cell, in a grid whose tab and newline separators are the client's with
   nothing escaping them — and they name **different** fixes, `SET SHOWPLAN_XML ON` and `SET

@@ -55,22 +55,6 @@ class SqlServerInventoryTest {
     }
 
     /**
-     * **Every operator a `SHOWPLAN_TEXT` row may carry is one word set or the other, never both.**
-     *
-     * The two sets answer different questions — *is this a row I read* and *is this a row I refuse
-     * with an option* — and an operator on both would have the second answer silently shadowed by
-     * the first, which is a plan refused as unreadable where a better message existed.
-     */
-    @Test
-    fun `no operator is both read and refused`() {
-        assertEquals(
-            emptySet<String>(),
-            SQLSERVER_OPERATORS intersect SQLSERVER_REMOTE_OPERATORS,
-            "an operator is on both the read list and the refused list",
-        )
-    }
-
-    /**
      * **A discriminator whose branches do not both anonymize cannot be built.**
      *
      * The rule is that reading a sibling's presence is admissible **only when every branch replaces

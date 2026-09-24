@@ -7,8 +7,8 @@ internal val SHOWPLAN_NAMESPACE = Regex("""http://schemas\.microsoft\.com/sqlser
 internal val XML_SCHEMA_NAMESPACE = Regex("""http://www\.w3\.org/2001/XMLSchema(-instance)?""")
 
 /**
- * **SQL Server's field inventory for Showplan XML**, and the operator sets its text rowset is read
- * against — the whole of what this product accepts from this engine.
+ * **SQL Server's field inventory for Showplan XML** — the whole of what this product accepts out of
+ * a document of this engine's.
  *
  * ### The content is in the attributes, and that changes nothing below the reader
  *
@@ -487,56 +487,6 @@ internal val SQLSERVER_TOP_FIELDS: Map<String, PlanTreatment> = mapOf(
     "DefinedValues" to PlanTreatment.Subtree { SQLSERVER_DEFINED_VALUES_FIELDS },
     "RelOp" to PlanTreatment.Subtree { SQLSERVER_REL_OP_FIELDS },
 )
-
-/**
- * **The operators this product reads out of a `SHOWPLAN_TEXT` rowset** — a closed list, and the line
- * closure of a format whose structure is a drawn tree rather than a nesting.
- *
- * It is [NODE_LABELS] for this engine and it does the same job: a row whose operator is not one of
- * these is a row nothing here classified, and **reading past one is how a value leaves in the part
- * nobody looked at**. A label this list is missing refuses the plan carrying it until a capture and a
- * row follow.
- *
- * **It is not redundant with the brackets, and the remote rows are what proves it.** The soundness
- * argument for this format is *every identifier is bracketed*, and that argument has an exception:
- * a row that prints one raw. Two such rows are known, named, and refused with an option — but *the
- * exception is the one I know about* is a hope unless something closes the set, and this is what
- * closes it. A remote insert, update or delete prints its linked server raw exactly as a remote query
- * does; under a reader with no operator list, the unbracketed name would simply be preserved, because
- * preserving what is not in brackets is the whole rule. Refusing an operator nobody has captured is
- * the cost, and it is the same cost the field closure carries everywhere else in this product.
- *
- * **This list is wider than the ticket, and it was kept on evidence rather than on preference.**
- * The ticket names two remote rows; cutting the list to exactly those two was tried, and a
- * `Remote Update` row then **reads**, handing back `SOURCE:(ACME_FINANCE_SRV)` exactly as printed —
- * the linked server, in the clear. `SqlServerRefusalTest` runs that row and the two beside it and
- * asserts none of them is read, so the day this list is cut the test says which rows it let through
- * rather than leaving it to be noticed. See [SQLSERVER_TEXT_UNNAMED_REMOTE_ROWS].
- */
-internal val SQLSERVER_OPERATORS: Set<String> = setOf(
-    "Adaptive Join", "Assert", "Bitmap", "Clustered Index Delete", "Clustered Index Insert",
-    "Clustered Index Merge", "Clustered Index Scan", "Clustered Index Seek",
-    "Clustered Index Update", "Collapse", "Columnstore Index Scan", "Compute Scalar",
-    "Concatenation", "Constant Scan", "Deleted Scan", "Filter", "Hash Match", "Index Delete",
-    "Index Insert", "Index Scan", "Index Seek", "Index Spool", "Index Update", "Inserted Scan",
-    "Key Lookup", "Merge Interval", "Merge Join", "Nested Loops", "Parallelism",
-    "Parameter Table Scan", "RID Lookup", "Row Count Spool", "Segment", "Sequence",
-    "Sequence Project", "Sort", "Split", "Stream Aggregate", "Switch", "Table Delete",
-    "Table Insert", "Table Merge", "Table Scan", "Table Spool", "Table Update",
-    "Table-valued function", "Top", "UDX", "Window Aggregate", "Window Spool",
-)
-
-/**
- * **The two rows this writer prints raw** — recognised so that the plan carrying one can be refused
- * **with the option that would have escaped it**.
- *
- * Everything else in a `SHOWPLAN_TEXT` row is bracketed, and these are the exception the admission
- * rests on being told about: a remote row carries the **linked server's name unbracketed** and the
- * **remote statement verbatim**, so there is no delimiter to find either boundary from and the
- * statement is the user's own SQL sitting in the middle of a line. Nothing can be recovered from
- * that, and the same plan under `SET SHOWPLAN_XML ON` puts every one of them in a slot of its own.
- */
-internal val SQLSERVER_REMOTE_OPERATORS: Set<String> = setOf("Remote Query", "Remote Scan")
 
 /**
  * **SQL Server's vocabulary, which is empty — and empty for the opposite reason MySQL's is.**

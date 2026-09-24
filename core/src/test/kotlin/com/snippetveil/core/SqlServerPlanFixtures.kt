@@ -190,16 +190,16 @@ internal val SQLSERVER_TEXT_REMOTE_QUERY = """
 """.trimMargin()
 
 /**
- * **The remote rows this product's refusal does not name** — a remote insert, update and delete.
+ * **The remote rows nobody happened to enumerate** — a remote insert, update and delete.
  *
- * SQL Server prints **five** remote operators and the ticket names two of them. All five write the
- * linked server **unbracketed** after `SOURCE:`, which is the one thing this format's reading has no
- * answer for: *a bracketed token is a name and everything outside a bracket is the engine's*, so an
- * unbracketed linked server is preserved rather than replaced.
+ * SQL Server prints **five** remote operators, and the two most often named are a remote query and a
+ * remote scan. All five write the linked server **unbracketed** after `SOURCE:`, which is the one
+ * thing this format's reading has no answer for: *a bracketed token is a name and everything outside
+ * a bracket is the engine's*, so an unbracketed linked server is emitted as written.
  *
- * They are fixtures rather than a footnote because they are what the operator list is holding shut.
- * `SqlServerRefusalTest` runs each of them and asserts it is **not read** — see
- * [SQLSERVER_OPERATORS], where the argument for the list lives.
+ * They are fixtures rather than a footnote because they are what the **class** rule holds shut where
+ * a list of two spellings would not. `SqlServerRefusalTest` runs each and asserts it is not read —
+ * see `REMOTE_ROW` in `SqlServerFormats.kt`, where the evidence lives.
  */
 internal val SQLSERVER_TEXT_UNNAMED_REMOTE_ROWS: Map<String, String> = mapOf(
     // The remote object in the remote server's own quoting, which is what a non-SQL-Server linked

@@ -21,10 +21,11 @@ package com.snippetveil.core
  * spelling this product has never seen passes through untouched *because it is not in brackets*,
  * and a user's object spelled identically is bracketed and does not.
  *
- * **The one place the writer breaks its own rule is refused rather than read.** A remote query or
- * remote scan row prints the linked server unbracketed and the remote statement verbatim; that is
- * out of vocabulary, and it refuses with an engine option that does escape them. See
- * [SQLSERVER_REMOTE_OPERATORS].
+ * **The one place the writer breaks its own rule is refused rather than read.** A remote row prints
+ * the linked server unbracketed and, for a remote query, the remote statement verbatim; that is out
+ * of vocabulary, and it refuses with an engine option that does escape them. It is refused as the
+ * **class** the writer spells it in rather than as the two spellings anybody has captured — see
+ * `REMOTE_ROW` in `SqlServerFormats.kt`.
  *
  * ### An opener that never closes is the whole soundness check
  *

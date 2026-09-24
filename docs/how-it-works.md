@@ -338,9 +338,12 @@ Worth knowing before relying on it:
   Server keywords exists anywhere in SnippetVeil.
 - **Four SQL Server shapes are refused.** A paste beginning at the **statement echo** — the rowset
   `SHOWPLAN_TEXT` prints above the plan — is refused, as is a multi-statement output carrying a
-  second echo: copy from the plan rowset. A plan with a **remote query** or **remote scan** row is
-  refused, because those rows print the linked server unbracketed and the remote statement verbatim;
-  `SET SHOWPLAN_XML ON` is named as the fix. `SET SHOWPLAN_ALL ON` and `SET STATISTICS PROFILE ON`
+  second echo: copy from the plan rowset. A plan with a **remote** row is refused — a remote query,
+  scan, insert, update or delete — because every one of them prints the linked server unbracketed,
+  and a remote query prints the remote statement verbatim; `SET SHOWPLAN_XML ON` is named as the fix.
+  Every other row is read, including one whose operator SnippetVeil has never seen: the brackets are
+  what make a row safe here, and they do not depend on knowing the operator’s name.
+  `SET SHOWPLAN_ALL ON` and `SET STATISTICS PROFILE ON`
   are refused because the first row of the plan rowset holds your statement in its text cell, and
   they name **different** fixes — `SET SHOWPLAN_XML ON` and `SET STATISTICS XML ON` — because the
   second is the only one that keeps the actual row counts the first was asked for. The

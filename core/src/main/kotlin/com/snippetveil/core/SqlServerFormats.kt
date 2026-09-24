@@ -117,9 +117,9 @@ private fun showplanTextOccurrencesIn(text: String): List<PlanOccurrence> {
  *  - **The rowset's header**, and only as the input's **first** line. A second header is a second
  *    rowset, and the row under it in a multi-statement output is the next statement being echoed —
  *    which is a transcript, and refuses.
- *  - **A node row**, whose operator is one this product reads. An operator on neither list is the
- *    general refusal; one of the **two rows this writer prints raw** is refused with the option that
- *    would have escaped them. See [SQLSERVER_REMOTE_OPERATORS].
+ *  - **A node row.** A **remote** row is refused with the option that would have escaped it, and
+ *    every other row is read — including one whose operator nobody here has captured, because in this
+ *    format the brackets do the work an operator list would. See [REMOTE_ROW].
  *
  * @throws PlanRefusal on anything else, and on an input with no node row in it at all
  */
@@ -138,15 +138,10 @@ private fun planRowsIn(text: String): List<PlanSlot> {
         }
         opening = false
 
-        when (val operator = line.text.substring(body).substringBefore(ARGUMENTS).trim()) {
-            in SQLSERVER_REMOTE_OPERATORS ->
-                throw PlanRefusal(PlanReading.Refused(PlanRefusedForm.SQLSERVER_SHOWPLAN_TEXT_REMOTE))
-
-            in SQLSERVER_OPERATORS ->
-                rows += PlanSlot(line.text, line.start + body, line.start + line.text.length, line.start)
-
-            else -> throw PlanRefusal(PlanReading.Unreadable)
+        if (line.text.substring(body).substringBefore(ARGUMENTS).trim().startsWith(REMOTE_ROW)) {
+            throw PlanRefusal(PlanReading.Refused(PlanRefusedForm.SQLSERVER_SHOWPLAN_TEXT_REMOTE))
         }
+        rows += PlanSlot(line.text, line.start + body, line.start + line.text.length, line.start)
     }
 
     if (rows.isEmpty()) throw PlanRefusal(PlanReading.Unreadable)
@@ -167,6 +162,43 @@ private fun nodeBodyIn(line: String): Int? {
     if (!line.startsWith(BRANCH, at)) return null
     return at + BRANCH.length
 }
+
+/**
+ * **What every row this writer prints raw is called** — and the whole of the operator vocabulary this
+ * format has, which is a class rather than a list.
+ *
+ * ### The exception the admission is told about
+ *
+ * A `SHOWPLAN_TEXT` row is readable because **every identifier in it is bracketed**, so a bracketed
+ * token is a name and every character outside a bracket is the engine's own and is emitted as
+ * written. A **remote** row is the one shape that breaks that: it carries the linked server's name
+ * **unbracketed** after `SOURCE:` and, for a remote query, the remote statement verbatim — so the
+ * rule that keeps everything outside a bracket would keep exactly the thing that must not be kept.
+ *
+ * **The evidence, so this is not re-argued from scratch.** With no rule here at all,
+ *
+ * ```
+ *   |--Remote Update(SOURCE:(ACME_FINANCE_SRV), OBJECT:([ACME_FINANCE_SRV].[billing].[dbo].[Invoices]))
+ * ```
+ *
+ * reads, and comes back with its object replaced and `SOURCE:(ACME_FINANCE_SRV)` exactly as printed:
+ * the linked server, in the clear, out of the **admitted** path. `SqlServerRefusalTest` runs that row
+ * and the two beside it and asserts none of them is read. See [SQLSERVER_TEXT_UNNAMED_REMOTE_ROWS].
+ *
+ * ### A class and not an enumeration
+ *
+ * The writer spells all five of its remote operators `Remote …`, and the rule matches the prefix
+ * rather than listing them. Listing would mean the two spellings anybody has captured protect the
+ * plans carrying them and the other three leak; matching the class is what the engine's own writer
+ * already guarantees. The operator sits before the row's first `(`, which is text the writer
+ * produced — a user's object cannot reach that position, because every object a row names is inside
+ * the brackets that follow.
+ *
+ * **Everything else is read, including an operator nobody has captured**, and that is the point of a
+ * class rather than a list: the brackets are what make a row safe, so a row whose operator is new is
+ * as safe as one whose operator is old, and refusing it would cost a reading that was never in doubt.
+ */
+private const val REMOTE_ROW = "Remote "
 
 /** The root element SQL Server's showplan writer writes, which is what says the document is its. */
 private const val SHOWPLAN_ROOT = "ShowPlanXML"

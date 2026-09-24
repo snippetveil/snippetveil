@@ -136,26 +136,32 @@ class SqlServerRefusalTest {
     }
 
     /**
-     * **A remote row this product's refusal does not name is still never read** — and this is the
-     * test that says what the operator list is for.
+     * **Every remote row is refused, not just the two the ticket happens to name** — and this is the
+     * test the class rule exists for.
      *
-     * SQL Server prints five remote operators; two of them are named and refused with an option. All
-     * five write the linked server **unbracketed** after `SOURCE:`, and an unbracketed token in this
-     * format is preserved, because *everything outside a bracket is the engine's own* is the whole
-     * reading. So a remote update that reached the reader would hand back `SOURCE:(ACME_FINANCE_SRV)`
-     * exactly as printed — the organization-identifying string this product exists to replace.
+     * SQL Server prints five remote operators. All five write the linked server **unbracketed** after
+     * `SOURCE:`, and an unbracketed token in this format is emitted as written, because *everything
+     * outside a bracket is the engine's own* is the whole reading. So a remote update that reached
+     * the reader would hand back `SOURCE:(ACME_FINANCE_SRV)` exactly as printed — the
+     * organization-identifying string this product exists to replace, out of the admitted path.
      *
-     * The operator list is what stops it, and **the leak is asserted rather than described**: each
-     * row is read as far as it gets, and neither the linked server nor a readable plan may come out
-     * of it. Cut the list and this test goes red on the second and third fixtures.
+     * **The leak is asserted rather than described**: each row is run, and none of them may read.
+     * They take the same recourse the two named ones do, because it is the same fix — the engine's
+     * XML puts every one of these in a slot of its own. Narrow the rule to a list of spellings and
+     * this test goes red on the rows the list left out.
      */
     @Test
-    fun `a remote row outside the two that are named is never read`() {
+    fun `every remote row is refused, including the ones the ticket does not name`() {
         for ((operator, plan) in SQLSERVER_TEXT_UNNAMED_REMOTE_ROWS) {
             val reading = parsePlan(plan)
 
             assertFalse(reading is PlanReading.Read, "$operator was read, and its linked server is raw in it")
-            assertEquals(PlanReading.Unreadable, reading, "for $operator")
+            assertEquals(
+                PlanRefusedForm.SQLSERVER_SHOWPLAN_TEXT_REMOTE,
+                (reading as PlanReading.Refused).form,
+                "for $operator",
+            )
+            assertEquals(PlanRecourse.SQLSERVER_SHOWPLAN_XML, reading.form.recourse, "for $operator")
         }
     }
 
@@ -173,19 +179,31 @@ class SqlServerRefusalTest {
     }
 
     /**
-     * **An operator this product has no row for refuses**, which is the line closure of this format.
+     * **An operator nobody here has captured is read, not refused** — which is what a class rule buys
+     * over a list of spellings.
      *
-     * It is the same cost the field closure carries, paid in the same place: a release that invents a
-     * node shape refuses every plan carrying it until a capture and a row follow. The alternative — a
-     * pattern loose enough never to miss an operator — is a pattern loose enough to accept a line
-     * nobody wrote as a plan.
+     * **The brackets are what make a row safe, and they do not know the operator's name.** A row from
+     * a release that invented an operator carries its names bracketed exactly as every other row
+     * does, so refusing it would cost a reading that was never in doubt — and would have cost it on
+     * every plan carrying the new node, until somebody shipped a spelling.
+     *
+     * The claim is asserted over a row the reader has certainly never seen: the plan still reads, and
+     * **the names in it still come out replaced**, which is the half that matters. A row that was
+     * read but not anonymized would be worse than a refusal.
      */
     @Test
-    fun `a node row whose operator has no row refuses`() {
+    fun `a node row whose operator nobody has captured is read, and its names are still replaced`() {
         val invented = SQLSERVER_TEXT_PLAN.replace("Nested Loops(Inner Join", "Cranberry Loops(Inner Join")
+        val text = anonymizedText(invented)
 
-        assertTrue(parsePlan(SQLSERVER_TEXT_PLAN) is PlanReading.Read, "the fixture does not read, so this asserts nothing")
-        assertEquals(PlanReading.Unreadable, parsePlan(invented))
+        assertTrue(parsePlan(invented) is PlanReading.Read, "an operator nobody has captured refused the plan")
+        assertTrue("Cranberry Loops(Inner Join" in text, "the engine's own operator name was not left alone:\n$text")
+        for (name in SQLSERVER_NAMES) {
+            assertFalse(
+                Regex("""\b${Regex.escape(name)}\b""").containsMatchIn(text),
+                "an uncaptured operator's row left `$name` on the clipboard:\n$text",
+            )
+        }
     }
 
     /**
