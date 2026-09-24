@@ -25,7 +25,7 @@ class PlanProvenanceTest {
      */
     @Test
     fun `every identifier in a committed fixture is from the generator's vocabulary`() {
-        val foreign = COMMITTED_PLAN_CAPTURES.associate { it.name to PlanProvenance.foreignIn(it) }
+        val foreign = COMMITTED_PLAN_CAPTURES.associate { it.name to PlanProvenance.foreignIn(it.text) }
             .filterValues { it.isNotEmpty() }
 
         assertTrue(
@@ -63,17 +63,45 @@ class PlanProvenanceTest {
     }
 
     /**
-     * **A name the engine delimited is a finding whatever it is spelled**, which is the half of the
-     * trap a keyword subtraction would otherwise eat.
+     * **A foreign name is a finding wherever the document put it** — in a slot the engine delimited
+     * as readily as in a bare one.
      *
-     * A relation called `Sort` is printed `"Sort"` by PostgreSQL, and the universe keeps a delimited
-     * spelling whole and unsubtracted for exactly this reason: it is always a name.
+     * The reading is engine-neutral text splitting, so a JSON value and a bare word in a text plan
+     * reach the trap the same way; this is the assertion that neither is walked past.
      */
     @Test
-    fun `a delimited keyword spelling is still read as an identifier`() {
+    fun `a foreign name is found inside a delimited slot`() {
         val planted = """[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "Ledger"}}]"""
 
         assertEquals(listOf("Ledger"), PlanProvenance.foreignIn(planted))
+    }
+
+    /**
+     * **The trap's one blind spot, asserted rather than left to be discovered.**
+     *
+     * A chrome spelling is allowed wherever it appears, delimiters included, so a real database's
+     * relation genuinely called `Message` passes. The oracle next door does not have that hole — it
+     * keeps a delimited spelling whatever it is spelled — and the trap cannot copy it: the splitting
+     * is engine-neutral, so **every quoted value in a JSON or XML plan comes back delimited**, and a
+     * trap that refused chrome inside delimiters would flag `Seq` and `Scan` in every structured
+     * capture ever committed.
+     *
+     * What narrows the hole is the schema half: the generator names its own keyword-collision
+     * relations — `Sort`, `Hash`, `Filter` — so the case the named assertion is about is carried
+     * there rather than here.
+     */
+    @Test
+    fun `a relation named after a printer word passes, which is the trap's stated blind spot`() {
+        val collides = """[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "Message"}}]"""
+        val keywordNamed = """[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "Sort"}}]"""
+
+        assertEquals(emptyList<String>(), PlanProvenance.foreignIn(collides), "the blind spot has closed")
+        assertTrue(
+            "Sort" in PlanProvenance.SCHEMA_VOCABULARY && "Sort" !in PlanProvenance.PRINTER_SPELLINGS,
+            "`Sort` is no longer the generator's relation, so the named assertion's fixture passes " +
+                "this trap on the chrome half — which is the blind spot rather than the schema",
+        )
+        assertEquals(emptyList<String>(), PlanProvenance.foreignIn(keywordNamed))
     }
 
     /**

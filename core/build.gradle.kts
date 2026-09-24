@@ -127,6 +127,12 @@ tasks.test {
  * one `val` between the two filters keeps them agreeing with each other; this keeps them agreeing
  * with the source tree. It is the same rule `assertTheSweepIsExcludedFromTheMergeGate` holds over
  * the two halves in `:plugin`.
+ *
+ * **It is a second spelling of that rule rather than a shared one, deliberately.** Sharing it needs
+ * a helper copied into both build scripts or a `buildSrc` that exists only to hold it — and the root
+ * build's banner already settles that trade for this project: a `buildSrc` for one helper moves the
+ * rule off the line that registers the task it guards. The duplication is two small tasks in two
+ * scripts, each guarding the classes its own script filters.
  */
 val assertThePlanSweepIsExcludedFromTheMergeGate =
     tasks.register("assertThePlanSweepIsExcludedFromTheMergeGate") {

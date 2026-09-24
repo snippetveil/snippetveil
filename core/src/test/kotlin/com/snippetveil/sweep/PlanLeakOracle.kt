@@ -51,10 +51,7 @@ import com.snippetveil.core.PlanVocabulary
  * @param universe every spelling the oracle tests against, each mapped to the annotation a reader
  *   needs in order to triage it — or to `null` where there is nothing to say about it
  */
-internal class PlanLeakOracle private constructor(private val universe: Map<String, String?>) {
-
-    /** How many spellings the oracle tests against. Reported rather than recomputed by the caller. */
-    val size: Int get() = universe.size
+internal class PlanLeakOracle private constructor(private val universe: Map<String, PlanTriageNote?>) {
 
     /**
      * Every spelling of the input's that survived into [output], once each, at the line it first
@@ -91,7 +88,7 @@ internal class PlanLeakOracle private constructor(private val universe: Map<Stri
          */
         fun over(text: String, rider: PlanVocabulary): PlanLeakOracle {
             val universe = universeOf(text, rider).associate { spelling ->
-                spelling.spelling to annotationOf(spelling, rider)
+                spelling.spelling to noteFor(spelling, rider)
             }
 
             // A check that found nothing to check is not a pass — the rule every check in this
@@ -105,42 +102,17 @@ internal class PlanLeakOracle private constructor(private val universe: Map<Stri
         }
 
         /**
-         * What a reader is told about a spelling before they triage it — and the two things worth
-         * saying.
-         *
-         * **The builtin annotation is the load-bearing one.** It is the number that makes the
-         * oracle's refusal to subtract that list answerable: *this many spellings survived only
-         * because a builtin row saved them, and here is the row.* Counting it is how the size of the
-         * shadowing exposure stops being an argument and becomes a measurement.
+         * What a reader is told about a spelling before they triage it. See [PlanTriageNote].
          */
-        private fun annotationOf(spelling: PlanSpelling, rider: PlanVocabulary): String? = when {
+        private fun noteFor(spelling: PlanSpelling, rider: PlanVocabulary): PlanTriageNote? = when {
             // A delimited spelling is a name whatever it is spelled, so nothing is said about it: a
             // note reading *the printer writes this word too* would be the sentence that gets a
             // leaked `"Sort"` read past.
             spelling.delimited -> null
-            spelling.spelling in rider.builtins -> BUILTIN_ANNOTATION + spelling.spelling
-            spelling.spelling in PlanProvenance.chromeOf(null) -> PRINTER_ANNOTATION
+            spelling.spelling in rider.builtins -> PlanTriageNote.Builtin(spelling.spelling)
+            spelling.spelling in PlanProvenance.chrome -> PlanTriageNote.Printer
             else -> null
         }
-
-        /**
-         * **The annotation a spelling the builtin list saved carries** — the row that saved it
-         * follows, so a triage list says *which* row rather than only that one existed.
-         */
-        const val BUILTIN_ANNOTATION = "preserved by the builtin row "
-
-        /**
-         * **The annotation a bare spelling the engine's own printer writes carries** — the known
-         * recurring false positive of this oracle, named rather than removed.
-         *
-         * Every field label, node type and namespace word of a plan is in the universe, because no
-         * rider row holds them, and every one of them survives into the output. **Subtracting them
-         * was refused for the reason the source half keeps reporting `com`**: each subtraction is a
-         * class of leak this instrument can never see again — a relation genuinely named `Filter`
-         * among them — bought with noise a human reads past once. So the row is printed, with a note
-         * saying which class it is in, and a human adjudicates it.
-         */
-        const val PRINTER_ANNOTATION = "a spelling the engine's own printer writes"
 
         /**
          * **The rules prove they can fail before they report that nothing failed.**
@@ -217,9 +189,11 @@ internal class PlanLeakOracle private constructor(private val universe: Map<Stri
                 )
                 proves(
                     "lost the row that saved a spelling the builtin list preserved",
-                    shadowing.survivorsIn("Filter: ($builtin(col1) > 1)")
-                        .single { it.spelling == builtin }
-                        .annotation == BUILTIN_ANNOTATION + builtin,
+                    (
+                        shadowing.survivorsIn("Filter: ($builtin(col1) > 1)")
+                            .single { it.spelling == builtin }
+                            .note as? PlanTriageNote.Builtin
+                        )?.row == builtin,
                 )
             }
             return asserted
@@ -233,13 +207,51 @@ internal class PlanLeakOracle private constructor(private val universe: Map<Stri
  * @param spelling the spelling, exactly as the universe holds it
  * @param line the 1-based line of the anonymized output it first appears on
  * @param text that line, trimmed — the context a human needs to tell a leak from a collision
- * @param annotation what a reader is told before they triage it, or `null` where there is nothing to
- *   say. **The triage annotation**: a row the builtin list saved is a rule-stated preserve rather
- *   than a suspected leak, and the reader is told which row saved it rather than left to work it out.
+ * @param note what a reader is told before they triage it, or `null` where there is nothing to say.
+ *   See [PlanTriageNote].
  */
 internal class PlanSurvivor(
     val spelling: String,
     val line: Int,
     val text: String,
-    val annotation: String? = null,
+    val note: PlanTriageNote? = null,
 )
+
+/**
+ * **What a reader is told about a survivor before they triage it** — a class, not a sentence, so
+ * that a number can be counted off it rather than recovered by re-reading prose.
+ *
+ * Two of them, because two things are worth saying and they are worth saying for opposite reasons.
+ */
+internal sealed class PlanTriageNote {
+
+    /** How the note reads in a report. */
+    abstract val printed: String
+
+    /**
+     * **This spelling survived because a builtin row saved it** — the row named.
+     *
+     * The load-bearing one. It is the number that makes the oracle's refusal to subtract that list
+     * answerable: *this many spellings survived only because a builtin row saved them, and here is
+     * the row.* Counting it is how the size of the shadowing exposure stops being an argument and
+     * becomes a measurement.
+     */
+    class Builtin(val row: String) : PlanTriageNote() {
+        override val printed: String get() = "preserved by the builtin row $row"
+    }
+
+    /**
+     * **This spelling is one the engine's own printer writes** — the known recurring false positive
+     * of this oracle, named rather than removed.
+     *
+     * Every field label, node type and namespace word of a plan is in the universe, because no rider
+     * row holds them, and every one of them survives into the output. **Subtracting them was refused
+     * for the reason the source half keeps reporting `com`**: each subtraction is a class of leak
+     * this instrument can never see again — a relation genuinely named `Filter` among them — bought
+     * with noise a human reads past once. So the row is printed, with a note saying which class it
+     * is in, and a human adjudicates it.
+     */
+    object Printer : PlanTriageNote() {
+        override val printed: String get() = "a spelling the engine's own printer writes"
+    }
+}

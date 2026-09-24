@@ -42,8 +42,7 @@ class PlanSweepReportTest {
      */
     @Test
     fun `an admitted row with no capture holds the release and a refused row with none does not`() {
-        val everyAdmittedRow = PLAN_FORMATS.filter { it.state == PlanFormatState.ADMITTED }
-            .map { outcomeOf(capture("of/${it.name}", PlanCaptureLabel.OfFormat(it), READABLE_PLANS.getValue(it.name))) }
+        val everyAdmittedRow = everyAdmittedRow()
 
         val whole = report(everyAdmittedRow)
         assertEquals(emptyList<String>(), whole.starvedAdmissions().map { it.name })
@@ -66,16 +65,32 @@ class PlanSweepReportTest {
         )
     }
 
-    /** Either zero holds the release, whichever direction it was broken in. */
+    /**
+     * **Either zero holds the release, whichever direction it was broken in — and the third row does
+     * not.**
+     *
+     * The pass condition is two zeros. Asserted as the pair it is, because a third member creeping
+     * into the loop would be this instrument holding a release on a rule nobody decided it should,
+     * and nothing about a passing run would show it.
+     */
     @Test
-    fun `either zero holds the release`() {
-        for (zero in PlanZero.entries) {
+    fun `either zero holds the release and the refusal-message row does not`() {
+        for (zero in listOf(PlanZero.REFUSED_FORM_ACCEPTED, PlanZero.ADMITTED_FORM_REFUSED)) {
             val broken = report(listOf(brokenOutcome(zero)))
             val thrown = runCatching { broken.assertTheRunHolds() }.exceptionOrNull()
 
             assertTrue(thrown is IllegalStateException, "$zero did not hold the release")
             assertTrue(zero.complaint in thrown?.message.orEmpty(), "the failure did not name $zero")
         }
+
+        // Over a run that otherwise holds — every admitted row has a capture — so that what is
+        // being asserted is this row's own gating and not some other clause's.
+        val wrongMessage = report(everyAdmittedRow() + brokenOutcome(PlanZero.WRONG_REFUSAL_MESSAGE))
+        wrongMessage.assertTheRunHolds()
+        assertTrue(
+            PlanZero.WRONG_REFUSAL_MESSAGE.complaint in wrongMessage.render(),
+            "a wrong refusal message held nothing up and was not reported either",
+        )
     }
 
     /** A capture nobody can say what it is of cannot be held to either zero, so it is a finding. */
@@ -166,6 +181,12 @@ class PlanSweepReportTest {
         PlanCapture(name, label, text, PlanCaptureOrigin.CORPUS)
 
     private fun readableOutcome() = outcomeOf(COMMITTED_PLAN_CAPTURES.first { it.name == "postgres-text" })
+
+    /** One capture of every admitted row — the smallest run that satisfies the denominator clause. */
+    private fun everyAdmittedRow(): List<PlanCaptureOutcome> =
+        PLAN_FORMATS.filter { it.state == PlanFormatState.ADMITTED }.map {
+            outcomeOf(capture("of/${it.name}", PlanCaptureLabel.OfFormat(it), READABLE_PLANS.getValue(it.name)))
+        }
 
     /** A capture labelled so that it breaks [zero], built out of a committed one. */
     private fun brokenOutcome(zero: PlanZero): PlanCaptureOutcome {

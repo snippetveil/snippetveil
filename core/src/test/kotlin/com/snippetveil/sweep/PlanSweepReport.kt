@@ -41,9 +41,12 @@ internal enum class PlanZero(val complaint: String) {
     ADMITTED_FORM_REFUSED("a capture of an admitted form was refused"),
 
     /**
-     * **A refusal message that is not the one the capture is of.** Not one of the two zeros, and
-     * reported beside them because it is the same shape of mistake one layer in: the product
-     * recognised the form and then said the wrong true thing about it.
+     * **A refusal message that is not the one the capture is of.** Not one of the two zeros, and it
+     * does not hold a release: it is reported beside them because it is the same shape of mistake
+     * one layer in — the product recognised the form and then said the wrong true thing about it.
+     *
+     * The committed subset asserts it in `PlanZerosTest`, where it is a claim about a fixture that
+     * exists to produce one message. Over a corpus it is a finding a human reads.
      */
     WRONG_REFUSAL_MESSAGE("a capture of one refusal message was refused with another"),
 }
@@ -106,9 +109,7 @@ internal fun outcomeOf(capture: PlanCapture): PlanCaptureOutcome {
 
     val output = anonymize(reading.plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY).text
     val survivors = PlanLeakOracle.over(capture.text, rider).survivorsIn(output)
-    val preserved = survivors.mapNotNull { survivor ->
-        survivor.annotation?.removePrefix(PlanLeakOracle.BUILTIN_ANNOTATION)?.takeIf { it != survivor.annotation }
-    }
+    val preserved = survivors.mapNotNull { (it.note as? PlanTriageNote.Builtin)?.row }
     return PlanCaptureOutcome(capture, violation, unscannable, preserved, survivors)
 }
 
@@ -132,9 +133,6 @@ internal fun violationOf(capture: PlanCapture, reading: PlanReading): PlanZero? 
         else -> null
     }
 
-    // Read by nobody is the whole of what this label claims, and being read by somebody is the
-    // leak-shaped direction exactly as it is for a refused row.
-    PlanCaptureLabel.Unreadable -> PlanZero.REFUSED_FORM_ACCEPTED.takeIf { reading is PlanReading.Read }
 }
 
 /**
@@ -196,8 +194,10 @@ internal class PlanSweepReport(private val stamp: String, private val swept: Lis
         appendLine("## Captures seen per format")
         appendLine()
         for (format in PLAN_FORMATS) {
-            val seen = outcomes.count { (it.capture.label as? PlanCaptureLabel.OfFormat)?.format === format }
-            appendLine("  ${format.name} (${format.engine.printed}, ${format.state}, ${format.reach}): $seen")
+            appendLine(
+                "  ${format.name} (${format.engine.printed}, ${format.state}, ${format.reach}): " +
+                    capturesOf(format),
+            )
         }
         val starved = starvedAdmissions()
         appendLine()
@@ -236,7 +236,10 @@ internal class PlanSweepReport(private val stamp: String, private val swept: Lis
         appendLine("## Whole-field redaction, per format — reported, no threshold")
         appendLine()
         for (format in PLAN_FORMATS.filter { it.state == PlanFormatState.ADMITTED }) {
-            val read = outcomes.filter { it.read && it.capture.recognisedBy === format }
+            // Grouped by the **corpus's** claim about the capture and never by what the parser
+            // recognised, for the reason the zeros are: a number attributed by the parser's own
+            // answer is a number about the parser agreeing with itself.
+            val read = outcomes.filter { it.read && it.capture.format === format }
             val costly = read.filter { it.unscannableFields > 0 }
             val fields = read.sumOf { it.unscannableFields }
             appendLine("  ${format.name}: ${costly.size} of ${read.size} capture(s) lost a field, $fields field(s) in all")
@@ -326,14 +329,13 @@ internal class PlanSweepReport(private val stamp: String, private val swept: Lis
         for (outcome in withSurvivors) {
             appendLine("  ${outcome.capture.name} — ${outcome.survivors.size} spelling(s)")
             for (survivor in outcome.survivors) {
-                val annotation = survivor.annotation?.let { " [$it]" } ?: ""
-                appendLine("    line ${survivor.line}: ${survivor.spelling}$annotation")
+                val note = survivor.note?.let { " [${it.printed}]" } ?: ""
+                appendLine("    line ${survivor.line}: ${survivor.spelling}$note")
             }
         }
     }
 
-    private fun capturesOf(format: PlanFormat): Int =
-        outcomes.count { (it.capture.label as? PlanCaptureLabel.OfFormat)?.format === format }
+    private fun capturesOf(format: PlanFormat): Int = outcomes.count { it.capture.format === format }
 
     /**
      * Every admitted row with no capture behind it — **a format admitted on no evidence**, which
@@ -359,7 +361,12 @@ internal class PlanSweepReport(private val stamp: String, private val swept: Lis
             "A capture nobody can say what it is of cannot be held to either zero: $unlabelled"
         }
 
-        for (zero in PlanZero.entries) {
+        // **Two zeros hold the release, and only two.** The third row is reported beside them and
+        // gates nothing here: it is not one of the two, and a pass condition that quietly grew a
+        // third member would be this instrument holding a release on a rule nobody decided it
+        // should. The committed subset still asserts it, in `PlanZerosTest`, where it is a claim
+        // about a fixture rather than a release gate over a corpus.
+        for (zero in listOf(PlanZero.REFUSED_FORM_ACCEPTED, PlanZero.ADMITTED_FORM_REFUSED)) {
             val broken = outcomes.filter { it.violation == zero }
             check(broken.isEmpty()) {
                 "${broken.size} capture(s) — ${zero.complaint}: ${broken.joinToString { it.capture.name }}"

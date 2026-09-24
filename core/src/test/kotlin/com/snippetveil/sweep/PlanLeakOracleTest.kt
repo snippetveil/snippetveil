@@ -66,9 +66,9 @@ class PlanLeakOracleTest {
     fun `a token the builtin list saves is annotated with the row that saved it`() {
         val oracle = PlanLeakOracle.over("Filter: (count(status) > 1)", POSTGRES)
 
-        val survivor = oracle.survivorsIn("Filter: (count(col1) > 1)").single { it.spelling == "count" }
+        val note = oracle.survivorsIn("Filter: (count(col1) > 1)").single { it.spelling == "count" }.note
 
-        assertEquals(PlanLeakOracle.BUILTIN_ANNOTATION + "count", survivor.annotation)
+        assertEquals("count", (note as? PlanTriageNote.Builtin)?.row, "the row that saved it was lost")
     }
 
     /**
@@ -83,9 +83,9 @@ class PlanLeakOracleTest {
     fun `a spelling the printer writes is annotated rather than removed`() {
         val oracle = PlanLeakOracle.over("Seq Scan on invoices", POSTGRES)
 
-        val survivors = oracle.survivorsIn("Seq Scan on table1").associate { it.spelling to it.annotation }
+        val survivors = oracle.survivorsIn("Seq Scan on table1").associate { it.spelling to it.note }
 
-        assertEquals(PlanLeakOracle.PRINTER_ANNOTATION, survivors["Scan"], "a printer word was not annotated")
+        assertEquals(PlanTriageNote.Printer, survivors["Scan"], "a printer word was not annotated")
         assertTrue("Seq" in survivors, "a printer word was removed from the report rather than annotated")
     }
 
@@ -96,7 +96,7 @@ class PlanLeakOracleTest {
 
         val survivor = oracle.survivorsIn("Seq Scan on invoices").single { it.spelling == "invoices" }
 
-        assertEquals(null, survivor.annotation)
+        assertEquals(null, survivor.note)
     }
 
     /**

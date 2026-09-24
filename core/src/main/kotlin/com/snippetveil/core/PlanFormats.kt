@@ -83,8 +83,8 @@ internal enum class PlanEngine(val printed: String) {
  * holds the release. So the state is on the row, and the instrument's denominator clause reads it
  * rather than guessing from the reader's shape.
  *
- * See `PlanSweepReport` for the clause, and `PlanVocabularyTest` for the assertion that every row
- * carries a state consistent with what its reader actually does.
+ * See `PlanSweepReport` for the clause, and `PlanCoverageTest` for the assertions the vocabulary's
+ * own rows are held to without a corpus.
  */
 internal enum class PlanFormatState {
 

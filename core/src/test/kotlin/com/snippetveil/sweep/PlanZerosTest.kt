@@ -35,15 +35,7 @@ class PlanZerosTest {
      */
     @Test
     fun `no capture of a refused form is read as a plan`() {
-        val accepted = COMMITTED_PLAN_CAPTURES
-            .map(::outcomeOf)
-            .filter { it.violation == PlanZero.REFUSED_FORM_ACCEPTED }
-
-        assertTrue(
-            accepted.isEmpty(),
-            "these captures are of forms this product refuses, and were read: " +
-                accepted.joinToString { "${it.capture.name} (${it.capture.label.label})" },
-        )
+        assertNothingBroke(PlanZero.REFUSED_FORM_ACCEPTED)
     }
 
     /**
@@ -54,15 +46,7 @@ class PlanZerosTest {
      */
     @Test
     fun `no capture of an admitted form is refused`() {
-        val refused = COMMITTED_PLAN_CAPTURES
-            .map(::outcomeOf)
-            .filter { it.violation == PlanZero.ADMITTED_FORM_REFUSED }
-
-        assertTrue(
-            refused.isEmpty(),
-            "these captures are of forms this product admits, and were refused: " +
-                refused.joinToString { "${it.capture.name} (${it.capture.label.label})" },
-        )
+        assertNothingBroke(PlanZero.ADMITTED_FORM_REFUSED)
     }
 
     /**
@@ -74,14 +58,21 @@ class PlanZerosTest {
      */
     @Test
     fun `each capture of a refusal message is refused with that message`() {
-        val wrong = COMMITTED_PLAN_CAPTURES
-            .map(::outcomeOf)
-            .filter { it.violation == PlanZero.WRONG_REFUSAL_MESSAGE }
+        assertNothingBroke(PlanZero.WRONG_REFUSAL_MESSAGE)
+    }
+
+    /**
+     * No committed capture broke [zero].
+     *
+     * One helper rather than three copies of the same three lines — the difference between the
+     * tests is which zero they are about, and everything else is the same question.
+     */
+    private fun assertNothingBroke(zero: PlanZero) {
+        val broken = COMMITTED_PLAN_CAPTURES.map(::outcomeOf).filter { it.violation == zero }
 
         assertTrue(
-            wrong.isEmpty(),
-            "these captures were refused with a message other than the one they are of: " +
-                wrong.joinToString { "${it.capture.name} (${it.capture.label.label})" },
+            broken.isEmpty(),
+            "${zero.complaint}: " + broken.joinToString { "${it.capture.name} (${it.capture.label.label})" },
         )
     }
 

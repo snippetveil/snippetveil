@@ -47,11 +47,28 @@ import com.snippetveil.core.flattenedFieldsOf
  * every fixture committed here today is exactly that. See [PlanCaptureOrigin], which records the
  * provenance of each row truthfully, and `PlanSweepReport`, which reports the split.
  *
+ * ### The one blind spot, stated rather than hidden
+ *
+ * **A chrome spelling is allowed wherever it appears — including where the engine delimited it.** So
+ * a real database's relation genuinely called `Message`, `Name` or `Level` would pass this trap.
+ *
+ * The oracle next door does not have that hole: it keeps a delimited spelling whatever it is spelled,
+ * because a delimited token is always a name. The trap cannot copy that, and the reason is the
+ * reading rather than a preference. [spellingsIn] is engine-neutral text splitting: it cannot tell an
+ * engine's identifier delimiter from a document's own string quoting, so **every quoted value in a
+ * JSON or XML plan comes back delimited** — every node type, every enumerated attribute, every word
+ * of a namespace URI. A trap that refused chrome inside delimiters would flag `Seq`, `Scan` and
+ * `Compute` in every structured capture ever committed, which is a trap nobody keeps.
+ *
+ * The hole is narrower than it sounds and it is narrowed on purpose: the generator's schema names its
+ * keyword-collision relations itself — `Sort`, `Hash`, `Filter` are [SCHEMA_VOCABULARY] rows — so the
+ * case the named assertion is about is carried by the schema half rather than by this one.
+ *
  * ### Why the allowance has two halves
  *
  * A capture is mostly the engine's own words. So an identifier-shaped token is allowed when it is in
  * the [SCHEMA_VOCABULARY] — the generator's own schema — **or** when it is a spelling the engine's
- * own printer writes, which is [chromeOf]. The second half is built from the product's existing
+ * own printer writes, which is [chrome]. The second half is built from the product's existing
  * vocabulary and inventory rows wherever one holds the spelling, and from [PRINTER_SPELLINGS] where
  * none does. A fixture that introduces a spelling in neither is a fixture whose provenance is in
  * doubt, which is exactly the question being asked.
@@ -67,6 +84,14 @@ internal object PlanProvenance {
      * by construction. A capture needing a name that is not here needs the generator's schema
      * changed and the corpus regenerated — which is the cost that makes the assertion mean something.
      *
+     * **Its first reading was taken off the fixtures already committed, and that is worth saying
+     * plainly**, because it is the *yes by construction* failure above in its first and weakest
+     * form: there is no generator yet, so the only schema available to write down was the cast those
+     * fixtures already use. What the trap asserts today is therefore *nothing here came from outside
+     * that cast* — which is a real assertion, and it is weaker than the one it will make the day a
+     * generator declares this schema and the fixtures are regenerated against it. It goes red on a
+     * capture from a real database either way, which is the property the relaxation rests on.
+     *
      * The spellings are one schema written the way each engine folds it: PostgreSQL and MySQL print
      * lower case, Oracle upper, SQL Server as declared.
      */
@@ -76,6 +101,12 @@ internal object PlanProvenance {
         addAll(listOf("visits_pkey", "visits_by_owner", "invoices_pkey"))
         addAll(listOf("Visits", "Invoices", "IX_Visits_OwnerId", "PK_Invoices"))
         addAll(listOf("VISITS", "INVOICES", "VISITS_PKEY", "INVOICES_PKEY"))
+
+        // **The relations the generator deliberately names after engine keywords.** They are here
+        // rather than allowed as chrome because they are the generator's schema: the named assertion
+        // that closes the oracle's one permanent hole needs a relation genuinely called `Sort`, and
+        // a fixture carrying one has to pass the trap on the schema half.
+        addAll(listOf("Sort", "Hash", "Filter"))
 
         // The columns.
         addAll(listOf("id", "status", "owner_id", "visit_id", "created_at", "amount"))
@@ -113,6 +144,10 @@ internal object PlanProvenance {
      * cost, and it is the point.
      */
     val PRINTER_SPELLINGS: Set<String> = buildSet {
+        // **`Sort`, `Hash` and `Filter` are deliberately absent**, although the printer writes all
+        // three: they are the generator's keyword-collision relations and belong to
+        // [SCHEMA_VOCABULARY]. A spelling claimed by both lists would make the trap's two halves one
+        // list, which is what `PlanProvenanceTest` holds them apart over.
         // The node types, join strategies and scan directions PostgreSQL prints as enumerated
         // values. They are `Fact(ENGINE_ENUM)` slots to the reader — checked by shape, never by a
         // list — so there is no row anywhere holding the spellings themselves.
@@ -120,8 +155,8 @@ internal object PlanProvenance {
             listOf(
                 "Nested", "Loop", "Seq", "Scan", "Index", "Only", "Bitmap", "Heap", "Tid", "Subquery",
                 "Function", "Table", "Sample", "Values", "CTE", "Named", "Tuplestore", "WorkTable",
-                "Foreign", "Custom", "Materialize", "Memoize", "Sort", "Incremental", "Group",
-                "Aggregate", "WindowAgg", "Unique", "SetOp", "LockRows", "Limit", "Hash", "Merge",
+                "Foreign", "Custom", "Materialize", "Memoize", "Incremental", "Group",
+                "Aggregate", "WindowAgg", "Unique", "SetOp", "LockRows", "Limit", "Merge",
                 "Join", "Gather", "Append", "Recursive", "Union", "Result", "ProjectSet", "ModifyTable",
                 "Insert", "Update", "Delete", "Inner", "Outer", "Left", "Right", "Full", "Semi", "Anti",
                 "Forward", "Backward", "NoMovement", "Plain", "Sorted", "Hashed", "Mixed", "Simple",
@@ -172,7 +207,7 @@ internal object PlanProvenance {
         addAll(
             listOf(
                 "select_type", "partitions", "possible_keys", "key_len", "ref", "filtered", "Extra",
-                "const", "SIMPLE", "Level", "Code", "Message", "Note", "lookup", "using", "Sort",
+                "const", "SIMPLE", "Level", "Code", "Message", "Note", "lookup", "using",
                 "r_rows", "r_filtered", "r_loops", "r_total_time_ms", "index_lookup",
                 // The keywords of the statement this engine echoes above its own plan, spelled the
                 // way its printer spells them — lower case, where every rider row is upper.
@@ -228,14 +263,11 @@ internal object PlanProvenance {
      * does not write — the trap's finding, and the whole of what it reports.
      *
      * The universe is [spellingsIn]'s, not [universeOf]'s: the rider's keyword subtraction is part of
-     * [chromeOf] here, so the trap allows what the oracle merely declines to report, and the two stay
+     * [chrome] here, so the trap allows what the oracle merely declines to report, and the two stay
      * one reading of the page rather than two.
      */
-    fun foreignIn(capture: PlanCapture): List<String> = foreignIn(capture.text)
-
-    /** The same reading over a bare text, which is what a test planting an identifier hands it. */
     fun foreignIn(text: String): List<String> {
-        val allowed = SCHEMA_VOCABULARY + chromeOf(null)
+        val allowed = SCHEMA_VOCABULARY + chrome
         return spellingsIn(text).map { it.spelling }
             .filter { it !in allowed && !isGenerated(it) && !isAQueryBlock(it) }
     }
@@ -252,16 +284,13 @@ internal object PlanProvenance {
      * **Everything the engine's own printer writes**, from the rows this product already keeps plus
      * [PRINTER_SPELLINGS].
      *
-     * The engine is a hint and not a gate: the chrome of **every** engine is allowed for every
-     * capture. A trap that narrowed by engine would be a second place where *which engine is this*
-     * is decided, and the reading path is built so that nothing decides that before a format is
-     * chosen. What it costs is a spelling one engine writes being allowed in another's capture,
-     * which is not the question this trap is asking.
+     * **One set for every engine, and not a set per engine.** A trap that narrowed by engine would
+     * be a second place where *which engine is this* is decided, and the reading path is built so
+     * that nothing decides that before a format is chosen — so there is deliberately nothing here to
+     * pass an engine to. What it costs is a spelling one engine writes being allowed in another's
+     * capture, which is not the question this trap is asking.
      */
-    fun chromeOf(engine: PlanEngine?): Set<String> = ALL_CHROME
-
-    /** Every chrome spelling, built once. See [chromeOf]. */
-    private val ALL_CHROME: Set<String> by lazy {
+    val chrome: Set<String> by lazy {
         buildSet {
             for (engine in PlanEngine.entries) {
                 val rider = riderOf(engine) ?: continue

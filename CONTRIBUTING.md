@@ -759,8 +759,9 @@ The first is the **leak-shaped** direction: the per-format soundness argument is
 entire admission case, and a refused form parsing means that argument is being applied wrongly. The
 second is a **false admission row** — not a field failure, because a field that cannot be scanned
 soundly becomes one redacted literal and never a refusal, so a refusal on an admitted form means the
-recogniser or the vocabulary is wrong. Both are design failures rather than tuning problems, and both
-hold the release.
+recogniser or the vocabulary is wrong. Both are design failures rather than tuning problems, and
+**these two and only these two hold the release**: a capture refused with the wrong message is
+reported beside them and gates nothing, because the pass condition is two zeros.
 
 **Both zeros also run on every pull request**, in `PlanZerosTest`, over the committed fixture subset;
 at corpus scale they run only in the instrument. That is the source half's shape exactly: committed
@@ -836,6 +837,11 @@ to discover.
 > **Committed plan fixtures are lifted from the corpus, never hand-written:** one per admitted
 > format, one per refusal message, and every capture recorded as surprising.
 
+`PlanCoverageTest` holds the first two arms. **The third is not met and is named rather than
+elided**: *every capture recorded as surprising* is a property of a corpus that marks a capture when
+it is taken, and there is no such corpus. Closing it needs a generator that records the mark and a
+rule in `PlanSweep` reading it.
+
 And the relaxation is converted into an assertion rather than left as an instruction:
 
 > **A fixture-provenance trap asserts that every identifier in a committed plan fixture is drawn from
@@ -847,10 +853,23 @@ left as a documented requirement, is precisely the category a self-asserting har
 replace — and it is a requirement that fails in the **green** direction. **If the trap is ever
 removed, the relaxation goes with it.**
 
-**What the trap cannot do**, said here so nobody reads it as more: it certifies that a fixture
-carries no foreign identifier. It does not certify that a fixture came from a capture. Every fixture
-committed today is hand-written — `PlanCaptureOrigin` records that on each row and the report prints
-the split — and the trap passes them, because they use the generator's vocabulary and nothing else.
+**What the trap cannot do**, said here so nobody reads it as more:
+
+- It certifies that a fixture carries **no foreign identifier**. It does not certify that a fixture
+  came from a capture. Every fixture committed today is hand-written — `PlanCaptureOrigin` records
+  that on each row and the report prints the split — and the trap passes them, because they use the
+  generator's vocabulary and nothing else.
+- **Its schema vocabulary was first read off the fixtures that exist**, because there is no
+  generator to declare one. What it asserts today is therefore *nothing here came from outside that
+  cast*, which is weaker than what it will assert once a generator declares the schema — and still
+  goes red on a capture from a real database, which is the property the relaxation rests on.
+- **A chrome spelling is allowed wherever it appears, delimiters included**, so a real database's
+  relation genuinely called `Message` would pass. The splitting is engine-neutral text splitting and
+  cannot tell an engine's identifier delimiter from a document's own string quoting, so every quoted
+  value in a JSON or XML plan comes back delimited; a trap that refused chrome inside delimiters
+  would flag `Seq` and `Scan` in every structured capture. The generator names its own
+  keyword-collision relations — `Sort`, `Hash`, `Filter` — so the case the named assertion is about
+  is carried by the schema half instead.
 
 ## Continuous integration
 

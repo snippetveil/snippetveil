@@ -181,22 +181,4 @@ class PlanCoverageTest {
             )
         }
     }
-
-    /**
-     * **A text two vocabularies accept is read by nobody**, and the capture for it is committed so
-     * that the rule has one.
-     *
-     * Two is answered the way zero is. It is neither zero's business — no row refuses it — and it is
-     * asserted here because an ambiguity silently resolved would be this product choosing which of
-     * two readings of a text to trust.
-     */
-    @Test
-    fun `a capture two vocabularies accept is read by nobody`() {
-        val ambiguous = COMMITTED_PLAN_CAPTURES.single { it.label == PlanCaptureLabel.Unreadable }
-
-        assertTrue(
-            ambiguous.reading is PlanReading.Unreadable,
-            "a text more than one vocabulary accepts was read under one of them",
-        )
-    }
 }

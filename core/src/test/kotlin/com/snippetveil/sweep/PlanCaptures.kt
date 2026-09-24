@@ -1,6 +1,5 @@
 package com.snippetveil.sweep
 
-import com.snippetveil.core.AMBIGUOUS_JSON_PLAN
 import com.snippetveil.core.JSON_PLAN
 import com.snippetveil.core.MARIADB_JSON_PLAN
 import com.snippetveil.core.MARIADB_TABULAR_PLAN
@@ -13,7 +12,6 @@ import com.snippetveil.core.ORACLE_MONITOR_XML
 import com.snippetveil.core.PLAN_FORMATS
 import com.snippetveil.core.PlanEngine
 import com.snippetveil.core.PlanFormat
-import com.snippetveil.core.PlanFormatState
 import com.snippetveil.core.PlanReading
 import com.snippetveil.core.PlanRefusedForm
 import com.snippetveil.core.PlanVocabulary
@@ -25,6 +23,7 @@ import com.snippetveil.core.SQLSERVER_XML_PLAN
 import com.snippetveil.core.TEXT_PLAN
 import com.snippetveil.core.XML_PLAN
 import com.snippetveil.core.YAML_PLAN
+import com.snippetveil.core.framingOf
 import com.snippetveil.core.parsePlan
 
 /**
@@ -56,18 +55,6 @@ internal sealed class PlanCaptureLabel {
     class OfRefusal(val form: PlanRefusedForm) : PlanCaptureLabel() {
         override val label: String get() = refusalLabelOf(form)
     }
-
-    /**
-     * **A capture no row admits and no message names** — the general verdict, *this is not a plan
-     * this engine reads*.
-     *
-     * Neither zero is about it: it is not a refused-format capture, because no format row refuses
-     * it, and it is not an admitted-format capture either. What it asserts is that the text is read
-     * as a plan by nobody, which is the answer both zero matching vocabularies and two of them get.
-     */
-    object Unreadable : PlanCaptureLabel() {
-        override val label: String get() = "unreadable"
-    }
 }
 
 /** How a refusal message is spelled as a corpus label — `refusal-mysql-tree`. */
@@ -80,7 +67,6 @@ internal fun refusalLabelOf(form: PlanRefusedForm): String =
  * what it is of is not a capture this run may count.
  */
 internal fun captureLabelOf(name: String): PlanCaptureLabel? {
-    if (name == PlanCaptureLabel.Unreadable.label) return PlanCaptureLabel.Unreadable
     PLAN_FORMATS.firstOrNull { it.name == name }?.let { return PlanCaptureLabel.OfFormat(it) }
     return PlanRefusedForm.entries.firstOrNull { refusalLabelOf(it) == name }?.let(PlanCaptureLabel::OfRefusal)
 }
@@ -132,12 +118,28 @@ internal class PlanCapture(
     val origin: PlanCaptureOrigin,
 ) {
 
-    /** The vocabulary row that recognised this text, or `null` where none or more than one did. */
-    val recognisedBy: PlanFormat? get() = PLAN_FORMATS.filter { it.recognises(text) }.singleOrNull()
+    /**
+     * The vocabulary row that recognised this text, or `null` where none or more than one did.
+     *
+     * **The client frame comes off first**, exactly as it does in the reading path: a `psql`-framed
+     * plan is recognised by nobody with the frame still on, and a capture that fell out of the
+     * engine question here would fall out of the oracle too — silently, which is the shape this
+     * instrument exists to refuse.
+     */
+    val recognisedBy: PlanFormat?
+        get() = framingOf(text).inner.let { inner -> PLAN_FORMATS.filter { it.recognises(inner) }.singleOrNull() }
+
+    /**
+     * **The vocabulary row this capture is a capture of**, by its own label — `null` where the label
+     * names a refusal message or nothing at all.
+     *
+     * The walk from a label to a row recurs everywhere a number is attributed per format, and it is
+     * here rather than at each of those sites so that *what the corpus claimed* is asked in one way.
+     */
+    val format: PlanFormat? get() = (label as? PlanCaptureLabel.OfFormat)?.format
 
     /** The engine whose rider reads this capture, by its label first and its recogniser second. */
-    val engine: PlanEngine?
-        get() = (label as? PlanCaptureLabel.OfFormat)?.format?.engine ?: recognisedBy?.engine
+    val engine: PlanEngine? get() = format?.engine ?: recognisedBy?.engine
 
     /** The rider a leak oracle over this capture is built under, or `null` for an engine with none. */
     val rider: PlanVocabulary? get() = engine?.let(::riderOf)
@@ -200,6 +202,14 @@ internal val KEYWORD_NAMED_TABLE_PLAN: String = """
  * lifted from a corpus, because there is no corpus in or behind this repository yet. The registry
  * says so on each row rather than leaving it to be assumed, and `PlanCoverageTest` holds the two
  * coverage claims that *can* be held: one row per admitted format, and one per refusal message.
+ *
+ * **The clause's third arm is not met and is named rather than elided.** It reads *one per admitted
+ * format, one per refusal message, **and every capture recorded as surprising***, and the third arm
+ * is not a property of this list at all: it is a property of a corpus that marks a capture
+ * surprising when it is taken. There is no such corpus, so there is nothing for a coverage rule to
+ * read and nothing here pretends otherwise. What it will take is a generator that records the mark
+ * and a rule in `PlanSweep` asserting every marked capture has a row here — a rule that cannot be
+ * written against a corpus shape nobody has produced.
  */
 internal val COMMITTED_PLAN_CAPTURES: List<PlanCapture> = listOf(
     committed("postgres-text", "text", TEXT_PLAN),
@@ -247,10 +257,6 @@ internal val COMMITTED_PLAN_CAPTURES: List<PlanCapture> = listOf(
     // here can catch a relation genuinely named after one. That is answered by naming the case
     // rather than by narrowing the universe — see `PlanCoverageTest`.
     committed("postgres-json-keyword-named-table", "json", KEYWORD_NAMED_TABLE_PLAN),
-
-    // A text two vocabularies accept, which is neither an admission nor a recognised refusal: it is
-    // the general verdict, and it is committed so that the ambiguity rule has a capture behind it.
-    committed("mysql-mariadb-ambiguous-json", PlanCaptureLabel.Unreadable.label, AMBIGUOUS_JSON_PLAN),
 )
 
 /**
@@ -269,7 +275,3 @@ private fun committed(name: String, label: String, text: String): PlanCapture {
 
 /** The three keyword spellings [KEYWORD_NAMED_TABLE_PLAN] names its relation, schema and alias. */
 internal val KEYWORD_NAMES: List<String> = listOf("Sort", "Hash", "Filter")
-
-/** Whether this capture's row admits the form it is a capture of. */
-internal val PlanCapture.isOfAdmittedFormat: Boolean
-    get() = (label as? PlanCaptureLabel.OfFormat)?.format?.state == PlanFormatState.ADMITTED

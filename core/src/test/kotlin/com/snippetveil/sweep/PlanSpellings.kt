@@ -69,7 +69,7 @@ internal fun riderOf(engine: PlanEngine): PlanVocabulary? = when (engine) {
  *
  * ### The subtraction, and the one row it must never reach
  *
- * A **bare** spelling the rider's [PlanVocabulary.words], constants or phrase words hold is dropped:
+ * A **bare** spelling the rider's [PlanVocabulary.words] or phrase words hold is dropped:
  * those are spellings the engine's quoting rule says cannot be a user's identifier printed bare.
  * A **delimited** spelling is never dropped, whatever it is spelled — a delimited token is always a
  * name, so a table called `Sort` is a finding and not a keyword.
@@ -194,15 +194,20 @@ internal fun universeOf(text: String, vocabulary: PlanVocabulary): List<PlanSpel
 }
 
 /**
- * **The rider's keyword tokens and printer phrases, as single words** — and `builtins` is not among
- * them, which is the one thing this function exists to make visible in one place.
+ * **The rider's keyword tokens and printer phrases, as single words** — those two rows and no
+ * others, which is the whole of what this function exists to make visible in one place.
  *
  * A phrase contributes each of its words: `double precision` reaches a scanner as two tokens, and a
  * universe that subtracted only the whole phrase would hold `precision` as a candidate name in every
  * plan that casts anything.
+ *
+ * **`builtins` is not here**, for the reason [PlanSpelling] gives. **`constants` is not here
+ * either**, and that is the same reason in miniature: every subtraction is a class of leak the
+ * instrument can never see again, so a row the decision did not name is a row this does not take.
+ * Where a constant is also a keyword — and in every rider here it is — `words` already holds it.
  */
 internal fun printerWordsOf(vocabulary: PlanVocabulary): Set<String> =
-    vocabulary.words + vocabulary.constants + vocabulary.phraseWords
+    vocabulary.words + vocabulary.phraseWords
 
 /** Whether a spelling can start here — a letter or an underscore, as every engine's identifiers do. */
 private fun opensARun(character: Char): Boolean = character.isLetter() || character == '_'
