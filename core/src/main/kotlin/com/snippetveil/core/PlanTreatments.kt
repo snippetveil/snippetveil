@@ -227,6 +227,109 @@ internal object PlanTreatments {
         return maskOf(slot.narrowed(value.first().start, value.last().end))
     }
 
+    /**
+     * **The field, taken out of the output** — the one treatment here that removes rather than
+     * replaces, and the whole of what the drop rule does.
+     *
+     * It reports **one occurrence with a [PlanDisposition.Drop]** over the range the caller gives it,
+     * which is the *field's* range and not its value's: the name, the `=`, the quotes and the space
+     * in front of them all go, because a field emitted as `len=""` would still say there was a
+     * length. There is no allocation, no row and no counter movement behind it — see
+     * [PlanDisposition.Drop] — so two fields carrying one number cannot share a token, which is the
+     * reason the rule drops rather than masks. See [PlanTreatment.Dropped].
+     */
+    fun dropped(slot: PlanSlot): List<PlanOccurrence> {
+        if (slot.start >= slot.end) return emptyList()
+        return listOf(PlanOccurrence(slot.start, slot.end, PlanDisposition.Drop))
+    }
+
+    /**
+     * **A declared type name, decomposed** — each word of the type preserved, each parenthesized size
+     * dropped, and the whole field masked where it is not that shape.
+     *
+     * The grammar is closed and is read here rather than trusted: words of letters, digits and
+     * underscores, single-spaced, each optionally carrying a size in parentheses. That is what makes
+     * this a decomposition — the reader knows which characters are the type and which are the width —
+     * rather than a substring taken out of a value nobody parsed.
+     *
+     * **A value that does not parse is masked whole**, the answer everything here gives a slot it did
+     * not understand. Keeping the part that looked familiar is how the part nobody looked at leaves
+     * the machine. See [PlanTreatment.TypeName].
+     */
+    fun typeName(slot: PlanSlot): List<PlanOccurrence> {
+        val value = slot.trimmed()
+        if (value.isBlank) return emptyList()
+
+        val occurrences = mutableListOf<PlanOccurrence>()
+        var at = value.start
+        while (at < value.end) {
+            if (!opensAWord(value.at(at))) return maskOf(value)
+            val word = value.endOfWordAt(at)
+            occurrences += PlanOccurrence(at, word, PlanDisposition.Preserve)
+            at = word
+
+            if (at < value.end && value.at(at) == '(') {
+                val close = closingParenthesis(value, at) ?: return maskOf(value)
+                if (!SIZE.matches(value.narrowed(at + 1, close).written)) return maskOf(value)
+                occurrences += PlanOccurrence(at, close + 1, PlanDisposition.Drop)
+                at = close + 1
+            }
+
+            if (at == value.end) break
+            // One space between the words of a type, and nothing else anywhere in it.
+            if (value.at(at) != ' ') return maskOf(value)
+            at++
+        }
+        return occurrences
+    }
+
+    /**
+     * **The name a statement gave a bind, masked** — one redacted literal, whole.
+     *
+     * Its own function rather than a call to [deployment] because the two are separate claims: a
+     * deployment identifier names something in the installation, and a bind name is the **statement's
+     * own vocabulary**, routinely the column it filters written out beside the value the mask has
+     * just taken away. See [PlanTreatment.BoundName].
+     */
+    fun boundName(slot: PlanSlot): List<PlanOccurrence> = maskOf(slot.trimmed())
+
+    /**
+     * **The value a statement bound, masked whole and untrimmed.**
+     *
+     * Untrimmed is the difference from every other mask here, and it is deliberate: the space around
+     * a bound value is **part of the value**, and emitting it would state a fact about data this rule
+     * exists to withhold. An empty value is nothing to mask, by the rule every empty slot takes.
+     */
+    fun boundValue(slot: PlanSlot): List<PlanOccurrence> {
+        if (slot.start >= slot.end) return emptyList()
+        return listOf(maskOver(slot.start, slot.end, slot.start, slot.end, slot.written))
+    }
+
+    /**
+     * **A bound value whose bind is typed a number: preserved where it lexes as one, and one redacted
+     * literal where it does not.**
+     *
+     * The shape is the guard rather than the type. A bind's type says which reading to try; whether
+     * anything at all is emitted as written is decided by the value, which is what makes this
+     * admissible as a branch of a value discriminator. See [PlanTreatment.BoundNumber].
+     */
+    fun boundNumber(slot: PlanSlot): List<PlanOccurrence> {
+        if (slot.start >= slot.end) return emptyList()
+        if (!PlanShapes.NUMBER.matches(slot.written)) return boundValue(slot)
+        return listOf(PlanOccurrence(slot.start, slot.end, PlanDisposition.Preserve))
+    }
+
+    /** Where the parenthesized group opened at [at] closes, or `null` where it never does. */
+    private fun closingParenthesis(slot: PlanSlot, at: Int): Int? {
+        var next = at + 1
+        while (next < slot.end) {
+            if (slot.at(next) == ')') return next
+            if (slot.at(next) == '(') return null
+            next++
+        }
+        return null
+    }
+
     /** The whole of [slot], replaced by one redacted literal — or nothing, where there is nothing. */
     private fun maskOf(slot: PlanSlot): List<PlanOccurrence> {
         if (slot.isBlank) return emptyList()
@@ -236,6 +339,15 @@ internal object PlanTreatments {
     private fun maskOver(start: Int, end: Int, nameStart: Int, nameEnd: Int, written: String) =
         PlanOccurrence(start, end, PlanDisposition.Mask(PlanKeys.masked(written)), nameStart, nameEnd)
 
+    /**
+     * **What a declared type's parenthesized size may be written with** — a width, a precision and
+     * scale, a character-length semantic, or the maximum marker a dialect writes.
+     *
+     * A shape rather than anything looser, because this is the half of a type name that is **dropped
+     * unread**: it is the closure that says the characters being removed are a size and not something
+     * else the engine printed in the same position.
+     */
+    private val SIZE = Regex("""\*|max|MAX|\d+(,\d+)?( (BYTE|CHAR))?""")
 }
 
 /**
@@ -283,6 +395,16 @@ internal object PlanShapes {
 
     /** **A count the engine printed as a bare integer** — a trace flag's number, a declared length. */
     val COUNT = Regex("""\d+""")
+
+    /**
+     * **A number, as a value rather than as a measurement** — `42`, `-1.5`, `1.5E+02`.
+     *
+     * It is the shape a bound value is held to before any of it is emitted as written, so it is
+     * written tightly: a sign, digits, one fractional part and one exponent. Anything else — a space,
+     * a currency mark, a thousands separator, a second sign — is a value that is not a number, and it
+     * is masked. See [PlanTreatments.boundNumber].
+     */
+    val NUMBER = Regex("""[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?""")
 
     /**
      * **A data type as a dialect writes one in a plan** — `int`, `varchar(10)`, `nvarchar(max)`,

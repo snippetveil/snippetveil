@@ -54,9 +54,16 @@ internal class PlanSymbols(private val declared: MutableSet<String>, val vocabul
             PlanTreatment.Identifying -> occurrences += PlanTreatments.identifying(slot)
             PlanTreatment.Deployment -> occurrences += PlanTreatments.deployment(slot)
             PlanTreatment.AppendedRaw -> occurrences += PlanTreatments.appendedRaw(slot)
+            PlanTreatment.TypeName -> occurrences += PlanTreatments.typeName(slot)
+            PlanTreatment.BoundName -> occurrences += PlanTreatments.boundName(slot)
+            PlanTreatment.BoundValue -> occurrences += PlanTreatments.boundValue(slot)
+            PlanTreatment.BoundNumber -> occurrences += PlanTreatments.boundNumber(slot)
 
+            // **A dropped field is not a value either**, and it is the newest member of this arm:
+            // what goes is the whole field — its name, its delimiters and the space in front of it —
+            // and what a field *occupies* is the document's shape, which only its reader knows.
             is PlanTreatment.Subtree, PlanTreatment.SettingsMap, is PlanTreatment.Rendered,
-            is PlanTreatment.Discriminated,
+            is PlanTreatment.Discriminated, is PlanTreatment.Typed, PlanTreatment.Dropped,
             -> return false
         }
         return true

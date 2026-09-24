@@ -117,6 +117,26 @@ internal fun attributedXmlDocumentIn(text: String, root: String): PlanMapping? =
     XmlReader(text, attributed = true).attributedDocument(root)
 
 /**
+ * **An attributed XML document whose elements may also carry character data**, read by the same
+ * strict reader — and `null` for anything that is not exactly one element named [root].
+ *
+ * Oracle's monitoring report writes a bind's description in attributes and the **value it bound** in
+ * the element's own content: `<bind name=":city" dty="1">Portland</bind>`. The two spellings on one
+ * element is the whole of the difference from [attributedXmlDocumentIn], and it is absorbed the way
+ * every other spelling here is — the character data becomes **an entry like any other**, under the
+ * reserved label [XML_CHARACTER_DATA], so the inventory, the closure and the treatments are the ones
+ * already written.
+ *
+ * **A value written in CDATA sections is one entry too.** A value carrying the sequence that would
+ * close a section early is split by the writer across two of them, and the entry's content runs from
+ * the opener of the first to the closer of the last — the split included, inside one range. A mask
+ * over that range therefore emits one well-formed section rather than a document this product
+ * assembled.
+ */
+internal fun contentXmlDocumentIn(text: String, root: String): PlanMapping? =
+    XmlReader(text, attributed = true, characterData = true).attributedDocument(root)
+
+/**
  * **How a label is spelled as an XML element name** — the printer's own transform, applied here so
  * that one inventory serves all three formats.
  *
@@ -404,7 +424,11 @@ internal const val RETURN = "\r"
  * @param attributed whether an element's attributes are **entries of it** — SQL Server's spelling —
  *   or the one namespace declaration PostgreSQL's printer writes and nothing else.
  */
-private class XmlReader(private val source: String, private val attributed: Boolean = false) {
+private class XmlReader(
+    private val source: String,
+    private val attributed: Boolean = false,
+    private val characterData: Boolean = false,
+) {
 
     private var at = 0
 
@@ -459,6 +483,15 @@ private class XmlReader(private val source: String, private val attributed: Bool
         at++
 
         val contentStart = at
+
+        // **Character data, where this writer writes it beside attributes.** It is asked first and
+        // asked once: an element whose content is elements answers `null` here, with the scan left
+        // exactly where it was, and is read below as any other element is.
+        if (characterData) {
+            val content = characterDataFrom(contentStart)
+            if (content != null) return dataElement(start, label, opening, contentStart, written, content)
+        }
+
         val children = mutableListOf<PlanEntry>()
         while (true) {
             skipSpace()
@@ -489,6 +522,78 @@ private class XmlReader(private val source: String, private val attributed: Bool
             PlanMapping(entries, PlanSlot(source, contentStart, contentEnd))
         } else {
             PlanScalar(span, PlanSlot(source, contentStart, contentEnd))
+        }
+        return PlanEntry(label, listOf(opening, closing), value)
+    }
+
+    /**
+     * **The character data of the element whose content begins at [from]** — the range its value
+     * occupies — or `null` where the content is elements rather than data, with the scan put back
+     * where it started so the element can be read the other way.
+     *
+     * Two spellings and no third:
+     *
+     *  - **Plain content** runs to the closing tag, and the range is the whole of it.
+     *  - **CDATA sections** run from the opener of the first to the closer of the last. A writer
+     *    that had to split a value — because it carried the sequence that would have closed a
+     *    section early — therefore hands back **one range with the split inside it**, so a mask over
+     *    it replaces the whole value and leaves one well-formed section behind.
+     *
+     * A section that never closes is a document this reader does not understand, which is the answer
+     * everything here gives one.
+     */
+    private fun characterDataFrom(from: Int): PlanSlot? {
+        val mark = at
+        if (!source.startsWith(CDATA_OPEN, at)) {
+            while (at < source.length && source[at] != '<') at++
+            if (source.startsWith("</", at)) return PlanSlot(source, from, at)
+            at = mark
+            return null
+        }
+
+        var contentStart = -1
+        var contentEnd = -1
+        while (source.startsWith(CDATA_OPEN, at)) {
+            val open = at + CDATA_OPEN.length
+            val close = source.indexOf(CDATA_CLOSE, open).takeIf { it >= 0 } ?: break
+            if (contentStart < 0) contentStart = open
+            contentEnd = close
+            at = close + CDATA_CLOSE.length
+        }
+        if (contentStart < 0 || !source.startsWith("</", at)) {
+            at = mark
+            return null
+        }
+        return PlanSlot(source, contentStart, contentEnd)
+    }
+
+    /**
+     * One element whose content is character data, with the closing tag read and the entry built —
+     * a **scalar** where the element carries nothing else, and a **mapping** where it also carries
+     * attributes, the data entering it as one entry like any other.
+     */
+    private fun dataElement(
+        start: Int,
+        label: String,
+        opening: PlanSlot,
+        contentStart: Int,
+        written: List<PlanEntry>,
+        content: PlanSlot,
+    ): PlanEntry? {
+        val contentEnd = at
+        at += 2
+        val closingStart = at
+        while (at < source.length && source[at] != '>') at++
+        if (source.substring(closingStart, at) != label) return null
+        at++
+
+        val closing = PlanSlot(source, closingStart, closingStart + label.length)
+        val span = PlanSlot(source, contentStart, contentEnd)
+        val data = PlanScalar(span, content)
+        val value = if (written.isEmpty()) {
+            PlanScalar(PlanSlot(source, start, at), content)
+        } else {
+            PlanMapping(written + PlanEntry(XML_CHARACTER_DATA, emptyList(), data), span)
         }
         return PlanEntry(label, listOf(opening, closing), value)
     }
@@ -593,6 +698,21 @@ private const val QUERY = "Query"
 
 /** The element the XML printer writes a list's members as. */
 private const val ITEM = "Item"
+
+/** What opens a CDATA section, and what closes one. See [XmlReader.characterDataFrom]. */
+private const val CDATA_OPEN = "<![CDATA["
+
+private const val CDATA_CLOSE = "]]>"
+
+/**
+ * **The label an element's own character data is entered under**, where the writer puts a value in
+ * the element that describes it.
+ *
+ * It is spelled with a character **no XML name may contain**, so the row can never collide with an
+ * attribute the same element carries — the inventory says *this element's content* and cannot be
+ * made to say something else by a document that names an attribute after it.
+ */
+internal const val XML_CHARACTER_DATA = "#text"
 
 /** The one attribute the XML printer writes, byte-exact — see [XmlReader.skipAttributes]. */
 private const val NAMESPACE = """xmlns="http://www.postgresql.org/2009/explain""""

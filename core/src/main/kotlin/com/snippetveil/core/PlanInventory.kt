@@ -218,6 +218,147 @@ internal sealed class PlanTreatment {
      * [PlanStructureReader.readSettings] for why the two differ.
      */
     object SettingsMap : PlanTreatment()
+
+    /**
+     * **The field is taken out of the output altogether** — the first disposition in this product
+     * that removes rather than replaces.
+     *
+     * > **A number that varies with a value SnippetVeil masks is dropped. A number describing the
+     * > slot the value sits in is preserved.**
+     *
+     * A bind's stated byte length sits beside a value that has just been replaced: `city = :city`
+     * with a length of 7 narrows the city to a short list, and a card number arrives with a length of
+     * 16. That is not a gap to disclose — it is a **defeat of the redaction rule**, the same shape as
+     * a preserved hash confirming a guessed query, and disclosing it would list a gap that defeats
+     * another rule.
+     *
+     * **Dropped rather than masked, and the reason is specific.** Equal spellings share a token, so
+     * two binds of equal byte length would receive **the same placeholder** and the receiver would
+     * read length equality off the very mechanism meant to close it. A drop is a disposition rather
+     * than a replacement: it never reaches the allocator, so it cannot share anything. See
+     * [PlanDisposition.Drop].
+     *
+     * **Applied per field, not per value.** A fixed internal size that does not vary with the value
+     * is dropped anyway: the principle decides *what*, and failing closed decides the *granularity*,
+     * because the alternative is a per-type table no capture here can populate.
+     *
+     * Rejected, so they are not proposed again: masking to a redacted literal, which re-leaks length
+     * equality and is the consistent-looking answer; a fixed sentinel, which has the output state a
+     * false fact; recomputing the number to the placeholder's own length, which is this product
+     * writing a number the engine never printed; and bucketing.
+     *
+     * **The whole field goes**, name and value and the space in front of it, which is why this is a
+     * row [PlanSymbols.readSlot] answers `false` for: what a field *occupies* is the document's
+     * shape, and only each format's reader knows that. See [PlanStructureReader].
+     */
+    object Dropped : PlanTreatment()
+
+    /**
+     * **A declared type name, decomposed: the type name kept, its parenthesized size dropped.**
+     *
+     * `VARCHAR2(32)` comes out `VARCHAR2`, and `INTERVAL DAY(2) TO SECOND(6)` comes out
+     * `INTERVAL DAY TO SECOND`. The size is a declared width that varies with the value's slot and
+     * explains no plan; the **type** is exactly what explains an implicit conversion, which is a
+     * top-tier reason to read a plan at all.
+     *
+     * **The strip is a decomposition rather than text editing**, and the closed grammar is what makes
+     * it one: the field is a type name and a parenthesized size, and a value that is not that is
+     * masked whole rather than edited. The bare type name is a spelling the engine never prints in
+     * this field — a small dose of the objection that killed bucketing — and it is accepted because
+     * the grammar is closed. See [PlanTreatments.typeName].
+     */
+    object TypeName : PlanTreatment()
+
+    /**
+     * **The name a statement gave a bind, masked** — `:city`, `:1`.
+     *
+     * A bind's name is the user's, and it is routinely the column it filters spelled out: `:city`
+     * beside a masked value hands back the domain the mask took away. It is masked rather than
+     * anonymized because it is not a name of any of the four kinds — nothing in the schema is called
+     * `:city` — which is the same reading [Deployment] gives a database object outside them.
+     */
+    object BoundName : PlanTreatment()
+
+    /**
+     * **The value a statement bound, masked whole: one redacted literal.**
+     *
+     * It is the user's data, arriving with no delimiters of its own to read parts out of, and there
+     * is nothing in it this product could keep. **It is not trimmed**, unlike every other mask here:
+     * the space around a bound value is part of the value, and leaving it would state a fact about
+     * the data the mask is there to withhold.
+     */
+    object BoundValue : PlanTreatment()
+
+    /**
+     * **A bound value whose bind is typed a number: a number if it lexes as one, and one redacted
+     * literal otherwise.**
+     *
+     * The preservation is the numeric rule this product keeps everywhere — a plan is pasted *for* its
+     * numbers — and it is **guarded by the value's own shape** rather than by the type alone. That is
+     * what makes it admissible as a branch of [Typed]: the type says which reading to try, and the
+     * shape decides whether anything is emitted as written. See [PlanTreatments.boundNumber].
+     */
+    object BoundNumber : PlanTreatment()
+
+    /**
+     * **A field whose reading is named by the *value* of a sibling field** — a bind's character data,
+     * typed by the bind's type attribute.
+     *
+     * The sibling of [Discriminated], and the rule is the same one tightened by exactly what differs:
+     *
+     * > **A value discriminator is admissible only when no branch preserves what it was given
+     * > unchecked.**
+     *
+     * [Discriminated] demands that every branch *replace* what it finds. That is right for a
+     * structural discriminator, where the document's shape is the whole of the evidence. Here the
+     * discriminator names a **class** — this value is a number, that one is a string — and a branch
+     * that checks the value against a closed shape of its own before preserving any of it is not the
+     * document deciding that something of the user's may be emitted as written: the shape is. So an
+     * engine fact, a bound number and a decomposed type name are admitted branches, and a measurement
+     * — which preserves whatever it is handed, unread — is not.
+     *
+     * The [init] block is what makes that a property of the type rather than a habit each row keeps.
+     *
+     * @param by the sibling label whose **value** picks the branch
+     * @param branches what each value of that sibling means
+     * @param otherwise the branch for a value no row names, and for a sibling that is not there at
+     *   all — which is why it is not optional: *the document did not say* has to have an answer, and
+     *   a fail-closed one
+     */
+    class Typed(
+        val by: String,
+        val branches: Map<String, PlanTreatment>,
+        val otherwise: PlanTreatment,
+    ) : PlanTreatment() {
+
+        init {
+            require((branches.values + otherwise).all(::admissibleBranch)) {
+                "a value discriminator on `$by` has a branch that preserves what it was given unchecked"
+            }
+        }
+    }
+}
+
+/**
+ * Whether [treatment] may be a branch of a [PlanTreatment.Typed] — it replaces what it was given, or
+ * it preserves only what it has first checked against a closed shape of its own.
+ *
+ * The `else` arm delegates to [anonymizes], which is the exhaustive cascade — so a treatment class
+ * added later still has to be placed in **one** list, and lands on the replacing side of this
+ * question only if it lands there. What is enumerated here is the short list of classes that
+ * *preserve behind a check*, which is the whole of what this question adds.
+ */
+private fun admissibleBranch(treatment: PlanTreatment): Boolean = when (treatment) {
+    // A fact and an unescaped value are checked before anything of them is emitted; a bound number is
+    // emitted only where it lexes as one; a type name emits only the words of a closed grammar; and a
+    // drop emits nothing at all, which is stronger than replacing.
+    is PlanTreatment.Fact, is PlanTreatment.Unescaped, PlanTreatment.BoundNumber,
+    PlanTreatment.TypeName, PlanTreatment.Dropped,
+    -> true
+
+    is PlanTreatment.Typed -> (treatment.branches.values + treatment.otherwise).all(::admissibleBranch)
+
+    else -> anonymizes(treatment)
 }
 
 /**
@@ -237,7 +378,10 @@ private fun anonymizes(treatment: PlanTreatment): Boolean = when (treatment) {
     is PlanTreatment.Name, is PlanTreatment.Bracketed, is PlanTreatment.Reference,
     PlanTreatment.Declared, PlanTreatment.BracketedDeclaration,
     PlanTreatment.EchoedQuery, PlanTreatment.Identifying, PlanTreatment.Deployment,
-    PlanTreatment.AppendedRaw,
+    PlanTreatment.AppendedRaw, PlanTreatment.BoundName, PlanTreatment.BoundValue,
+    // A dropped field is not emitted at all, which answers this question more strongly than
+    // replacing does: there is nothing left for a branch of a discriminator to have leaked.
+    PlanTreatment.Dropped,
     -> true
 
     is PlanTreatment.Discriminated -> anonymizes(treatment.present) && anonymizes(treatment.absent)
@@ -248,6 +392,7 @@ private fun anonymizes(treatment: PlanTreatment): Boolean = when (treatment) {
     is PlanTreatment.Subtree, is PlanTreatment.Fact, is PlanTreatment.Unescaped,
     is PlanTreatment.Rendered, PlanTreatment.Expression, PlanTreatment.BracketedExpression,
     PlanTreatment.Measured, PlanTreatment.Parameters, PlanTreatment.SettingsMap,
+    PlanTreatment.TypeName, PlanTreatment.BoundNumber, is PlanTreatment.Typed,
     -> false
 }
 

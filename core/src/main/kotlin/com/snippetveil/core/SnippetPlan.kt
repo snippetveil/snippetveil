@@ -625,11 +625,13 @@ class PlanOccurrence(
  * such kind and renders as `str1`, because the only true thing to say about it is that something was
  * there. Which of the two a slot holds is the field inventory's answer, never the lexer's.
  *
- * Four outcomes rather than the three this format needs, and [Drop] is carried deliberately:
- * **nothing drops in the PostgreSQL text format**, and a later format has a token whose presence is
- * itself the disclosure. Retrofitting an outcome through the plan type afterwards is worse than
- * carrying it now — every reader of a disposition would have to be found again, and the one that was
- * missed would silently emit what it was told to remove.
+ * Four outcomes rather than the three the PostgreSQL text format needs, and [Drop] was carried
+ * before anything used it: **nothing drops in that format**, and a later one was expected to have a
+ * token whose presence is itself the disclosure. It does — a bind's byte length, beside the value
+ * that length describes — and the outcome was waiting for it. Retrofitting an outcome through the
+ * plan type afterwards would have been worse than carrying it: every reader of a disposition would
+ * have had to be found again, and the one that was missed would silently emit what it was told to
+ * remove. See [PlanTreatment.Dropped] for the rule that decides what drops.
  */
 sealed class PlanDisposition {
 

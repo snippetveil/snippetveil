@@ -76,7 +76,7 @@ internal fun refuses(name: String, recognises: (String) -> Boolean, form: PlanRe
  * and then the format — there is no step at which an engine could be guessed.
  */
 internal val PLAN_FORMATS: List<PlanFormat> =
-    POSTGRES_FORMATS + MYSQL_FORMATS + MARIADB_FORMATS + SQLSERVER_FORMATS
+    POSTGRES_FORMATS + MYSQL_FORMATS + MARIADB_FORMATS + SQLSERVER_FORMATS + ORACLE_FORMATS
 
 /** The naming of a format that writes the inventory's labels as they are — which is JSON's and YAML's. */
 internal val AS_WRITTEN: (String) -> String = { it }
