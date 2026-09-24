@@ -44,7 +44,7 @@ internal val POSTGRES_FORMATS: List<PlanFormat> = listOf(
     PlanFormat("yaml", ::opensAYamlPlan) {
         structuredOccurrencesIn(yamlQueriesIn(it), POSTGRES_QUERY_FIELDS, POSTGRES, AS_WRITTEN, JSON_QUOTE)
     },
-    PlanFormat("xml", { it.trimStart().startsWith("<") }) {
+    PlanFormat("xml", ::opensAPostgresXmlPlan) {
         structuredOccurrencesIn(
             xmlQueriesIn(it),
             POSTGRES_QUERY_FIELDS,
@@ -56,6 +56,17 @@ internal val POSTGRES_FORMATS: List<PlanFormat> = listOf(
 )
 
 /**
+ * A format that is recognised and never read — the shape is known, and knowing it is what lets the
+ * refusal name it.
+ *
+ * The refusal is thrown rather than returned so that a recognised-and-refused form travels the same
+ * path a refusal decided halfway down a document does. There is one way out of a reader, and it is
+ * [PlanRefusal].
+ */
+internal fun refuses(name: String, recognises: (String) -> Boolean, form: PlanRefusedForm) =
+    PlanFormat(name, recognises) { throw PlanRefusal(PlanReading.Refused(form)) }
+
+/**
  * **Every format this product recognises, of every engine it recognises** — the list [readingOf]
  * decides over, and the list the exactly-one rule is applied to.
  *
@@ -64,7 +75,8 @@ internal val POSTGRES_FORMATS: List<PlanFormat> = listOf(
  * matches two entries here, and two is answered the same way zero is. Nothing picks the engine first
  * and then the format — there is no step at which an engine could be guessed.
  */
-internal val PLAN_FORMATS: List<PlanFormat> = POSTGRES_FORMATS + MYSQL_FORMATS + MARIADB_FORMATS
+internal val PLAN_FORMATS: List<PlanFormat> =
+    POSTGRES_FORMATS + MYSQL_FORMATS + MARIADB_FORMATS + SQLSERVER_FORMATS
 
 /** The naming of a format that writes the inventory's labels as they are — which is JSON's and YAML's. */
 internal val AS_WRITTEN: (String) -> String = { it }
@@ -114,10 +126,7 @@ internal class PlanRefusal(val reading: PlanReading) : RuntimeException(null, nu
  * **The reading of a structured document** — the two passes every format runs, and the refusal a
  * document that did not parse produces.
  *
- * Two passes over one set of declarations, for the reason the text format runs two: a plan prints the
- * use of a name it declared as readily above the declaration as below it, and a reader that keyed
- * each name where it met it would hand out two placeholders for one thing. The first pass's
- * occurrences are thrown away.
+ * The passes are [occurrencesOverTwoPasses]'s, which is where the argument for them lives.
  */
 internal fun structuredOccurrencesIn(
     queries: List<PlanMapping>?,
@@ -133,15 +142,39 @@ internal fun structuredOccurrencesIn(
         throw PlanRefusal(PlanReading.Unreadable)
     }
 
-    val declared = mutableSetOf<String>()
-    val declarations = PlanStructureReader(PlanSymbols(declared, vocabulary), root, naming, quote)
-    queries.forEach(declarations::readQuery)
-
-    val symbols = PlanSymbols(declared, vocabulary)
-    val reader = PlanStructureReader(symbols, root, naming, quote)
-    queries.forEach(reader::readQuery)
-    return symbols.occurrences
+    return occurrencesOverTwoPasses(vocabulary) { symbols ->
+        val reader = PlanStructureReader(symbols, root, naming, quote)
+        queries.forEach(reader::readQuery)
+    }
 }
+
+/**
+ * **Whether this is PostgreSQL's XML plan** — its root element, at the head.
+ *
+ * `<` alone used to be enough, and it stopped being enough the moment a **second** engine's XML
+ * arrived: SQL Server's Showplan is an XML document too, and a predicate matching the punctuation
+ * rather than the printer would accept both — which is the ambiguity [readingOf] answers by refusing.
+ * So the anchor is the root element each writer writes, which is a literal one of them produces and
+ * the other cannot.
+ */
+private fun opensAPostgresXmlPlan(text: String): Boolean = opensAnElement(text, EXPLAIN_ROOT)
+
+/**
+ * Whether the first thing written in [text] is an element named [root] — the root tag, the name
+ * whole, and nothing else in front of it.
+ *
+ * The character after the name is checked so that a root is matched as a **name** rather than as a
+ * prefix: `<explain>` and `<explain xmlns=…>` are this element and `<explainer>` is not.
+ */
+internal fun opensAnElement(text: String, root: String): Boolean {
+    val head = text.trimStart()
+    if (!head.startsWith("<$root")) return false
+    val after = head.getOrNull(root.length + 1) ?: return false
+    return after.isWhitespace() || after == '>' || after == '/'
+}
+
+/** The root element of PostgreSQL's XML plan. See [opensAPostgresXmlPlan]. */
+private const val EXPLAIN_ROOT = "explain"
 
 /**
  * **Whether this is a YAML plan** — a block sequence whose first item opens a mapping, which is the
@@ -159,4 +192,4 @@ private fun opensAYamlPlan(text: String): Boolean {
 internal const val JSON_QUOTE = "\\\""
 
 /** How XML writes one, which is as itself: element content escapes `&`, `<` and `>` and nothing else. */
-private const val XML_QUOTE = "\""
+internal const val XML_QUOTE = "\""

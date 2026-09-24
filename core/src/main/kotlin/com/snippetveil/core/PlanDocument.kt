@@ -98,6 +98,25 @@ internal fun yamlQueriesIn(text: String): List<PlanMapping>? = YamlReader(text).
 internal fun xmlQueriesIn(text: String): List<PlanMapping>? = XmlReader(text).document()
 
 /**
+ * **An XML document whose content is written in its *attributes*, read by the same strict reader** —
+ * and `null` for anything that is not exactly one element named [root].
+ *
+ * PostgreSQL writes one element per field and one attribute in the whole document; SQL Server writes
+ * the opposite — a `<ColumnReference Table="[Visits]" Column="OwnerId"/>` carries everything it has
+ * to say in its attributes. **An attribute is therefore an entry like any other**, with the same
+ * label, the same name range and the same scalar content an element would have had, so the field
+ * inventory, the closure and every treatment are the ones already written rather than a second set
+ * for a second spelling.
+ *
+ * Reading them is not a relaxation of the rule PostgreSQL's reader keeps. **Nothing is skipped
+ * either way**: there, an attribute that is not the printer's one namespace declaration refuses;
+ * here, every attribute becomes an entry and an entry the inventory does not hold refuses. The two
+ * are the same fail-closed answer to *this document said something I have no row for*.
+ */
+internal fun attributedXmlDocumentIn(text: String, root: String): PlanMapping? =
+    XmlReader(text, attributed = true).attributedDocument(root)
+
+/**
  * **How a label is spelled as an XML element name** — the printer's own transform, applied here so
  * that one inventory serves all three formats.
  *
@@ -379,21 +398,39 @@ private const val DASH = "- "
 /** The other half of a Windows line ending, which every reader here treats as a terminator. */
 internal const val RETURN = "\r"
 
-/** The XML document, read a character at a time. See [xmlQueriesIn]. */
-private class XmlReader(private val source: String) {
+/**
+ * The XML document, read a character at a time. See [xmlQueriesIn] and [attributedXmlDocumentIn].
+ *
+ * @param attributed whether an element's attributes are **entries of it** — SQL Server's spelling —
+ *   or the one namespace declaration PostgreSQL's printer writes and nothing else.
+ */
+private class XmlReader(private val source: String, private val attributed: Boolean = false) {
 
     private var at = 0
 
     fun document(): List<PlanMapping>? {
-        skipSpace()
-        val root = element() ?: return null
-        skipSpace()
-        if (at != source.length) return null
+        val root = rootElement() ?: return null
         if (root.label != EXPLAIN) return null
 
         val queries = root.value as? PlanMapping ?: return null
         if (queries.entries.any { it.label != QUERY }) return null
         return queries.entries.map { it.value as? PlanMapping ?: return null }
+    }
+
+    /** The document whose whole content is one element named [root]. See [attributedXmlDocumentIn]. */
+    fun attributedDocument(root: String): PlanMapping? {
+        val element = rootElement() ?: return null
+        if (element.label != root) return null
+        return element.value as? PlanMapping
+    }
+
+    /** The one element the document is, read to the last character of the input. */
+    private fun rootElement(): PlanEntry? {
+        skipSpace()
+        val root = element() ?: return null
+        skipSpace()
+        if (at != source.length) return null
+        return root
     }
 
     /** One element, opened at [at], with its children read as a mapping, a sequence or a scalar. */
@@ -402,16 +439,21 @@ private class XmlReader(private val source: String) {
         val start = at
         at++
         val nameStart = at
-        while (at < source.length && (source[at].isLetterOrDigit() || source[at] in "-_.")) at++
+        while (at < source.length && isNameCharacter(source[at], prefixed = false)) at++
         val label = source.substring(nameStart, at)
         if (label.isEmpty()) return null
         val opening = PlanSlot(source, nameStart, at)
 
-        if (!skipAttributes()) return null
+        val written = attributes() ?: return null
         if (source.startsWith("/>", at)) {
             at += 2
             val empty = PlanSlot(source, at, at)
-            return PlanEntry(label, listOf(opening), PlanScalar(PlanSlot(source, start, at), empty))
+            val closed = if (written.isEmpty()) {
+                PlanScalar(PlanSlot(source, start, at), empty)
+            } else {
+                PlanMapping(written, PlanSlot(source, start, at))
+            }
+            return PlanEntry(label, listOf(opening), closed)
         }
         if (peek() != '>') return null
         at++
@@ -422,7 +464,10 @@ private class XmlReader(private val source: String) {
             skipSpace()
             if (source.startsWith("</", at)) break
             if (peek() != '<') {
-                if (children.isNotEmpty()) return null
+                // **An element carrying both attributes and character data refuses.** Its content
+                // would be one scalar and its attributes entries of a mapping, and a node is one or
+                // the other — so a document this reader can only half-place is not placed at all.
+                if (children.isNotEmpty() || written.isNotEmpty()) return null
                 return textElement(start, label, opening, contentStart)
             }
             children += element() ?: return null
@@ -437,10 +482,11 @@ private class XmlReader(private val source: String) {
 
         val closing = PlanSlot(source, closingStart, closingStart + label.length)
         val span = PlanSlot(source, start, at)
-        val value = if (children.isNotEmpty() && children.all { it.label == ITEM }) {
+        val entries = written + children
+        val value = if (written.isEmpty() && children.isNotEmpty() && children.all { it.label == ITEM }) {
             PlanSequence(children.map { it.value }, PlanSlot(source, contentStart, contentEnd))
-        } else if (children.isNotEmpty()) {
-            PlanMapping(children, PlanSlot(source, contentStart, contentEnd))
+        } else if (entries.isNotEmpty()) {
+            PlanMapping(entries, PlanSlot(source, contentStart, contentEnd))
         } else {
             PlanScalar(span, PlanSlot(source, contentStart, contentEnd))
         }
@@ -466,14 +512,53 @@ private class XmlReader(private val source: String) {
     }
 
     /**
-     * The attributes of an element, skipped — and refused unless they are the namespace the printer
-     * declares on its root.
+     * The attributes of an element — **entries of it** where this document writes its content in
+     * them, and otherwise the one namespace declaration PostgreSQL's printer writes, skipped.
      *
-     * The printer writes exactly one attribute in the whole document, so anything else is a document
-     * this reader has not seen rather than one to read past.
+     * `null` where an attribute is written in a shape this reader does not understand, which is the
+     * answer everything else here gives a document it cannot parse whole.
      */
-    private fun skipAttributes(): Boolean {
+    private fun attributes(): List<PlanEntry>? {
         skipSpace()
+        if (!attributed) return if (skipNamespace()) emptyList() else null
+
+        val entries = mutableListOf<PlanEntry>()
+        while (at < source.length && source[at] != '>' && !source.startsWith("/>", at)) {
+            val nameStart = at
+            while (at < source.length && isNameCharacter(source[at], prefixed = true)) at++
+            if (at == nameStart) return null
+            val name = PlanSlot(source, nameStart, at)
+
+            skipSpace()
+            if (peek() != '=') return null
+            at++
+            skipSpace()
+
+            // **Double quotes only.** The printer writes them, and a reader that also took single
+            // quotes would be reading a spelling nothing here has a capture of.
+            if (peek() != '"') return null
+            at++
+            val contentStart = at
+            while (at < source.length && source[at] != '"') at++
+            if (at == source.length) return null
+            val contentEnd = at
+            at++
+
+            entries += PlanEntry(
+                name.written,
+                listOf(name),
+                PlanScalar(PlanSlot(source, nameStart, at), PlanSlot(source, contentStart, contentEnd)),
+            )
+            skipSpace()
+        }
+        return entries
+    }
+
+    /**
+     * The one attribute PostgreSQL's printer writes in a whole document, skipped — and `false` for
+     * anything else, which is a document this reader has not seen rather than one to read past.
+     */
+    private fun skipNamespace(): Boolean {
         while (at < source.length && source[at] != '>' && !source.startsWith("/>", at)) {
             if (!source.startsWith(NAMESPACE, at)) return false
             at += NAMESPACE.length
@@ -488,6 +573,17 @@ private class XmlReader(private val source: String) {
         while (at < source.length && source[at].isWhitespace()) at++
     }
 }
+
+/**
+ * What an element or attribute name may be spelled with.
+ *
+ * @param prefixed whether a `:` may appear in it, which is true of **attribute names only** — the
+ *   prefixed namespace declarations SQL Server's writer puts on its root. No element name this
+ *   product reads carries one, so nothing widens for the sake of something only attributes do.
+ */
+private fun isNameCharacter(character: Char, prefixed: Boolean): Boolean =
+    character.isLetterOrDigit() || character == '-' || character == '_' || character == '.' ||
+        (prefixed && character == ':')
 
 /** The root element of PostgreSQL's XML plan. */
 private const val EXPLAIN = "explain"

@@ -67,17 +67,6 @@ private fun readsJson(name: String, recognises: (String) -> Boolean, fields: Map
     }
 
 /**
- * A format that is recognised and never read — the shape is known, and knowing it is what lets the
- * refusal name it.
- *
- * The refusal is thrown rather than returned so that a recognised-and-refused form travels the same
- * path a refusal decided halfway down a document does. There is one way out of a reader, and it is
- * [PlanRefusal].
- */
-private fun refuses(name: String, recognises: (String) -> Boolean, form: PlanRefusedForm) =
-    PlanFormat(name, recognises) { throw PlanRefusal(PlanReading.Refused(form)) }
-
-/**
  * **Whether this opens MySQL's JSON version 2** — a document whose first key is `query`, which is the
  * statement the tree below it describes.
  *
@@ -278,21 +267,6 @@ private fun clientRowsIn(text: String): List<List<String>> =
             }
         }
         .take(2)
-
-/**
- * The first [count] lines of [text] that have anything on them, each with the carriage return of a
- * Windows line ending taken off.
- *
- * A bounded prefix rather than the whole input, because *head-anchored* has to be true of the work as
- * well as of the rule: a predicate that walked a ten-thousand-line paste to decide it was not a plan
- * would be doing the scanning this file refuses to do.
- */
-private fun headLinesIn(text: String, count: Int): List<String> =
-    text.lineSequence()
-        .map { it.removeSuffix(RETURN) }
-        .filter { it.isNotBlank() }
-        .take(count)
-        .toList()
 
 /** How many lines a predicate here may look at. See [headLinesIn]. */
 private const val HEAD_LINES = 4

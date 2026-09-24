@@ -46,6 +46,74 @@ internal sealed class PlanTreatment {
     class Name(val kind: SymbolRole) : PlanTreatment()
 
     /**
+     * **A name written inside the engine's own delimiters, with the closing one doubled inside** —
+     * `[Visits]`, `[Vis]]its]`.
+     *
+     * Its own row rather than a [Name], because **the delimiters are not part of the name and the
+     * doubling is not part of it either**. Three things follow, and none of them is true of a [Name]:
+     *
+     *  - The placeholder is written **inside** the delimiters, so `[Visits]` renders `[table1]` and
+     *    the value still reads as the bracketed name the engine printed.
+     *  - The key is the **recovered** spelling, so a table named `Vis]its` is one symbol however many
+     *    times the engine doubled its bracket — and the same name printed in a plan's XML and in its
+     *    text rowset keys together.
+     *  - A value that is not exactly one soundly delimited name **refuses the input**. An opener that
+     *    never closes is the shape a forged row runs into, and guessing where it ended is the one
+     *    thing no reader here does.
+     */
+    class Bracketed(val kind: SymbolRole) : PlanTreatment()
+
+    /**
+     * **A bracketed name the plan itself introduces** — an alias.
+     *
+     * [Bracketed] is to [Name] what this is to [Declared], and it is a row of its own for the reason
+     * [Declared] is: the key differs. See [PlanKeys.declared].
+     */
+    object BracketedDeclaration : PlanTreatment()
+
+    /**
+     * **An expression field in which the engine bracketed every identifier it printed.**
+     *
+     * Its own row rather than an [Expression], because the two rest on opposite readings of a bare
+     * word. An [Expression] is scanned against a vocabulary, and a bare word the vocabulary knows is
+     * preserved *as a spelling the engine's quoting rule cannot have given a user's identifier*. Here
+     * the quoting rule is stronger and the reading is simpler: **every identifier is delimited, so
+     * every undelimited character is the engine's own** and is preserved by not being reported at
+     * all. There is no word list, and a release that invents a new keyword costs nothing.
+     *
+     * What is read out of it is therefore exactly three things — the bracketed names, the quoted
+     * literals, and, where the engine wrote one, the object reference that says which of its parts is
+     * a schema and which a relation. See [PlanSymbols.readBracketed].
+     */
+    object BracketedExpression : PlanTreatment()
+
+    /**
+     * **A field whose reading depends on whether a *sibling* field is there at all** — and the one
+     * rule that says when reading such a thing is allowed.
+     *
+     * > **A structural discriminator is admissible only when every branch anonymizes.**
+     *
+     * SQL Server's `<ColumnReference>` is the case: one carrying a `Table` is a column of that table,
+     * one without it is a column the optimizer computed. The first is a column name and the second is
+     * a name of nothing anybody wrote, so the two take different treatments — and reading the
+     * discriminator is safe **because both of them replace what they find**. A discriminator with a
+     * preserving branch would be a document deciding, by a shape a user can influence, that something
+     * of theirs may be emitted as written; there is no fail-closed version of that, so it is refused
+     * here rather than argued about per field. The [init] block is what makes the rule a property of
+     * the type instead of a habit each row has to keep.
+     *
+     * @param by the sibling label whose **presence** picks [present] over [absent]
+     */
+    class Discriminated(val by: String, val present: PlanTreatment, val absent: PlanTreatment) : PlanTreatment() {
+
+        init {
+            require(anonymizes(present) && anonymizes(absent)) {
+                "a discriminator on `$by` has a branch that does not anonymize"
+            }
+        }
+    }
+
+    /**
      * **A name the plan itself introduces** — an alias, a CTE, a subplan's own name.
      *
      * Its own row rather than a [Name] of kind `TABLE`, because the key differs: a declared name
@@ -150,6 +218,37 @@ internal sealed class PlanTreatment {
      * [PlanStructureReader.readSettings] for why the two differ.
      */
     object SettingsMap : PlanTreatment()
+}
+
+/**
+ * Whether [treatment] replaces whatever it is given — every name kind, every declaration, and every
+ * class that masks. See [PlanTreatment.Discriminated] for the rule this answers.
+ *
+ * **A second cascade over the sealed type, and a deliberate one.** [PlanSymbols.readSlot] is still
+ * the only cascade that *reads* anything; this one reads nothing and decides nothing about a slot —
+ * it answers a question about the **class**, asked once at construction. A property on each class
+ * would spread that answer over twenty declarations, and *which treatments may emit what they were
+ * given* is exactly the kind of question a reviewer wants answered in one list.
+ *
+ * It has no default arm, so a treatment class added later has to be placed here rather than falling
+ * quietly onto one side of the question.
+ */
+private fun anonymizes(treatment: PlanTreatment): Boolean = when (treatment) {
+    is PlanTreatment.Name, is PlanTreatment.Bracketed, is PlanTreatment.Reference,
+    PlanTreatment.Declared, PlanTreatment.BracketedDeclaration,
+    PlanTreatment.EchoedQuery, PlanTreatment.Identifying, PlanTreatment.Deployment,
+    PlanTreatment.AppendedRaw,
+    -> true
+
+    is PlanTreatment.Discriminated -> anonymizes(treatment.present) && anonymizes(treatment.absent)
+
+    // Everything else can emit what it was given: a fact and an unescaped value survive their check,
+    // a measurement is preserved whole, a scanned field preserves the tokens its vocabulary knows,
+    // and a container is not a value at all.
+    is PlanTreatment.Subtree, is PlanTreatment.Fact, is PlanTreatment.Unescaped,
+    is PlanTreatment.Rendered, PlanTreatment.Expression, PlanTreatment.BracketedExpression,
+    PlanTreatment.Measured, PlanTreatment.Parameters, PlanTreatment.SettingsMap,
+    -> false
 }
 
 /**

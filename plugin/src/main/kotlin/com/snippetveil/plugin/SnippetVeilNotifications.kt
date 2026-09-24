@@ -472,6 +472,19 @@ internal object SnippetVeilNotifications {
                 "and copy that instead."
 
         PlanRefusedForm.MARIADB -> "SnippetVeil does not anonymize MariaDB plans in any format."
+
+        PlanRefusedForm.SQLSERVER_SHOWPLAN_TEXT_REMOTE ->
+            "SnippetVeil cannot safely anonymize a SHOWPLAN_TEXT plan with a remote query or remote " +
+                "scan in it — those rows are printed without quoting. Run ${optionFor(form)} " +
+                "and copy that instead."
+
+        PlanRefusedForm.SQLSERVER_SHOWPLAN_ALL ->
+            "SnippetVeil cannot safely anonymize SHOWPLAN_ALL output — its first row carries " +
+                "your statement. Run ${optionFor(form)} and copy that instead."
+
+        PlanRefusedForm.SQLSERVER_STATISTICS_PROFILE ->
+            "SnippetVeil cannot safely anonymize STATISTICS PROFILE output — its first row " +
+                "carries your statement. Run ${optionFor(form)} and copy that instead."
     }
 
     /**
@@ -485,6 +498,8 @@ internal object SnippetVeilNotifications {
     private fun optionFor(form: PlanRefusedForm): String = when (form.recourse) {
         PlanRecourse.POSTGRES_FORMAT_JSON -> "EXPLAIN (FORMAT JSON)"
         PlanRecourse.MYSQL_FORMAT_JSON -> "EXPLAIN FORMAT=JSON"
+        PlanRecourse.SQLSERVER_SHOWPLAN_XML -> "SET SHOWPLAN_XML ON"
+        PlanRecourse.SQLSERVER_STATISTICS_XML -> "SET STATISTICS XML ON"
         null -> error("${form.name} names no engine option, and its sentence asked for one")
     }
     /**

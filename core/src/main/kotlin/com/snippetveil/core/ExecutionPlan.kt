@@ -26,8 +26,9 @@ package com.snippetveil.core
  * ### Several formats, and exactly one of them recognised
  *
  * PostgreSQL's default **text** output and its **JSON**, **YAML** and **XML** ones; MySQL's two
- * **JSON** formats; and the shapes of MySQL's and MariaDB's that are recognised in order to be
- * refused well. Each has its own anchored recognition predicate, and **if two of them accept, the
+ * **JSON** formats; SQL Server's **Showplan XML** and its **`SHOWPLAN_TEXT`** plan rowset; and the
+ * shapes of MySQL's, MariaDB's and SQL Server's that are recognised in order to be refused well.
+ * Each has its own anchored recognition predicate, and **if two of them accept, the
  * input refuses rather than being read under one of the two** — see [PlanFormat]. Recognition still
  * begins at the plan's first line: a subtree pasted from the middle of a text plan begins with
  * indentation, and a paste carrying the query above the plan begins with the query, so both refuse.
@@ -41,6 +42,8 @@ package com.snippetveil.core
  * indents each row by and the count it prints underneath — so the shape most users arrive with is
  * read rather than refused, and re-emitted byte for byte. A frame is chrome; **a row echoing the
  * user's own statement is a transcript, and an input carrying one refuses.** See [PlanFraming].
+ * **SQL Server has no admitted client frame at all** — its plans arrive out of a result grid with
+ * nothing drawn around them — which is worth stating because every other engine here has one.
  *
  * ### What it reports, and what it never touches
  *
@@ -161,6 +164,37 @@ enum class PlanRefusedForm(val recourse: PlanRecourse?) {
      * message names none. See [PlanRecourse] for why an invented one would be worse than silence.
      */
     MARIADB(null),
+
+    /**
+     * **A `SHOWPLAN_TEXT` row this writer prints raw** — a remote query or a remote scan.
+     *
+     * Every other row brackets every name in it, which is the whole of why that format is readable.
+     * These two are the exception the admission is told about: the linked server's name is written
+     * **unbracketed** and the remote statement **verbatim**, so there is no delimiter to find either
+     * boundary from and the user's own SQL is sitting in the middle of a line. `SET SHOWPLAN_XML ON`
+     * puts each of them in a slot of its own.
+     */
+    SQLSERVER_SHOWPLAN_TEXT_REMOTE(PlanRecourse.SQLSERVER_SHOWPLAN_XML),
+
+    /**
+     * **`SET SHOWPLAN_ALL ON`** — the wide estimated-plan rowset.
+     *
+     * The names in its cells are bracket-sound; what refuses it is that **the first row carries the
+     * statement in its text cell**, and the grid's tab and newline separators are the client's with
+     * nothing escaping them — so the statement's own tabs and newlines forge cells and rows. That
+     * makes it a transcript **inside the plan rowset**, with no plan-only paste to anchor at.
+     */
+    SQLSERVER_SHOWPLAN_ALL(PlanRecourse.SQLSERVER_SHOWPLAN_XML),
+
+    /**
+     * **`SET STATISTICS PROFILE ON`** — the same rowset with what actually ran in front of it, and
+     * refused for the same reason.
+     *
+     * **Its own row rather than [SQLSERVER_SHOWPLAN_ALL]'s, because the recourse differs.** Telling
+     * somebody who asked for actual row counts to run the estimated-plan option would be advice that
+     * throws away what they came for, so the two are two sentences and not one.
+     */
+    SQLSERVER_STATISTICS_PROFILE(PlanRecourse.SQLSERVER_STATISTICS_XML),
 }
 
 /**
@@ -194,6 +228,24 @@ enum class PlanRecourse {
      * others threw away.
      */
     MYSQL_FORMAT_JSON,
+
+    /**
+     * **Turn on `SHOWPLAN_XML` instead of the text or wide rowset.**
+     *
+     * The XML document carries every name in a slot of its own, escaped by the document's own
+     * quoting — including the two things this engine's text forms write raw: the linked server of a
+     * remote row, and the statement the wide rowsets print in their first cell.
+     */
+    SQLSERVER_SHOWPLAN_XML,
+
+    /**
+     * **Turn on `STATISTICS XML` instead of `STATISTICS PROFILE`.**
+     *
+     * Its own row rather than [SQLSERVER_SHOWPLAN_XML]'s, because the two are not interchangeable to
+     * the person reading: `STATISTICS PROFILE` is asked for when the **actual** row counts are what
+     * the question is about, and only `STATISTICS XML` keeps them.
+     */
+    SQLSERVER_STATISTICS_XML,
 }
 
 /**
@@ -217,13 +269,9 @@ internal fun opensATextPlan(text: String): Boolean {
  * **Everything the text format's reader reports** — the declarations, the structure and the fields,
  * over a text whose every line has first been shown to be one this reader recognises.
  *
- * Three passes, and the first two are one argument. A plan prints `CTE Scan on recent` above the
- * `CTE recent` that declares `recent` as readily as below it, and a name that keyed as an
- * invocation-wide relation where it was printed first and as the plan's own where it was printed
- * second would be identity decided by print order — two placeholders for one thing, in the output the
- * user reads. So the structure is read twice against the same set and **the first reader's
- * occurrences are thrown away**, because the second reader makes them again with every declaration in
- * hand.
+ * The line closure runs first, and then the plan is read twice against one set of declarations — the
+ * passes [occurrencesOverTwoPasses] argues for, which this format needs because a plan prints
+ * `CTE Scan on recent` above the `CTE recent` that declares `recent` as readily as below it.
  */
 internal fun textOccurrencesIn(text: String): List<PlanOccurrence> {
     val lines = linesOf(text)
@@ -232,16 +280,11 @@ internal fun textOccurrencesIn(text: String): List<PlanOccurrence> {
     // the input, so no later pass is ever looking at a line nothing classified. See [assertRecognised].
     lines.forEach(::assertRecognised)
 
-    val declared = mutableSetOf<String>()
-    val declarations = PlanTextReader(PlanSymbols(declared, POSTGRES))
-    lines.forEach(declarations::readStructure)
-
-    val symbols = PlanSymbols(declared, POSTGRES)
-    val reader = PlanTextReader(symbols)
-    lines.forEach(reader::readStructure)
-    lines.forEach(reader::readFields)
-
-    return symbols.occurrences
+    return occurrencesOverTwoPasses(POSTGRES) { symbols ->
+        val reader = PlanTextReader(symbols)
+        lines.forEach(reader::readStructure)
+        lines.forEach(reader::readFields)
+    }
 }
 
 /**
