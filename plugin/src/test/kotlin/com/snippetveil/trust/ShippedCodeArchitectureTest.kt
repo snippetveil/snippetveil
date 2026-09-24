@@ -262,9 +262,30 @@ class ShippedCodeArchitectureTest {
     /** The claim on the Marketplace listing, checked. */
     @Test
     fun `nothing shipped can open a socket`() {
-        noClasses().should().dependOnClassesThat(NETWORKING_CLASSES)
-            .because("SnippetVeil makes no network calls, and that is verifiable rather than asserted")
-            .check(SHIPPED_CLASSES)
+        NOTHING_OPENS_A_SOCKET.check(SHIPPED_CLASSES)
+    }
+
+    /**
+     * **The platform's half of the networking rule, pointed at code written to violate it.**
+     *
+     * `HttpRequests` opens its connection inside the platform, so a class that downloads through it
+     * names no `java.net` type at all — the JDK half of [NETWORKING_CLASSES] would pass it. Nothing
+     * shipped reaches for the platform's HTTP stack today, so a platform half that had stopped matching
+     * would report nothing, exactly as it does when it works. `BrowserUtil` must stay legal: handing a
+     * fixed URL to the desktop on a click is how *Report an issue* works, and it opens no socket here.
+     */
+    @Test
+    fun `the networking rule flags the platform's HTTP stack and nothing else`() {
+        val violations = NOTHING_OPENS_A_SOCKET.violationsIn(
+            classesOf(DownloadsThroughThePlatform::class.java, UsesThePlatformLegitimately::class.java)
+        )
+
+        for (route in listOf("HttpRequests", "HttpConfigurable", "ErrorReportSubmitter", "EventLogGroup")) {
+            assertTrue(route in violations) { "The networking rule did not flag $route: $violations" }
+        }
+        assertTrue(UsesThePlatformLegitimately::class.java.name !in violations) {
+            "The networking rule flagged platform code that opens no socket: $violations"
+        }
     }
 
     /**
@@ -344,13 +365,20 @@ class ShippedCodeArchitectureTest {
 }
 
 /**
- * Networking, as the JVM spells it.
+ * Networking, as the JVM spells it — and as the IntelliJ Platform spells it.
  *
  * `java.nio.channels` is matched by class rather than by package because the package is mostly
  * file I/O: banning `FileChannel` would be noise, and noise is what teaches people to suppress a
  * check. The same list exists in `plugin/build.gradle.kts` for the distribution scan; the two are
  * deliberately separate implementations of one policy over different inputs, and the
  * `java.nio.channels` pattern is written identically in both so that they can be diffed by eye.
+ *
+ * **The platform half exists because the JDK half cannot see through it.** The platform opens the
+ * connection inside its own classes, so shipped code that downloads through `HttpRequests`, reports
+ * an error through an `ErrorReportSubmitter`, or logs usage through the statistics event log names
+ * no `java.net` type at all. `com.intellij.util.io` is matched by class for the reason
+ * `java.nio.channels` is: the rest of the package is file I/O. `BrowserUtil` is deliberately absent —
+ * it hands a URL to the desktop on a user's click and opens nothing itself.
  */
 private val NETWORKING_CLASSES: DescribedPredicate<JavaClass> =
     resideInAnyPackage(
@@ -359,8 +387,16 @@ private val NETWORKING_CLASSES: DescribedPredicate<JavaClass> =
         "java.rmi..",
         "sun.net..",
         "jdk.internal.net..",
+        "com.intellij.util.net..",
+        "com.intellij.internal.statistic..",
     ).or(nameMatching("java\\.nio\\.channels\\.[\\w.$]*(Socket|Datagram|Network)Channel[\\w$]*"))
+        .or(nameMatching("com\\.intellij\\.util\\.io\\.(HttpRequests|RequestBuilder)(\\$[\\w$]+)?"))
+        .or(nameMatching("com\\.intellij\\.openapi\\.diagnostic\\.ErrorReportSubmitter(\\$[\\w$]+)?"))
         .`as`("are networking classes")
+
+private val NOTHING_OPENS_A_SOCKET: ArchRule =
+    noClasses().should().dependOnClassesThat(NETWORKING_CLASSES)
+        .because("SnippetVeil makes no network calls, and that is verifiable rather than asserted")
 
 /**
  * **Everything the main plugin descriptor can reach**, which is every shipped class except the
