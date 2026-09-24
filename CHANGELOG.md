@@ -128,6 +128,50 @@
   declared type is the same for every value that slot ever holds and the length is the target
   column's width, so neither says anything about your data. The average row size and the cached plan
   size are kept for the same reason — they are magnitudes about the table and the plan.
+- **Oracle plans are read, as the `DBMS_XPLAN` grid and as the SQL Monitor XML report.** The grid is
+  the `|`-ruled table you get from `DBMS_XPLAN.DISPLAY` and `DISPLAY_CURSOR`: the object each row
+  names is replaced, the operation, the estimates, the actuals and the timings stay as printed, the
+  predicate section under it is read like any other expression field, and the outline under that is
+  parsed hint by hint. Cells are read by **counting** the separators, never by column offset, so a
+  name written in wide characters comes back whole. The plan hash on the header line is replaced —
+  it is derived from your plan, and a receiver holding a candidate statement could confirm it by
+  matching. Copy a cursor plan from its `Plan hash value:` line: what `DISPLAY_CURSOR` prints above
+  that is your statement.
+- **A grid row that does not draw the same number of separators as its header is refused.** Oracle
+  escapes nothing inside the grid, so a table named `Odd|Table` prints raw — and that character can
+  only ever *add* a cell, which is why counting is enough: nothing can be hidden by it, only revealed
+  as broken. The practical consequence is that **the standard client at its default line width wraps
+  the grid, and a wrapped paste is refused** as *not a readable plan*. Widening the client's line
+  setting before you copy is what produces a plan SnippetVeil reads; the message does not say so,
+  because naming a cause means having recognised one, and this is the refusal where nothing matched.
+  A grid carrying a peeked-bind section is refused on that section's header, and a section
+  SnippetVeil has no capture of — the note some plans print, the column projections, the hint report
+  — refuses the plan carrying it.
+- **An outline hint is parsed against a closed list, and an unknown hint is replaced rather than
+  refused.** The hints keep their names, the query blocks the optimizer invented keep theirs, the
+  tables and columns inside them are replaced, and `OPTIMIZER_FEATURES_ENABLE('19.1.0')` is kept
+  because which optimizer chose the plan is what the section is read for. A hint SnippetVeil does not
+  know, or one that does not parse, comes back as a single `str` — that one hint, not the outline and
+  not the plan. Treating every hint as one opaque literal was rejected: it leaks nothing and stops
+  the outline lining up with the plan it describes.
+- **A bind's length is the first field SnippetVeil removes rather than replaces.** In a SQL Monitor
+  report the bind list carries the value, its type and its **byte length** — and a length of 7 beside
+  a masked city, or 16 beside a masked string, hands back what the mask took away. The length and
+  maximum-length attributes are **gone from the output**: not blanked, not replaced, not counted and
+  not announced. They are dropped rather than masked because equal values share a placeholder, so two
+  binds of equal length would come back carrying one and the same `str` — and length equality would
+  be readable off the very mechanism meant to close it. The declared type keeps its name and loses
+  its size, `VARCHAR2(32)` coming back as `VARCHAR2`, because the type is what explains an implicit
+  conversion and the width explains no plan; the type code and character-set id are kept as printed.
+  A reader diffing against a real report will see an attribute missing.
+- **A bind's value is typed by the report, not by how it looks.** A numeric bind comes back as the
+  number it is; a string, a date, a raw — anything else — comes back as one `str`. Bind names are
+  replaced too: `:city` beside a redacted value is the column it filters, spelled out.
+- **Oracle's HTML report, its active report, plan-table rows a client rendered as CSV, and SQL
+  Monitor's *text* report are refused, and none of them names a fix.** The first two are documents
+  rather than pastes and one of them carries its data compressed inside a script; the CSV has thrown
+  away the separators the grid argument rests on; and the text report puts your statement in a
+  section of its own above a grid with no anchor line.
 - **A JPQL query in a Java string is anonymized name by name**, when every name in it resolves — and
   so is a query in the other persistence query languages the IDE reads the same way.
   `@NamedQuery(query = "SELECT c FROM Customer c WHERE c.merchantRef = :ref")` used to come out as

@@ -67,9 +67,23 @@ internal class PlanStructureReader(
      * they are given, which [PlanTreatment.Discriminated] is what enforces.
      */
     private fun chosen(treatment: PlanTreatment, mapping: PlanMapping): PlanTreatment {
-        if (treatment !is PlanTreatment.Discriminated) return treatment
-        val carried = mapping.entries.any { naming(it.label) == treatment.by }
-        return chosen(if (carried) treatment.present else treatment.absent, mapping)
+        if (treatment is PlanTreatment.Discriminated) {
+            val carried = mapping.entries.any { naming(it.label) == treatment.by }
+            return chosen(if (carried) treatment.present else treatment.absent, mapping)
+        }
+
+        // **A value discriminator**, resolved here for the reason its structural sibling is: this is
+        // where the siblings are. What it reads is the sibling's **written** value, and a sibling
+        // that is not there at all — or is a tree rather than a value — takes the branch a value no
+        // row names takes, which is the fail-closed one. See [PlanTreatment.Typed].
+        if (treatment is PlanTreatment.Typed) {
+            val written = mapping.entries
+                .firstOrNull { naming(it.label) == treatment.by }
+                ?.let { (it.value as? PlanScalar)?.content?.written }
+            return chosen(treatment.branches[written] ?: treatment.otherwise, mapping)
+        }
+
+        return treatment
     }
 
     /**
@@ -140,6 +154,14 @@ internal class PlanStructureReader(
                 is PlanSequence -> node.items.forEach { read(it, treatment) }
                 is PlanScalar -> Unit
             }
+
+            // **A drop takes the whole field and not its value**, so it is read from here rather than
+            // from the slot cascade: `len="7"` leaves as `len=""` if only the value goes, which still
+            // says there was a length. The scalar's own extent is the field — its name, its `=` and
+            // its quotes — and the space in front of it goes with it, so the attributes either side
+            // close up as the writer spaced them. See [PlanTreatment.Dropped].
+            PlanTreatment.Dropped ->
+                eachScalar(node) { symbols.occurrences += PlanTreatments.dropped(withSpaceBefore(it.slot)) }
 
             else -> eachScalar(node) { readScalar(it, treatment) }
         }
@@ -213,6 +235,20 @@ internal class PlanStructureReader(
             is PlanMapping -> throw PlanRefusal(PlanReading.Unreadable)
         }
     }
+}
+
+/**
+ * The same field with the whitespace in front of it taken in — so a dropped attribute leaves the
+ * ones either side of it spaced exactly as the writer spaced them, rather than leaving the gap it
+ * used to sit in.
+ *
+ * It stops at the first character that is not a space, which is always the element's name or the
+ * attribute before this one: there is no element whose opening tag is nothing but whitespace.
+ */
+private fun withSpaceBefore(slot: PlanSlot): PlanSlot {
+    var from = slot.start
+    while (from > slot.offset && slot.at(from - 1) == ' ') from--
+    return slot.narrowed(from, slot.end)
 }
 
 /**

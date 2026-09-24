@@ -295,7 +295,8 @@ Worth knowing before relying on it:
   two reversals work anywhere — De-anonymize Clipboard needs only a project, De-anonymize
   Clipboard and Paste a writable editor.
 - **An execution plan is PostgreSQL’s `EXPLAIN` output in any of its four formats, MySQL’s in
-  JSON, or SQL Server’s Showplan XML and `SHOWPLAN_TEXT` plan rowset.** Anonymize Execution Plan…
+  JSON, SQL Server’s Showplan XML and `SHOWPLAN_TEXT` plan rowset, or Oracle’s `DBMS_XPLAN` grid and
+  SQL Monitor XML report.** Anonymize Execution Plan…
   replaces the relation, column, alias and index names and leaves
   every cost and timing as printed. It still reads only from the plan’s first line: a subtree
   pasted from the middle and a paste carrying the query above the plan are refused rather than
@@ -349,6 +350,38 @@ Worth knowing before relying on it:
   second is the only one that keeps the actual row counts the first was asked for. The
   results-to-text client mode truncates each column at a fixed width, cutting names in half, and is
   refused with the general message.
+- **An Oracle plan is read as the `DBMS_XPLAN` grid, or as the SQL Monitor report in XML.** The grid
+  is admitted on a **counting** argument: Oracle escapes nothing inside it, so a `|` in a name prints
+  raw — and that character can only *add* a cell, so a row drawing a different number of separators
+  than its header is malformed and refused rather than misread. Cells are cut by counting separators
+  and never by column offset, because display-width padding moves every separator after a wide
+  character. The consequence is worth knowing before you copy: **the standard client at its default
+  line width wraps the grid, and a wrapped paste is refused** with the general message — widen the
+  line setting and copy again. A cursor plan is copied from its `Plan hash value:` line, since what
+  `DISPLAY_CURSOR` prints above that is your statement. Replacing a long name with a short
+  placeholder leaves the columns **ragged**, and that is deliberate: nothing re-pads a grid, because
+  re-padding would have SnippetVeil emit whitespace the engine never printed.
+- **The outline under an Oracle plan is parsed hint by hint.** A hint whose name SnippetVeil knows
+  keeps it, the query blocks the optimizer invented are kept, the objects inside are replaced, and
+  the optimizer version is kept because that is what the section is read for. A hint that is not on
+  the list, or that does not parse, becomes a single `str` — that hint alone, without refusing the
+  plan. Sections SnippetVeil has no capture of — the note, the column projections, the hint report,
+  the peeked binds — refuse the plan carrying them rather than being read past.
+- **A bind's byte length is dropped from an Oracle SQL Monitor report — the first field SnippetVeil
+  removes rather than replaces.** A number that varies with a value SnippetVeil masks is dropped; a
+  number describing the **slot** the value sits in is kept. A length of 7 beside a redacted city
+  narrows it to a short list, so the length and maximum-length attributes are gone from the output
+  entirely: not blanked, not replaced, not counted, not announced. Dropped rather than replaced
+  because equal values share a placeholder — two binds of equal length would come back carrying one
+  and the same `str`, and the equality would be readable off the mechanism meant to close it. The
+  declared type keeps its name and loses its size; the type code and character-set id are kept. The
+  bind's value is typed by the report rather than by how it looks: a numeric bind is a number, and a
+  string, a date or a raw is one `str`. Bind names are replaced, because `:city` beside a redacted
+  value is the column it filters spelled out.
+- **Oracle's HTML report, its active report, plan-table rows rendered as CSV, and SQL Monitor's text
+  report are refused, and none of them names a fix.** Two are documents rather than pastes and one
+  embeds compressed data; the CSV has lost the separators the counting argument rests on; and the
+  text report prints your statement in a section above a grid with no anchor line.
 - **A field SnippetVeil has no rule for refuses the whole plan.** The field set is closed, and the
   reason it is closed is the opposite of the reason an unknown *word* inside a field is replaced: a
   word arrives in a slot something already typed, and a field arrives with nothing saying whether it

@@ -26,8 +26,9 @@ package com.snippetveil.core
  * ### Several formats, and exactly one of them recognised
  *
  * PostgreSQL's default **text** output and its **JSON**, **YAML** and **XML** ones; MySQL's two
- * **JSON** formats; SQL Server's **Showplan XML** and its **`SHOWPLAN_TEXT`** plan rowset; and the
- * shapes of MySQL's, MariaDB's and SQL Server's that are recognised in order to be refused well.
+ * **JSON** formats; SQL Server's **Showplan XML** and its **`SHOWPLAN_TEXT`** plan rowset; Oracle's
+ * **`DBMS_XPLAN` grid** and its **SQL Monitor XML** report; and the shapes of MySQL's, MariaDB's and
+ * SQL Server's that are recognised in order to be refused well.
  * Each has its own anchored recognition predicate, and **if two of them accept, the
  * input refuses rather than being read under one of the two** — see [PlanFormat]. Recognition still
  * begins at the plan's first line: a subtree pasted from the middle of a text plan begins with
