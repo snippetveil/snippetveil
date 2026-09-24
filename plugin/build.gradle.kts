@@ -712,9 +712,17 @@ val scanDistributionForBannedReferences = tasks.register("scanDistributionForBan
         // suppress a check. ShippedCodeArchitectureTest states the same policy independently, over a
         // different set of inputs, and the `java.nio.channels` half is written there character for
         // character as it is here so that the two can be diffed by eye.
+        //
+        // The platform half: `HttpRequests`, the proxy and SSL stack, error-report submission and the
+        // usage-statistics event log all open their connection inside the platform, so a class that
+        // goes through them names no `java.net` type. `com.intellij.util.io` is matched by class
+        // because the rest of it is file I/O; `BrowserUtil` is absent because it opens nothing here.
         val networkingClass =
             """(java\.net|javax\.net|java\.rmi|sun\.net|jdk\.internal\.net)\.[\w.$]+""" +
-                """|java\.nio\.channels\.[\w.$]*(Socket|Datagram|Network)Channel[\w$]*"""
+                """|java\.nio\.channels\.[\w.$]*(Socket|Datagram|Network)Channel[\w$]*""" +
+                """|(com\.intellij\.util\.net|com\.intellij\.internal\.statistic)\.[\w.$]+""" +
+                """|com\.intellij\.util\.io\.(HttpRequests|RequestBuilder)[\w$]*""" +
+                """|com\.intellij\.openapi\.diagnostic\.ErrorReportSubmitter[\w$]*"""
 
         // Process execution. A subprocess is a network call none of the patterns above can see:
         // `Runtime.getRuntime().exec("curl …")` reaches the network with no `java.net` reference in
