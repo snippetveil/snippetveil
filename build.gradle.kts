@@ -24,7 +24,7 @@ plugins {
 // task keeps the name it was registered under. What is left is a build that calls a check one
 // thing and registers it as another. Change the string alone and the mirror image happens: the
 // task is renamed, `check` still runs it, and the name published as a command a reader can run is
-// quietly no longer the name. CONTRIBUTING.md names eighteen of the nineteen checks across the two
+// quietly no longer the name. CONTRIBUTING.md names nineteen of the twenty checks across the three
 // build scripts, and four of those are named again in README.md, THREAT-MODEL.md or a README under
 // `demo/` or `docs/`. The compiler catches neither drift. The line does, and that is all adjacency
 // is being asked to buy.
@@ -65,6 +65,17 @@ extra.set("corpusSweepTask", corpusSweepTask)
  */
 val querySweepTask = "querySweep"
 extra.set("querySweepTask", querySweepTask)
+
+/**
+ * **The plan sweep's task name, spelled once**, for the reason above it.
+ *
+ * It is the instrument's third half — it reads a corpus of execution-plan captures and writes the
+ * two zeros, three numbers and a triage list — and it is registered in `:core` rather than in
+ * `:plugin`, because nothing in it needs an IDE. `assertTheSweepIsNeverRunInCi` below guards this
+ * string too, and the paragraph there says why the reason differs for this half.
+ */
+val planSweepTask = "planSweep"
+extra.set("planSweepTask", planSweepTask)
 
 /**
  * **The Kotlin-disabled boot's task name, spelled once**, for the reason above it.
@@ -257,13 +268,22 @@ val assertWorkflowsAreHardened = tasks.register("assertWorkflowsAreHardened") {
 }
 
 /**
- * Fails if any workflow asks Gradle to run either half of the corpus instrument.
+ * Fails if any workflow asks Gradle to run any half of the corpus instrument.
  *
- * **Neither half is ever run in CI, and this is what says so rather than a convention.** Each opens
- * somebody's real code by path and writes real identifiers out of it — the names that survived
- * anonymisation, or the table spellings and paths a query sweep found — so a CI run of either is
- * either a no-op on a runner that has no such checkout, or a leak onto a machine nobody chose.
- * Neither is a thing to leave to habit.
+ * **No half is ever run in CI, and this is what says so rather than a convention.** Two of the three
+ * are here for one reason and the third for another, and the two reasons are kept apart on purpose:
+ *
+ *  - The **source** and **query** halves each open somebody's real code by path and write real
+ *    identifiers out of it — the names that survived anonymisation, or the table spellings and paths
+ *    a query sweep found. A CI run of either is a no-op on a runner that has no such checkout, or a
+ *    leak onto a machine nobody chose.
+ *  - The **plan** half's captures are agent-generated in a container against throwaway schemas, and
+ *    **that argument does not apply to it at all.** It is here because its oracle throws false
+ *    positives by design and its triage list has to be read: a CI cell over the whole corpus would
+ *    produce a number nobody reads attached to a list nobody triages. What runs on every pull
+ *    request instead is the two zeros over the committed fixture subset, in `check`.
+ *
+ * Neither reason is a thing to leave to habit.
  *
  * The rule is readable because of a rule the workflows already follow: **thin CI over thick
  * Gradle** — every check CI runs is a Gradle task, invoked from a `./gradlew` line. So *what CI
@@ -295,6 +315,9 @@ val assertTheSweepIsNeverRunInCi = tasks.register("assertTheSweepIsNeverRunInCi"
         querySweepTask,
         "querySweepCorpus",
         "querySweepReportDir",
+        planSweepTask,
+        "planSweepCorpus",
+        "planSweepReportDir",
     )
     val pattern = gradleInvocationPattern
 
@@ -384,8 +407,10 @@ val assertTheSweepIsNeverRunInCi = tasks.register("assertTheSweepIsNeverRunInCi"
 
         if (violations.isNotEmpty()) {
             throw GradleException(
-                "The corpus sweep reads a real proprietary codebase and writes the real identifiers " +
-                    "it found surviving. It is run by a human, deliberately, and never by CI:\n" +
+                "The corpus instrument is run by a human, deliberately, and never by CI. Two of its " +
+                    "halves read a real proprietary codebase and write the real identifiers they " +
+                    "found surviving; the third writes a triage list that only means anything to " +
+                    "somebody reading it:\n" +
                     violations.joinToString("\n") { "  $it" }
             )
         }

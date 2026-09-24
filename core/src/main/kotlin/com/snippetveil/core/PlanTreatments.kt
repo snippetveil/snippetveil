@@ -109,8 +109,13 @@ internal object PlanTreatments {
      *
      * Whole-field and never partial, because a misparse is not a parse failure — nothing signals it,
      * and a field that appears to parse cleanly is exactly the case this exists for. See [scanOf].
+     *
+     * **It is the one mask that says why**, through [PlanOccurrence.unscannable] — the same output
+     * as [appendedRaw] and [deployment] produce, marked so that the corpus instrument can report how
+     * often the residual rule costs a whole field. The mark is a reason and never an outcome:
+     * nothing branches on it, here or anywhere.
      */
-    fun unreadable(slot: PlanSlot): List<PlanOccurrence> = maskOf(slot.trimmed())
+    fun unreadable(slot: PlanSlot): List<PlanOccurrence> = maskOf(slot.trimmed(), unscannable = true)
 
     /**
      * **A field whose names the engine appended raw: one redacted literal, whole.**
@@ -333,14 +338,31 @@ internal object PlanTreatments {
         return null
     }
 
-    /** The whole of [slot], replaced by one redacted literal — or nothing, where there is nothing. */
-    private fun maskOf(slot: PlanSlot): List<PlanOccurrence> {
+    /**
+     * The whole of [slot], replaced by one redacted literal — or nothing, where there is nothing.
+     *
+     * @param unscannable whether this is the mask [unreadable] produces. See [PlanOccurrence].
+     */
+    private fun maskOf(slot: PlanSlot, unscannable: Boolean = false): List<PlanOccurrence> {
         if (slot.isBlank) return emptyList()
-        return listOf(maskOver(slot.start, slot.end, slot.start, slot.end, slot.written))
+        return listOf(maskOver(slot.start, slot.end, slot.start, slot.end, slot.written, unscannable))
     }
 
-    private fun maskOver(start: Int, end: Int, nameStart: Int, nameEnd: Int, written: String) =
-        PlanOccurrence(start, end, PlanDisposition.Mask(PlanKeys.masked(written)), nameStart, nameEnd)
+    private fun maskOver(
+        start: Int,
+        end: Int,
+        nameStart: Int,
+        nameEnd: Int,
+        written: String,
+        unscannable: Boolean = false,
+    ) = PlanOccurrence(
+        start,
+        end,
+        PlanDisposition.Mask(PlanKeys.masked(written)),
+        nameStart,
+        nameEnd,
+        unscannable,
+    )
 
     /**
      * **What a declared type's parenthesized size may be written with** — a width, a precision and

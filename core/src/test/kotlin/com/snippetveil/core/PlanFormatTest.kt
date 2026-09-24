@@ -79,7 +79,12 @@ class PlanFormatTest {
     @Test
     fun `an input two vocabularies accept refuses rather than being read under one`() {
         val both = POSTGRES_FORMATS.filter { it.name == "json" } +
-            PlanFormat("json-again", { it.trimStart().startsWith("[") }) { emptyList() }
+            reads(
+                "json-again",
+                PlanEngine.POSTGRESQL,
+                PlanFormatReach.ONE_FLAG,
+                { it.trimStart().startsWith("[") },
+            ) { emptyList() }
 
         assertTrue(
             readingOf(JSON_PLAN, both) is PlanReading.Unreadable,

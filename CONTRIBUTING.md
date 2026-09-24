@@ -623,16 +623,23 @@ a name, for the same reason.
 Two layers, because they cover different routes:
 
 - **`assertTheSweepIsNeverRunInCi`**, in the root `build.gradle.kts` and wired into `check`, reads
-  every `./gradlew` line in `.github/workflows/` and fails if one names either instrument's task or
-  any of their properties. This is readable only because of the thin-CI-over-thick-Gradle rule:
+  every `./gradlew` line in `.github/workflows/` and fails if one names any instrument half's task
+  or any of their properties — the plan half among them, on a ground of its own that the plan
+  section below states. This is readable only because of the thin-CI-over-thick-Gradle rule:
   *what CI runs* is a list, so it is a list that can be tested. Like the other workflow check it
   proves it can fail over fixtures first, and fails outright if it read no `./gradlew` line at all.
 - **The task refuses.** `corpusSweep` — and `querySweep` below — fails if `CI`, `GITHUB_ACTIONS` or
   `BUILD_NUMBER` is set, which covers the routes the first layer cannot see: a `dependsOn` somebody
-  adds to `check`, or a shell script on a runner that is not GitHub's.
+  adds to `check`, or a shell script on a runner that is not GitHub's. **`planSweep` has no such
+  layer, deliberately**: this one is argued from a real codebase reaching a machine nobody chose, and
+  that hazard does not exist for a corpus of generated captures. See the plan section below.
 
-Each task name is spelled once, as an `extra` in the root build that `plugin/build.gradle.kts`
-reads, so that a rename cannot leave the first layer guarding a task nobody registers. A deliberate
+Each task name is spelled once, as an `extra` in the root build that `plugin/build.gradle.kts` and
+`core/build.gradle.kts` read, so that a rename cannot leave the first layer guarding a task nobody
+registers. `assertTheSweepIsExcludedFromTheMergeGate` in `:plugin` and
+`assertThePlanSweepIsExcludedFromTheMergeGate` in `:core` hold the other half of the same rule: a
+`test` filter that matches nothing excludes nothing, and Gradle reports neither — so each names the
+instrument class it excludes and fails if that class is not in the source tree. A deliberate
 absence: there is no assertion over the Gradle task graph, because the configuration cache means a
 `whenReady` listener does not run on a cache hit — a graph check written here would be one that
 quietly stops checking on the second run.
@@ -700,6 +707,150 @@ refused inside this repository too**: what goes in stays outside the tree as sur
 out. `QueryPassTest` runs the harness in `check`, in every cell, over fragments injected with
 IntelliLang's `// language=` comment — including the corpus with no injected fragment in it that
 proves a zero fails.
+
+## The plan sweep: the same instrument, and the one whose inputs are not sensitive
+
+```
+./gradlew planSweep -PplanSweepCorpus=/path/to/a/plan/corpus
+```
+
+It reads every capture in each corpus, runs the plan parser and the anonymizer over it, and writes
+the two zeros, three numbers that gate nothing, and a triage list. More than one corpus is separated
+the way a classpath is. With no `-PplanSweepCorpus` the task is **skipped, not failed**, exactly as
+the other two halves are.
+
+It lives in `:core` rather than `:plugin`, and runs in seconds rather than minutes, for the reason
+the parse itself lives there: **nothing in it needs an IDE.**
+
+### Stated as a negative, because the secrecy machinery would otherwise be inherited wholesale
+
+> **This half is an instrument for the *other* reason — the oracle throws false positives by design,
+> so it cannot be green or red — and for that reason alone. The argument that the report is the most
+> sensitive file this project can produce does not apply here.**
+
+The captures are **agent-generated in Docker against throwaway schemas**. There is no leak in them,
+and pretending otherwise would be cargo-cult secrecy that costs real usability: this report can be
+pasted into a ticket, and the other two halves' reports cannot. **So this half carries no CI refusal
+of its own** — the other two refuse outright where `CI` is set, and that guard is argued from a real
+codebase reaching a machine nobody chose. `assertTheSweepIsNeverRunInCi` still names it, on a
+different ground: a CI cell over the whole corpus would produce **a number nobody reads attached to
+a list nobody triages**.
+
+**The corpus still lives outside the tree, on two grounds that are not secrecy**: it is over a
+thousand captures across many formats, regenerable from a kept generator; and it is pinned to
+specific engine versions, so a rebuild that differs is a **finding about format drift** rather than a
+new baseline. A corpus inside this repository is refused outright, and so is a report written into
+one.
+
+### How a corpus says what a capture is
+
+**A directory per label, a capture per file inside it.** The directory names a vocabulary row —
+`text`, `mysql-tabular`, `oracle-grid-text` — or a refusal message — `refusal-mariadb`. That label
+is what the generator said it was producing, and **the parser is never asked**: a run that asked the
+parser what a capture was and then checked the answer against itself would be green whatever the
+parser did. A directory whose name is neither is a **finding**, not a skip.
+
+### The pass condition is two zeros, and they run in opposite directions
+
+> **Zero refused-format captures that the parser accepts, and zero admitted-format captures that the
+> parser refuses, across the whole corpus.**
+
+The first is the **leak-shaped** direction: the per-format soundness argument is this container's
+entire admission case, and a refused form parsing means that argument is being applied wrongly. The
+second is a **false admission row** — not a field failure, because a field that cannot be scanned
+soundly becomes one redacted literal and never a refusal, so a refusal on an admitted form means the
+recogniser or the vocabulary is wrong. Both are design failures rather than tuning problems, and both
+hold the release.
+
+**Both zeros also run on every pull request**, in `PlanZerosTest`, over the committed fixture subset;
+at corpus scale they run only in the instrument. That is the source half's shape exactly: committed
+fixtures gate pull requests, the real sweep is a human-run release gate.
+
+### One denominator clause, split by row state
+
+> **The instrument reports captures seen per format against the vocabulary. A format in the
+> vocabulary with zero captures is a finding, not a pass.**
+
+- A row stating a **refusal** with zero captures is consistent and holds nothing up — that is the
+  shipped, honest behaviour.
+- A row stating an **admission** with zero captures **holds the release**. It is a format admitted on
+  no evidence.
+
+So every vocabulary row carries a **state** — admitted, refused, or refused-pending-capture —
+because the clause cannot tell *zero captures because the form is refused* from *zero captures
+because nobody looked* unless the row says which. No row carries the third state today; the shapes
+refused for want of a capture have no recogniser at all and fall to the general refusal.
+
+### Three numbers are reported and gate nothing
+
+- **The whole-field redaction rate per format** — how often the unsound-scanning test costs a field.
+  This is the fidelity cost, and it is a **copy input**: the public listing cannot describe the
+  feature honestly without it.
+- **The annotated preserve count per builtin-list row** — the size of the shadowing exposure, which
+  is the number that makes the oracle's refusal to subtract that list answerable.
+- **The default-form share** — per engine, whether the form a user gets **without asking** is
+  admitted. One engine's default is refused outright and another is refused in every form, so the
+  listing cannot say *paste your `EXPLAIN` output* unqualified.
+
+**A rate threshold is refused**: the right denominator is *plans a developer would paste*, it cannot
+be measured without telemetry this product refuses to collect, and a number written over the wrong
+denominator gets argued down the first time it fails. `PlanSweepReportTest` holds that all three are
+emitted and that none of them gates anything.
+
+**One coverage floor, met on arrival**: if no engine's default-or-one-flag-away form is admitted, the
+release waits — not on tuning, but because the feature would fire only for users who already know
+which flag to pass. PostgreSQL's default text output is admitted, so the floor is met today and
+cannot become unmet without deleting an admission row.
+
+### The leak oracle over plan input
+
+Its universe is the **input's own identifier-shaped tokens**, split on engine-neutral punctuation
+runs, with **delimited spellings taken whole**, minus the riders' **keyword tokens and printer
+phrases**. It is a construction of its own over an input type of its own, never a widening of the
+source half's: *one contract, more than one construction, and the constructions are not unified.*
+
+> **The builtin function and type list is never subtracted.** It is the one rider that can silently
+> authorise a user's name, and an oracle that subtracted it would go green on exactly the defect that
+> list is known to be able to have.
+
+A token that list saves survives as a **rule-stated preserve, annotated with the row that saved it**.
+Every field label, node type and namespace word of a plan is in the universe too, and each survives
+into every output — those rows are **annotated as the engine's own and never removed**, for the
+reason the source half keeps reporting `com`: each subtraction is a class of leak this instrument can
+never see again.
+
+**The subtraction opens one permanent hole, and it is closed elsewhere.** Subtracting the grammar
+rows removes every token colliding with engine chrome, so the oracle cannot catch a leaked table
+genuinely named after an engine keyword. That is answered by a **named assertion** — a fixture whose
+table is named `Sort`, `Hash` or `Filter` asserts it became a table placeholder — and not by
+narrowing the universe.
+
+### Committed fixtures, and the trap that is their entire licence
+
+**Committed plan fixtures are real captures — the one place the all-synthetic rule is relaxed.** That
+rule is stated twice elsewhere and both times its reason is that committing a real artifact risks
+committing a leak. **That reason is absent here**, and extending the rule past its reason would be
+worse than cargo-cult: a hand-written plan is a guess at a format whose every surprise this work paid
+to discover.
+
+> **Committed plan fixtures are lifted from the corpus, never hand-written:** one per admitted
+> format, one per refusal message, and every capture recorded as surprising.
+
+And the relaxation is converted into an assertion rather than left as an instruction:
+
+> **A fixture-provenance trap asserts that every identifier in a committed plan fixture is drawn from
+> the generator's fixed schema vocabulary.** It goes red the day somebody drops in a capture from a
+> real database.
+
+That trap is the **entire licence** for the relaxation. *Only commit captures from the generator*,
+left as a documented requirement, is precisely the category a self-asserting harness exists to
+replace — and it is a requirement that fails in the **green** direction. **If the trap is ever
+removed, the relaxation goes with it.**
+
+**What the trap cannot do**, said here so nobody reads it as more: it certifies that a fixture
+carries no foreign identifier. It does not certify that a fixture came from a capture. Every fixture
+committed today is hand-written — `PlanCaptureOrigin` records that on each row and the report prints
+the split — and the trap passes them, because they use the generator's vocabulary and nothing else.
 
 ## Continuous integration
 
