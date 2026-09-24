@@ -243,6 +243,17 @@ internal class PlanVocabulary(
     /** The phrases as token sequences, longest first, so the longest spelling wins its prefix. */
     private val phrases: List<List<String>> = phrases.map { it.split(' ') }.sortedByDescending { it.size }
 
+    /**
+     * **Every word any phrase is written with**, which is what a reader that has no phrases — a
+     * splitter over punctuation runs — has to subtract in order to subtract the phrases at all.
+     *
+     * It is deliberately *not* what [phraseAt] reads: preserving `precision` on its own is exactly
+     * what [phrases] exists to avoid, and this is a statement about the spellings the printer writes
+     * rather than a second, looser way to recognise one. The plan corpus instrument is its only
+     * caller. See `printerWordsOf`.
+     */
+    val phraseWords: Set<String> = this.phrases.flatten().toSet()
+
     /** Whether this bare word is the engine's own. See [words] and [builtins]. */
     fun knows(word: String): Boolean = word in words || word in builtins
 

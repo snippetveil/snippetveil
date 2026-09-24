@@ -34,9 +34,15 @@ package com.snippetveil.core
  *  - **The results-to-text client mode** truncates every column at a fixed width, which cuts
  *    mid-bracket and destroys the soundness the whole admission rests on. It has no predicate here:
  *    it awaits a capture and falls to the general refusal until one exists.
+ *
+ * ### This engine prints no plan at all until a session option is set
+ *
+ * **No row below is [PlanFormatReach.DEFAULT]**, and that absence is a fact about SQL Server rather
+ * than a gap here: there is no output a user gets *without asking*, so the default-form share this
+ * product reports has nothing to report for this engine. Every row is one option away.
  */
 internal val SQLSERVER_FORMATS: List<PlanFormat> = listOf(
-    PlanFormat("sqlserver-showplan-xml", ::opensShowplanXml) {
+    reads("sqlserver-showplan-xml", PlanEngine.SQLSERVER, PlanFormatReach.ONE_FLAG, ::opensShowplanXml) {
         structuredOccurrencesIn(
             attributedXmlDocumentIn(it, SHOWPLAN_ROOT)?.let(::listOf),
             SQLSERVER_SHOWPLAN_FIELDS,
@@ -45,10 +51,24 @@ internal val SQLSERVER_FORMATS: List<PlanFormat> = listOf(
             XML_QUOTE,
         )
     },
-    PlanFormat("sqlserver-showplan-text", ::opensShowplanText, ::showplanTextOccurrencesIn),
-    refuses("sqlserver-showplan-all", ::opensShowplanAll, PlanRefusedForm.SQLSERVER_SHOWPLAN_ALL),
+    reads(
+        "sqlserver-showplan-text",
+        PlanEngine.SQLSERVER,
+        PlanFormatReach.ONE_FLAG,
+        ::opensShowplanText,
+        ::showplanTextOccurrencesIn,
+    ),
+    refuses(
+        "sqlserver-showplan-all",
+        PlanEngine.SQLSERVER,
+        PlanFormatReach.ONE_FLAG,
+        ::opensShowplanAll,
+        PlanRefusedForm.SQLSERVER_SHOWPLAN_ALL,
+    ),
     refuses(
         "sqlserver-statistics-profile",
+        PlanEngine.SQLSERVER,
+        PlanFormatReach.ONE_FLAG,
         ::opensStatisticsProfile,
         PlanRefusedForm.SQLSERVER_STATISTICS_PROFILE,
     ),

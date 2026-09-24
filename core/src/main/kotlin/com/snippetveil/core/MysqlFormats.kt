@@ -30,10 +30,26 @@ package com.snippetveil.core
  * guess** — see [readingOf].
  */
 internal val MYSQL_FORMATS: List<PlanFormat> = listOf(
-    readsJson("mysql-json-v2", ::opensMysqlJsonV2, MYSQL_V2_QUERY_FIELDS),
-    readsJson("mysql-json-v1", ::opensMysqlJsonV1, MYSQL_V1_QUERY_FIELDS),
-    refuses("mysql-tree", ::opensMysqlTree, PlanRefusedForm.MYSQL_TREE),
-    refuses("mysql-tabular", ::opensMysqlTabular, PlanRefusedForm.MYSQL_TABULAR),
+    readsJson("mysql-json-v2", PlanEngine.MYSQL, ::opensMysqlJsonV2, MYSQL_V2_QUERY_FIELDS),
+    readsJson("mysql-json-v1", PlanEngine.MYSQL, ::opensMysqlJsonV1, MYSQL_V1_QUERY_FIELDS),
+    // `FORMAT=TREE`, and what `EXPLAIN ANALYZE` prints — one option away, and refused.
+    refuses(
+        "mysql-tree",
+        PlanEngine.MYSQL,
+        PlanFormatReach.ONE_FLAG,
+        ::opensMysqlTree,
+        PlanRefusedForm.MYSQL_TREE,
+    ),
+    // **This engine's default form, refused outright.** `EXPLAIN` with no format clause prints it,
+    // so the public listing cannot say *paste your `EXPLAIN` output* without qualifying it for
+    // MySQL. See `PlanRefusedForm.MYSQL_TABULAR` for why that is the least comfortable refusal here.
+    refuses(
+        "mysql-tabular",
+        PlanEngine.MYSQL,
+        PlanFormatReach.DEFAULT,
+        ::opensMysqlTabular,
+        PlanRefusedForm.MYSQL_TABULAR,
+    ),
 )
 
 /**
@@ -50,8 +66,23 @@ internal val MYSQL_FORMATS: List<PlanFormat> = listOf(
  * is nothing this product knows of to say; see [PlanRefusedForm.MARIADB].
  */
 internal val MARIADB_FORMATS: List<PlanFormat> = listOf(
-    refuses("mariadb-json", ::opensMariadbJson, PlanRefusedForm.MARIADB),
-    refuses("mariadb-tabular", ::opensMariadbTabular, PlanRefusedForm.MARIADB),
+    refuses(
+        "mariadb-json",
+        PlanEngine.MARIADB,
+        PlanFormatReach.ONE_FLAG,
+        ::opensMariadbJson,
+        PlanRefusedForm.MARIADB,
+    ),
+    // **This engine is refused in every form it prints, its default among them**, which is a
+    // different copy fact from MySQL's: there is no option to name, so there is nothing to qualify
+    // the sentence with either.
+    refuses(
+        "mariadb-tabular",
+        PlanEngine.MARIADB,
+        PlanFormatReach.DEFAULT,
+        ::opensMariadbTabular,
+        PlanRefusedForm.MARIADB,
+    ),
 )
 
 /**
@@ -61,10 +92,14 @@ internal val MARIADB_FORMATS: List<PlanFormat> = listOf(
  * rest is one line. A second spelling of the call would be a second place for the document shape,
  * the vocabulary or the escaping to be stated — and a second place is where they come apart.
  */
-private fun readsJson(name: String, recognises: (String) -> Boolean, fields: Map<String, PlanTreatment>) =
-    PlanFormat(name, recognises) {
-        structuredOccurrencesIn(jsonObjectIn(it)?.let(::listOf), fields, MYSQL, AS_WRITTEN, JSON_QUOTE)
-    }
+private fun readsJson(
+    name: String,
+    engine: PlanEngine,
+    recognises: (String) -> Boolean,
+    fields: Map<String, PlanTreatment>,
+) = reads(name, engine, PlanFormatReach.ONE_FLAG, recognises) {
+    structuredOccurrencesIn(jsonObjectIn(it)?.let(::listOf), fields, MYSQL, AS_WRITTEN, JSON_QUOTE)
+}
 
 /**
  * **Whether this opens MySQL's JSON version 2** — a document whose first key is `query`, which is the

@@ -597,6 +597,13 @@ enum class SymbolRole(val placeholderPrefix: String) {
  *   delimited identifier is case-sensitive where a bare one is folded, so normalising it would
  *   silently rewrite what the plan says.
  * @param nameEnd where the name ends — before the closing delimiter. See [nameStart].
+ * @param unscannable **whether this occurrence is a whole field the lexer could not scan soundly**
+ *   — recorded, because *how often the unsound-scanning test costs a field* is the fidelity price of
+ *   the residual rule and the public listing cannot describe this feature honestly without it.
+ *   `internal`, so no new surface ships: nothing outside this module can read it, and the one thing
+ *   that does is the plan corpus instrument, which reports the rate and thresholds nothing. It is a
+ *   **reason and never an outcome** — the disposition is a [PlanDisposition.Mask] either way, and no
+ *   rule anywhere branches on this field.
  */
 class PlanOccurrence(
     override val start: Int,
@@ -604,6 +611,7 @@ class PlanOccurrence(
     val disposition: PlanDisposition,
     val nameStart: Int = start,
     val nameEnd: Int = end,
+    internal val unscannable: Boolean = false,
 ) : Occurrence() {
 
     /** Always [SourceLanguage.PLAN], and not a parameter: a plan token is written in one language. */

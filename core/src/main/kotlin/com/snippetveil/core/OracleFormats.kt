@@ -47,8 +47,18 @@ package com.snippetveil.core
  * own rule, and the report's on the root element Oracle's monitoring writer writes.
  */
 internal val ORACLE_FORMATS: List<PlanFormat> = listOf(
-    PlanFormat("oracle-grid-text", ::opensAnOracleGrid, ::oracleGridOccurrencesIn),
-    PlanFormat("oracle-sql-monitor-xml", ::opensASqlMonitorReport) {
+    // **The grid is what `DBMS_XPLAN` prints with no format argument**, which is this engine's
+    // default form — and it is admitted, which is the second row carrying the coverage floor.
+    reads(
+        "oracle-grid-text",
+        PlanEngine.ORACLE,
+        PlanFormatReach.DEFAULT,
+        ::opensAnOracleGrid,
+        ::oracleGridOccurrencesIn,
+    ),
+    // **Further than one option**: a report procedure called with an XML type argument, against a
+    // separately licensed pack. A user reaches it deliberately, so it can never carry the floor.
+    reads("oracle-sql-monitor-xml", PlanEngine.ORACLE, PlanFormatReach.FURTHER, ::opensASqlMonitorReport) {
         structuredOccurrencesIn(
             contentXmlDocumentIn(it, MONITOR_ROOT)?.let(::listOf),
             ORACLE_MONITOR_FIELDS,
