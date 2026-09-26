@@ -2758,10 +2758,10 @@ val queryFixtureLibraries: Configuration = configurations.create("queryFixtureLi
 dependencies {
     // Test-scope by construction, like the stdlib above: in no source set's classpath, and handed to
     // the fixtures as file paths.
-    queryFixtureLibraries("jakarta.persistence:jakarta.persistence-api:3.1.0")
-    queryFixtureLibraries("org.springframework.data:spring-data-jpa:3.3.5")
-    queryFixtureLibraries("org.springframework.data:spring-data-commons:3.3.5")
-    queryFixtureLibraries("org.hibernate.orm:hibernate-core:6.5.3.Final")
+    queryFixtureLibraries("jakarta.persistence:jakarta.persistence-api:3.2.0")
+    queryFixtureLibraries("org.springframework.data:spring-data-jpa:4.1.1")
+    queryFixtureLibraries("org.springframework.data:spring-data-commons:4.1.1")
+    queryFixtureLibraries("org.hibernate.orm:hibernate-core:7.4.10.Final")
 }
 
 /** The jars, as a lazy value the configuration cache can carry into the test task. */
