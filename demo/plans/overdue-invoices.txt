@@ -1,0 +1,9 @@
+Nested Loop  (cost=0.57..24.61 rows=3 width=72) (actual time=0.031..0.044 rows=2 loops=1)
+  ->  Index Scan using invoices_due_on_idx on invoices inv  (cost=0.29..12.30 rows=3 width=40) (actual time=0.018..0.022 rows=2 loops=1)
+        Index Cond: (due_on < '2026-08-31'::date)
+        Filter: ((status)::text = 'OVERDUE'::text)
+        Rows Removed by Filter: 5
+  ->  Index Scan using customers_pkey on customers cust  (cost=0.28..4.10 rows=1 width=36) (actual time=0.009..0.009 rows=1 loops=2)
+        Index Cond: (id = inv.customer_id)
+Planning Time: 0.214 ms
+Execution Time: 0.071 ms

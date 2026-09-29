@@ -1,6 +1,6 @@
 # The Marketplace screenshots
 
-Nine shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
+Eleven shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
 commit by anyone.
 
 They are committed here rather than living only in the Marketplace listing, for the reason the demo
@@ -9,7 +9,7 @@ that cannot be reproduced cannot be corrected when the dialog it shows moves on.
 
 ## Rules every shot has to meet
 
-- **1280 × 800**, and the same aspect for all nine. The Marketplace scales them together; one odd
+- **1280 × 800**, and the same aspect for all eleven. The Marketplace scales them together; one odd
   shot reads as a mistake in the listing rather than as a difference in the product.
 - **No window chrome.** Capture the IDE's content, not the title bar, the traffic lights or the
   desktop behind them.
@@ -27,6 +27,11 @@ that cannot be reproduced cannot be corrected when the dialog it shows moves on.
 ### 1. `right-click-copy-anonymized.png`
 
 The editor popup, open, with **Copy Anonymized** visible under the **SnippetVeil** submenu.
+
+**All five items of the submenu are in frame**, in this shot and in 2 and 9. The three menu shots
+were re-taken when **Anonymize Execution Plan…** joined the submenu, for the reason shot 3 gives
+below: a menu shown with four items, to a reader who will find five, is a picture of a product that
+no longer exists.
 
 **Selection: `LateFeeCalculator.java`, lines 30–59** — the javadoc on `feeFor` through the method's
 closing brace. Right-click inside the selection, hover **SnippetVeil**. The shot is the selection and
@@ -183,7 +188,41 @@ select, preview, edit the preview, copy, read the counts — and this is the ret
 coming back into the editor. Grouped with the other menu shots it would put three near-identical
 frames at the front of the listing, which is where a reader decides whether to keep looking.
 
-### 10. `walkthrough.gif` (optional)
+### 10. `preview-sql-query.png`
+
+**Anonymize with Preview…** on a method that runs SQL, with the editor behind the dialog.
+
+**Selection: `ExposureReport.java`, lines 22–34** — the whole of `outstandingByCustomer`. The shot
+is the query twice: `billing.open_invoices` and its columns in the editor, `schema6.table7` and
+`col4` in the dialog, and the `table`, `col` and `schema` rows in the mapping table between them.
+The editor stays in frame because it is the half of the before-and-after the dialog cannot show.
+
+**The query is written to decompose, and that is a constraint on the demo, not a flattering
+choice.** A query holding a bind parameter, a string, an alias or a comment is replaced whole, as
+one `str`, and a shot of that would illustrate nothing. `ORDER BY 2` is there because a number is
+one of the things that is kept.
+
+**Shoot it in an IDE that has the Database Tools and SQL plugin, licensed.** Without it nothing
+injects SQL into the literal and the query comes out as one `str` — which is the product working
+as designed in that IDE, and the wrong shot. Disable the *No data sources are configured*
+inspection first, or its underline is in frame.
+
+### 11. `preview-execution-plan.png`
+
+**Anonymize Execution Plan…** on [`demo/plans/overdue-invoices.txt`](../../demo/plans/overdue-invoices.txt),
+with the plan open in the editor behind the dialog.
+
+Put it on the clipboard with `pbcopy < demo/plans/overdue-invoices.txt` rather than by copying from
+the editor, and open the file only to have it in frame. The subject is the three things a reader
+checks a plan anonymizer for, in one frame: the names are replaced — `Index Scan using idx1 on
+table2 table3` — the values in `Filter` and `Index Cond` are `'str5'` and `'str7'`, and every
+cost, row estimate and timing is exactly what the editor above prints. The counts strip reads
+`renamed · preserved` and nothing else, and the button reads `Copy Anonymized Plan`.
+
+**No menu shot of the item.** It is in frame, unhighlighted, in shots 1, 2 and 9; a fourth frame of
+one menu is the repetition shot 9 already had to argue its way past.
+
+### 12. `walkthrough.gif` (optional)
 
 Roughly ten seconds, no audio: select, **Copy Anonymized**, paste into a scratch buffer, then
 **De-anonymize Clipboard** on a reply pasted back. Same window, same theme, same rules as above.
@@ -204,7 +243,7 @@ screencapture -T 8 -R <x>,<y>,1280,800 docs/screenshots/<name>.png
 sips -z 800 1280 docs/screenshots/<name>.png
 ```
 
-Keep `<x>,<y>` the same for all nine so the shots line up, and place the region well inside the
+Keep `<x>,<y>` the same for all the menu shots so the shots line up, and place the region well inside the
 editor area rather than against the window's edges.
 
 **Or capture the window and cut the shadow off afterwards**, which is how the three preview frames
@@ -217,9 +256,9 @@ unchanged — scale to fit 1280 × 800, centre on a ground sampled from the imag
 
 ## What is here
 
-All nine stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each scaled to
+All eleven stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each scaled to
 fit and centred on a ground sampled from its own edge, so the letterboxing is invisible and the set
-reads as one product rather than as nine window sizes.
+reads as one product rather than as eleven window sizes.
 
 **Shots 3 to 6 are one opening of the dialog**, in the order this file gives, so the four frames
 carry one mapping table between them: `feeFor` is `method153` in shot 3, is being typed over in shot
