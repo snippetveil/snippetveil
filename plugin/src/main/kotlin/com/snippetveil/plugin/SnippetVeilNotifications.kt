@@ -148,11 +148,16 @@ internal object SnippetVeilNotifications {
      * a user did not ask for entirely inside the IDE, which is the same instinct that refuses a
      * post-install page: at install time, *we* chose the moment. A link the user clicks later is a
      * different thing, and the settings page carries one to the threat model for that reason.
+     *
+     * **The plan action gets the second sentence, and nothing else does.** It is the one anonymizing
+     * item that does not start from a selection — it reads the clipboard — so the first sentence
+     * never leads to it. `FirstRunNoticeTest` holds its path to the menu as it holds the first one's.
      */
     fun installed(project: Project) {
         group().createNotification(
             "SnippetVeil is installed",
-            "Select Java or Kotlin code, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Copy Anonymized</b>.",
+            "Select Java or Kotlin code, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Copy Anonymized</b>. " +
+                "For an execution plan, copy it, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Anonymize Execution Plan\u2026</b>",
             NotificationType.INFORMATION,
         ).addAction(openSettings(project)).notify(project)
     }

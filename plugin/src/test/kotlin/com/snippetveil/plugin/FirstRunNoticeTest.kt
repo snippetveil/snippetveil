@@ -32,7 +32,8 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
         val balloon = notifications.single()
         assertEquals("SnippetVeil is installed", balloon.title)
         assertEquals(
-            "Select Java or Kotlin code, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Copy Anonymized</b>.",
+            "Select Java or Kotlin code, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Copy Anonymized</b>. " +
+                "For an execution plan, copy it, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Anonymize Execution Plan\u2026</b>",
             balloon.content,
         )
         assertEquals(NotificationType.INFORMATION, balloon.type)
@@ -57,6 +58,21 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
         announceInstallation(project)
 
         assertMenuPathIsReal("The balloon", notifications.single().content, COPY_ANONYMIZED)
+    }
+
+    /**
+     * **The balloon's second path, to the plan action**, under the same check as the first. The
+     * checker reads the first path it finds, so this one is handed the text from its own sentence
+     * on — without it the second path would be a claim nothing reads.
+     */
+    fun `test the balloon's plan path is a real path to the plan action`() {
+        announceInstallation(project)
+
+        assertMenuPathIsReal(
+            "The balloon's plan sentence",
+            sentenceNaming(notifications.single().content, "Anonymize Execution Plan"),
+            ANONYMIZE_EXECUTION_PLAN,
+        )
     }
 
     /**
@@ -170,3 +186,6 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
 
 /** The item the balloon names, by the id `plugin.xml` registers it under. */
 private const val COPY_ANONYMIZED = "SnippetVeil.CopyAnonymized"
+
+/** The plan action, which reads the clipboard and so has a sentence of its own. */
+private const val ANONYMIZE_EXECUTION_PLAN = "SnippetVeil.AnonymizeExecutionPlan"

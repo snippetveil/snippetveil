@@ -61,6 +61,8 @@ Anything the IDE writes here — `.idea/`, `out/` — is already ignored by the 
 |---|---|
 | `LateFeeCalculator.java` | The main subject. Project types, an interface it depends on, JDK types that survive, `BigDecimal` constants that survive as numbers, javadoc that gets stripped |
 | `Invoice.java`, `InvoiceLine.java`, `Customer.java` | The domain vocabulary the anonymiser replaces — the reason the shots read as a business rather than as a puzzle |
+| `ExposureReport.java` | A JDBC query the IDE injects SQL into, written so every name in it decomposes into `table`, `col` and `schema` placeholders — no bind parameter, no string, no alias. `java.sql` is the JDK's |
+| `plans/overdue-invoices.txt` | An invented PostgreSQL `EXPLAIN ANALYZE` over the same ledger, for the plan preview. It is not source; it is on the clipboard for one shot |
 | `DunningRun.java` | A snippet where two different symbols share one source name, which is what makes the preview's fidelity notice fire |
 | `SettlementPolicy.java`, `InvoiceRepository.java`, `InvoiceStatus.java`, `PaymentTerms.java` | The rest of the package, so that names resolve and the shots are of resolved code |
 
@@ -68,5 +70,5 @@ Every name in here is invented. There is no Harborlight.
 
 ## Shooting the screenshots
 
-See [`docs/screenshots/README.md`](../docs/screenshots/README.md), which lists the eight shots, the
+See [`docs/screenshots/README.md`](../docs/screenshots/README.md), which lists the eleven shots, the
 selection each one is taken from, and the rules they all have to meet.
