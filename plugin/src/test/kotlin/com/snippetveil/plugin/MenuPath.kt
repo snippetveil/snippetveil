@@ -51,8 +51,10 @@ internal fun assertMenuPathIsReal(surface: String, text: String, actionId: Strin
  * end of the sentence the gesture is in.
  *
  * The arrow is the separator the sentences themselves use, so this reads them the way a user does
- * rather than the way they were written. The sentence ends at its first full stop: no menu name here
- * contains one, and the ellipsis on `Anonymize with Preview…` is one character rather than three.
+ * rather than the way they were written. The path ends at the first full stop, semicolon or end of a
+ * list item: no menu name here contains any of them, and the ellipsis on `Anonymize with Preview…` is
+ * one character rather than three. The semicolon is there for the listing's plan sentence, which goes
+ * on past the item — `… → **Anonymize Execution Plan…**; it always opens the preview first`.
  *
  * **A text with no arrowed path after the gesture fails here, and says so**, rather than having the
  * rest of it read as one long menu step. *Right-click, **Copy Anonymized*** names a gesture and an
@@ -64,9 +66,7 @@ private fun menuPathStatedIn(surface: String, text: String): List<String> {
         "$surface names no arrowed menu path after `right-click`, so there is no path in it to check.",
         RIGHT_CLICK in text,
     )
-    return text
-        .substringAfter(RIGHT_CLICK)
-        .substringBefore(".")
+    return pathAfterGesture(text.substringAfter(RIGHT_CLICK))
         .split("\u2192")
         .map { it.replace(Regex("""<[^>]+>"""), "").trim() }
         .filter { it.isNotEmpty() }
@@ -105,4 +105,25 @@ internal fun menuAncestryOf(actionId: String): List<String> {
         "$actionId is not reachable from the editor popup at all, so no gesture that starts with a " +
             "right-click names anything a user can do."
     }
+}
+
+/** What follows a gesture, up to where its path ends — see [menuPathStatedIn]. */
+private fun pathAfterGesture(afterGesture: String): String =
+    afterGesture.substringBefore("</li>").split('.', ';').first()
+
+/**
+ * [text] from the gesture whose path names [item] — for a surface naming more than one path, whose
+ * later paths the check would otherwise never reach, because it reads the first.
+ *
+ * **The path, not the first mention.** The listing names the plan item in bold at the head of its
+ * bullet before it gives the path to it, so walking back from the first mention finds the gesture
+ * of the bullet above.
+ */
+internal fun sentenceNaming(text: String, item: String): String {
+    var gesture = text.indexOf(RIGHT_CLICK)
+    while (gesture >= 0) {
+        if (item in pathAfterGesture(text.substring(gesture + RIGHT_CLICK.length))) return text.substring(gesture)
+        gesture = text.indexOf(RIGHT_CLICK, gesture + 1)
+    }
+    throw AssertionError("No `right-click` path names $item, so there is no path to it to check.")
 }

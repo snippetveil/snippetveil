@@ -17,7 +17,7 @@
 
 <!-- listing copy -->
 
-**Anonymize a Java or Kotlin snippet before you paste it into an AI chat.**
+**Anonymize a Java or Kotlin snippet, or a database execution plan, before you paste it into an AI chat.**
 
 Every name your project owns — classes, methods, fields, packages, string literals — is
 replaced with a placeholder before the snippet leaves the editor. The structure, the
@@ -44,6 +44,20 @@ control flow, and the libraries you call go as-is.
   placeholders never reach your source; the clipboard keeps the anonymized reply either way.
 - The mapping is per-project and stays on your machine. Placeholders are stable across
   invocations and IDE restarts, so a second snippet never contradicts the first.
+- **SQL in a Java file is read name by name** where the IDE recognises it as SQL or JPQL.
+  `"SELECT state FROM billing.customers"` comes out as `"SELECT col1 FROM schema2.table3"`, and a
+  JPQL query's entity and field names take the placeholders the class and its fields get
+  everywhere else. A query SnippetVeil cannot read in full is replaced whole, as one `"str1"`: SQL
+  holding a parameter, a string or a comment, JPQL with a name that does not resolve, and every
+  query in a Kotlin file. Which queries the IDE recognises depends on the plugins it has.
+- **Anonymize Execution Plan…** reads an execution plan from the clipboard — PostgreSQL, MySQL,
+  SQL Server or Oracle, in the output forms each engine prints unambiguously — and gives back the
+  same plan with its table, column, index and alias names replaced and the values in its
+  conditions redacted. Every cost, row estimate and timing stays exactly as printed. Copy the plan,
+  then right-click → **SnippetVeil** → **Anonymize Execution Plan…**; it always opens the preview
+  first. A plan SnippetVeil cannot read safely is refused, your clipboard is left as it was, and
+  the message names the output option that works where there is one. A plan's names are not added
+  to the project's mapping, so the same plan pasted twice comes back under different numbers.
 
 <!-- canonical -->
 
@@ -71,8 +85,9 @@ scanned in every release build, and public from the first commit.
 
 ### Non-goals
 
-Not a secret scanner. Anonymization is unavailable outside supported source files. The
-reversal actions are not gated by language.
+Not a secret scanner. Anonymizing code is unavailable outside supported source files; an
+execution plan is read from the clipboard, wherever you are. The reversal actions are not gated by
+language.
 
 ### Source
 

@@ -42,6 +42,18 @@ class ListingCopyTest : BasePlatformTestCase() {
     }
 
     /**
+     * **The listing's path to the plan action**, which is the second path it names and so the one
+     * the check above never reaches on its own.
+     */
+    fun `test the listing's plan path is a real path to the plan action`() {
+        assertMenuPathIsReal(
+            "The listing's plan sentence",
+            sentenceNaming(listing(), "Anonymize Execution Plan"),
+            ANONYMIZE_EXECUTION_PLAN,
+        )
+    }
+
+    /**
      * **The check fails on both of the wrong sentences it exists for.** The one the listing carried
      * names no path at all, and the one-step-short arrowed form is the balloon's old sentence; a
      * check whose red path is never exercised decays into one that always passes.
@@ -95,3 +107,6 @@ private const val PLUGIN_ID = "com.snippetveil"
 
 /** The item the listing names, by the id `plugin.xml` registers it under. */
 private const val COPY_ANONYMIZED = "SnippetVeil.CopyAnonymized"
+
+/** The plan action, which reads the clipboard and so has a sentence of its own. */
+private const val ANONYMIZE_EXECUTION_PLAN = "SnippetVeil.AnonymizeExecutionPlan"

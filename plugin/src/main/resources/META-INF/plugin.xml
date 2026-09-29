@@ -191,7 +191,7 @@
         <action id="SnippetVeil.AnonymizeExecutionPlan"
                 class="com.snippetveil.plugin.AnonymizeExecutionPlanAction"
                 text="Anonymize Execution Plan&#8230;"
-                description="Replace the names in a PostgreSQL EXPLAIN plan on the clipboard, keeping its costs and timings"/>
+                description="Replace the names in an execution plan on the clipboard, keeping its costs and timings"/>
 
         <!-- **One group, two homes.** The same submenu is added to the Tools menu and to the editor
              popup, so the two placements cannot drift into two different menus: an action added

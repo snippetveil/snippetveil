@@ -180,7 +180,8 @@
   `merchantRef` field get everywhere else. A string inside the query is replaced by its own `'str5'`,
   and a comment inside it is stripped and counted like any other comment. A query with any name that
   does not resolve is still replaced whole, and so is every query in an IDE that does not read the
-  query language at all — IntelliJ IDEA Community among them.
+  query language at all — IntelliJ IDEA Community among them, and IntelliJ IDEA without a
+  subscription, which does not load the persistence plugin that reads it.
 - **A SQL string in a Java file is anonymized name by name**, where the IDE injects SQL into it — a JDBC call, a
   native `@Query`, a `// language=SQL` literal. `"SELECT state FROM billing.customers"` used to come
   out as `"str1"`; it now comes out as `"SELECT col1 FROM schema2.table3"`. Tables, columns and
@@ -210,6 +211,11 @@
   line — and copy them unchanged, with `0 comments stripped`. This affected Java files in every
   version. The block is now selected whole, stripped like any other comment, and reported by
   "Selection expanded to whole tokens".
+- **The first-run notice names the plan action.** It used to say only *Select Java or Kotlin code,
+  then right-click → SnippetVeil → Copy Anonymized*, which never leads to an item that reads the
+  clipboard rather than a selection. It now goes on: *For an execution plan, copy it, then
+  right-click → SnippetVeil → Anonymize Execution Plan…* The status-bar description of that item
+  no longer says it reads PostgreSQL plans only.
 - The Original column of the preview and of Show mapping shows its text as plain text. A string
   literal beginning `<html>` was drawn as an HTML document, and an image tag inside one would have
   made the IDE fetch that image's address. The same applies to the package prefix table in Settings
