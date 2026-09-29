@@ -3,10 +3,11 @@
 ## [Unreleased]
 
 - **An execution plan can be anonymized from the clipboard.** `Anonymize Execution Plan…`, the
-  fifth item in the SnippetVeil menu, reads a PostgreSQL `EXPLAIN` plan off the clipboard and gives
-  back the same plan with the relation, column, alias and index names replaced — `Index Scan using
-  idx1 on table2 table3` — while every cost, row estimate, width and timing stays exactly as it was
-  printed, which is what a plan is pasted for. An index gets a kind of its own, `idx`, because an
+  fifth item in the SnippetVeil menu, reads an execution plan off the clipboard (PostgreSQL, MySQL,
+  SQL Server or Oracle, in the forms the entries below describe) and gives back the same plan with
+  the relation, column, alias and index names replaced — `Index Scan using idx1 on table2 table3` —
+  while every cost, row estimate, width and timing stays exactly as it was printed, which is what a
+  plan is pasted for. An index gets a kind of its own, `idx`, because an
   index is not a table. The item is always enabled and reads the clipboard only when you invoke it.
   It always opens the preview and has no fast path: the plan never passed through an editor, so the
   dialog is the only place to read what will be copied, and its button reads `Copy Anonymized Plan`.
