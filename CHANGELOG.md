@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-29
+
 - **An execution plan can be anonymized from the clipboard.** `Anonymize Execution Plan…`, the
   fifth item in the SnippetVeil menu, reads an execution plan off the clipboard (PostgreSQL, MySQL,
   SQL Server or Oracle, in the forms the entries below describe) and gives back the same plan with
@@ -221,7 +223,6 @@
   literal beginning `<html>` was drawn as an HTML document, and an image tag inside one would have
   made the IDE fetch that image's address. The same applies to the package prefix table in Settings
   and to the list of words not restored.
-
 - A placeholder you rename in the preview can no longer contain `$`. It is legal in a Java name
   but not in an unquoted SQL one, and a placeholder may be written into SQL. The editor says so
   when you type one, and a name with `$` in it that reaches SnippetVeil anyway is ignored: the
@@ -322,7 +323,8 @@
 - The plugin makes no network calls and starts no subprocesses. `./gradlew check` asserts both
   against the built distribution rather than against the sources.
 
-[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/snippetveil/snippetveil/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/snippetveil/snippetveil/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/snippetveil/snippetveil/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/snippetveil/snippetveil/compare/v1.1.0...v1.2.0
