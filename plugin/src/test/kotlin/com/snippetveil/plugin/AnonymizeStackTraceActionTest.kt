@@ -272,6 +272,7 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
         for (remainder in REMAINDERS) {
             assertTrue("`$remainder` reached the preview's table: $cells", cells.none { remainder in it })
             assertTrue("`$remainder` reached the unknowns: ${result.unknowns.map { it.name }}", result.unknowns.none { remainder in it.name })
+            assertTrue("`$remainder` reached a row's key: ${result.names.map { it.key }}", result.names.none { remainder in it.key.orEmpty() })
         }
         assertTrue("the remainder is not in the mapping a reply decodes against", "charge\$1" in result.mapping.values)
     }

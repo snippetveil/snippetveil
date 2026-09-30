@@ -75,12 +75,12 @@ fun anonymize(
     // **A remainder is never preserved**, whatever key arrives: it is a compiler-generated string
     // built out of declared names, so preserving it could only put one of those names back on the
     // clipboard. See [SymbolEvidence.remainder].
-    fun isPreservedByHand(symbol: SymbolEvidence): Boolean =
+    fun isTicked(symbol: SymbolEvidence): Boolean =
         !symbol.remainder && sharedKeyOf(symbol) in settings.preservedSymbols
 
-    fun isPreserved(symbol: SymbolEvidence): Boolean = wouldReplace(symbol) && isPreservedByHand(symbol)
+    fun isPreserved(symbol: SymbolEvidence): Boolean = wouldReplace(symbol) && isTicked(symbol)
 
-    fun isReplaced(symbol: SymbolEvidence): Boolean = wouldReplace(symbol) && !isPreservedByHand(symbol)
+    fun isReplaced(symbol: SymbolEvidence): Boolean = wouldReplace(symbol) && !isTicked(symbol)
 
     // The custom stems this invocation actually minted under — a set of words rather than a third
     // tier of key, and the only thing a renamed **local** leaves behind. See [LedgerDelta]. It is

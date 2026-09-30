@@ -54,7 +54,8 @@ import javax.swing.table.TableRowSorter
  *
  * ### Preserve is locked, and the unlock is the friction
  *
- * The per-item preserve reaches every keyed row rather than the `Unknown`s alone, and it reaches
+ * The per-item preserve reaches every keyed row rather than the `Unknown`s alone — a trace's
+ * remainder aside, which the engine never preserves (see [MappedName.preservable]) — and it reaches
  * them **only after an explicit unlock that warns first**. The unlock is locked again on every open,
  * there is no *don't warn me again*, and neither the unlock nor a tick is written anywhere: a sticky
  * unlock would be exactly the set-once-and-forgotten reduction the governing rule exists to

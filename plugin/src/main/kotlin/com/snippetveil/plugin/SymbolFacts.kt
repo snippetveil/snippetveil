@@ -169,11 +169,17 @@ internal object SymbolFacts {
     /**
      * **What was left of a JVM binary name after the longest prefix the index accepted** — see
      * [SymbolEvidence.remainder]. Unresolved, like any name nobody vouches for, and keyed in a
-     * namespace of its own so that it never shares a row with a whole unresolved name spelled alike:
-     * the one is offered for preserve and the other never is.
+     * namespace of its own because it is a different kind of name from a whole unresolved one
+     * spelled alike — a piece of a generated binary name rather than a name somebody wrote — so the
+     * two never share a row. The role is the one [unresolvedEvidence] reports and for the same
+     * reason: an unresolved name has no grammatical role, and nothing reads it.
+     *
+     * **Keyed by [ordinal], never by its text.** A key travels into the preview's rows and back as a
+     * preserve, and the text must reach neither; the caller numbers each distinct remainder of one
+     * trace in the order it first meets it, so equal remainders still share one `Unknown`.
      */
-    fun remainderEvidence(remainder: String): SymbolEvidence = SymbolEvidence(
-        key = "remainder:" + remainder,
+    fun remainderEvidence(remainder: String, ordinal: Int): SymbolEvidence = SymbolEvidence(
+        key = "remainder:$ordinal",
         role = SymbolRole.TYPE,
         origin = SymbolOrigin.UNRESOLVED,
         declaredName = remainder,

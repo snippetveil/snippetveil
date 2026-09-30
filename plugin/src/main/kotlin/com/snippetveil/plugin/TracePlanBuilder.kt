@@ -127,6 +127,9 @@ internal object TracePlanBuilder {
         private val facade = JavaPsiFacade.getInstance(project)
         private val scope = GlobalSearchScope.allScope(project)
 
+        /** Each distinct remainder of this trace, numbered as first met — its key, which its text is not. */
+        private val remainders = HashMap<String, Int>()
+
         /**
          * The class [name] names, reported segment by segment — each package segment, the outer
          * class and every class nested in it — then, where only a prefix of it resolved, **the rest
@@ -261,8 +264,9 @@ internal object TracePlanBuilder {
          * reads `Type1$Unknown2` by.
          */
         private fun remainderOf(name: TraceName, cut: Int): Occurrence {
-            val start = name.start + cut + 1
-            return symbol(start, name.text.substring(cut + 1), SymbolFacts.remainderEvidence(name.text.substring(cut + 1)))
+            val remainder = name.text.substring(cut + 1)
+            val ordinal = remainders.getOrPut(remainder) { remainders.size + 1 }
+            return symbol(name.start + cut + 1, remainder, SymbolFacts.remainderEvidence(remainder, ordinal))
         }
 
         private fun symbol(start: Int, text: String, evidence: SymbolEvidence) =

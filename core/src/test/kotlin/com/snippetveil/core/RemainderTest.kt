@@ -168,8 +168,14 @@ class RemainderTest {
         return plan to ghost
     }
 
-    private fun remainder(text: String) =
-        SymbolEvidence(REMAINDER_KEY.takeIf { text == "charge\$1" } ?: "remainder:$text", SymbolRole.TYPE, SymbolOrigin.UNRESOLVED, text, remainder = true)
+    /** A remainder keyed as the plugin keys one — by a number, never by its text. */
+    private fun remainder(text: String) = SymbolEvidence(
+        if (text == "charge\$1") REMAINDER_KEY else "remainder:${text.hashCode()}",
+        SymbolRole.TYPE,
+        SymbolOrigin.UNRESOLVED,
+        text,
+        remainder = true,
+    )
 
     /**
      * The [ordinal]th occurrence of [token] in [text], covering [written] — the token itself by
@@ -187,7 +193,7 @@ class RemainderTest {
     }
 }
 
-private const val REMAINDER_KEY = "remainder:charge\$1"
+private const val REMAINDER_KEY = "remainder:1"
 
 private val LEDGER = SymbolEvidence(
     key = "class:com.acme.Ledger",
