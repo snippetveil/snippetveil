@@ -570,7 +570,7 @@ enum class MappedKind(val label: String) {
 }
 
 /**
- * **What the strip removed, split by [CommentVerdict].**
+ * **What the strip removed, split by [CommentVerdict] — and how many comments were kept as code.**
  *
  * Reported so that removal is never silent. A comment stripped is a loss the anonymized output gives
  * no sign of: the text that comes back is clean, compiles, and reads as ordinary code, which is the
@@ -581,7 +581,7 @@ enum class MappedKind(val label: String) {
  * because it is evidence the walks still report, and a count that threw half of it away would be one
  * the next reader has to reconstruct.
  *
- * Both are zero when this invocation kept its comments. This counts what was **removed**, not what
+ * [prose] and [code] are both zero when this invocation kept its comments. This counts what was **removed**, not what
  * was there — a count of comments in the snippet would be a fact about the input, and the thing a
  * user needs to know is what is missing from the output. **A Java comment whose body parsed is never
  * in it**, because it was kept; a comment nested inside one and stripped is, although the user never
@@ -599,8 +599,9 @@ enum class MappedKind(val label: String) {
  *   the [CodeContainer.ParsedComment] tag their parts carry. **A count, not a notice**: a kept comment
  *   is loudly visible in the output, so it is inventory the pane shows rather than a loss the output
  *   hides, and it is said beside the name counts — only when it is not zero. A kept comment with
- *   nothing in it to anonymize — `// return;` — carries no part, and so is not counted: nothing in it
- *   was anonymized.
+ *   nothing in it to anonymize — `// return;`, or `// return; // todo` whose prose was stripped — is
+ *   not counted: it is read off the names and literals the output keeps, and nothing in it was
+ *   anonymized.
  */
 class CommentCounts(val prose: Int, val code: Int, val anonymized: Int) {
 
@@ -635,7 +636,8 @@ class UnknownName(
  * replaced" is a claim about names.
  *
  * They **partition** the snippet's named symbols: every distinct name is counted once, so the three
- * add up to what is in the snippet and nothing is counted twice.
+ * add up to what is in the snippet and nothing is counted twice. [unknownFromComments] is not a
+ * fourth part — it is a part *of* [unknown].
  *
  * They are counted by **outcome** — replaced, or surviving verbatim — rather than by the origin the
  * plan reported, and that is a correction the name-constrained rules forced rather than a

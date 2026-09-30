@@ -144,6 +144,28 @@ class KeptCommentCountTest {
         assertEquals(kept.text, dropped.text, "the tag changed the output, and no rewriting rule reads it")
     }
 
+    /**
+     * **A kept line with nothing in it to anonymize is not counted — even when prose nested in it
+     * was stripped.** The nested comment carries the kept line's tag, because it was read from inside
+     * it; it went, so it is not something that was anonymized and kept.
+     */
+    @Test
+    fun `a kept line whose only part is stripped prose is not counted`() {
+        val plan = planOf(
+            """
+            void post() {
+                // return; // todo
+            }
+            """.trimIndent(),
+            symbol("post", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT),
+        ).withComment("// todo", CommentVerdict.PROSE).keeping("// return; // todo")
+
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertEquals(0, result.comments.anonymized)
+        assertEquals(1, result.comments.stripped)
+    }
+
     /** Two kept lines are two kept comments, and each is counted once however many names it holds. */
     @Test
     fun `each kept comment is counted once`() {
@@ -262,33 +284,4 @@ class KeptCommentCountTest {
         /** The names the generated snippets hold unresolved; the rest are the project's own. */
         val UNRESOLVED = setOf(0, 1, 2)
     }
-}
-
-/**
- * The same plan with every occurrence lying inside the next occurrence of [comment] re-tagged as read
- * from that comment — which is what the builder reports for a comment whose body parsed: its parts,
- * each tagged with the comment they were read from, and nothing spanning it.
- */
-internal fun SnippetPlan.keeping(comment: String): SnippetPlan {
-    val taken = occurrences.mapNotNullTo(HashSet()) { it.container as? CodeContainer.ParsedComment }
-    val start = generateSequence(text.indexOf(comment)) { text.indexOf(comment, it + 1) }
-        .takeWhile { it >= 0 }
-        .firstOrNull { at -> taken.none { it.start == at } }
-        ?: error("`$comment` does not occur in the snippet once more")
-    val container = CodeContainer.ParsedComment(start, start + comment.length)
-
-    return SnippetPlan(
-        text,
-        occurrences.map { if (it.start >= container.start && it.end <= container.end) it.inside(container) else it },
-        rootPackage,
-        selectionExpanded,
-    )
-}
-
-/** [this] occurrence, tagged as read from [container]. */
-private fun Occurrence.inside(container: CodeContainer): Occurrence = when (this) {
-    is SymbolOccurrence -> SymbolOccurrence(start, end, text, symbol, language, nameStart, nameEnd, container, suffix)
-    is LiteralOccurrence -> LiteralOccurrence(start, end, kind, contentStart, contentEnd, references, language, container)
-    is CommentOccurrence -> CommentOccurrence(start, end, verdict, language, container)
-    else -> error("a ${this::class.simpleName} is never read from a comment")
 }

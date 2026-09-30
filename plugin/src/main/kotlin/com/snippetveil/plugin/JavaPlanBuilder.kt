@@ -252,13 +252,13 @@ internal object JavaPlanBuilder : PlanBuilder {
 
         // Everything a kept line holds is read from the comment the walk started at, so a comment
         // nested in one keeps the tag it was handed rather than naming itself.
-        val kept = container as? CodeContainer.ParsedComment
+        val keptComment = container as? CodeContainer.ParsedComment
             ?: CodeContainer.ParsedComment(at(comment.textRange.startOffset), at(comment.textRange.endOffset))
 
         // The body is the comment's own text with its delimiters blanked, so an offset in the parsed
         // fragment is an offset into the comment.
         val base = comment.textRange.startOffset
-        return partsOf(project, parsed, { at(base + it) }, kept, commentParser)
+        return partsOf(project, parsed, { at(base + it) }, keptComment, commentParser)
     }
 
     /**
@@ -267,7 +267,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * terms**, recursively. `// customer.charge(); // premium tier only` keeps the call and strips
      * the prose after it; `// customer.charge(); // order.ship();` keeps both.
      *
-     * Everything here is tagged [kept], nested comments included: the tag says where a token was read
+     * Everything here is tagged [keptComment], nested comments included: the tag says where a token was read
      * from, all of these were read from inside that comment, and it names the comment so that kept
      * comments can be counted.
      *
@@ -278,7 +278,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         project: Project,
         parsed: PsiFile,
         at: (Int) -> Int,
-        kept: CodeContainer.ParsedComment,
+        keptComment: CodeContainer.ParsedComment,
         commentParser: CommentParser,
     ): List<Occurrence> {
         val parts = mutableListOf<Occurrence>()
@@ -286,17 +286,17 @@ internal object JavaPlanBuilder : PlanBuilder {
             object : PsiRecursiveElementWalkingVisitor() {
                 override fun visitElement(element: PsiElement) {
                     when (element) {
-                        is PsiIdentifier -> parts += symbolOccurrenceOf(project, element, at, kept)
+                        is PsiIdentifier -> parts += symbolOccurrenceOf(project, element, at, keptComment)
 
                         // A literal is one token to the plan, and nothing inside it is a name.
                         is PsiLiteralExpression -> {
-                            parts += literalOccurrenceOf(project, element, at, kept)
+                            parts += literalOccurrenceOf(project, element, at, keptComment)
                             return
                         }
 
                         is PsiComment -> {
                             val nested = parsedBodyOf(element, commentParser)
-                            parts += commentOccurrencesOf(project, element, nested, at, kept, commentParser)
+                            parts += commentOccurrencesOf(project, element, nested, at, keptComment, commentParser)
                             // A nested body that parsed was read from its own fragment, so nothing
                             // under it is read a second time here.
                             if (nested != null) return

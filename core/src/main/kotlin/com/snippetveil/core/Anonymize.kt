@@ -620,7 +620,10 @@ fun anonymize(
         comments = CommentCounts(
             prose = stripped.count { it.verdict == CommentVerdict.PROSE },
             code = stripped.count { it.verdict == CommentVerdict.CODE },
-            anonymized = surviving.mapNotNullTo(HashSet()) { it.container as? CodeContainer.ParsedComment }.size,
+            // Read off the names and literals the output keeps, never off the comments: prose nested
+            // in a kept line carries that line's tag and goes, and a line that held nothing else had
+            // nothing in it anonymized.
+            anonymized = (symbols + literals).mapNotNullTo(HashSet()) { it.container as? CodeContainer.ParsedComment }.size,
         ),
         delta = LedgerDelta(persisted, allocator.nextNumber, mintedStems),
     )
@@ -764,7 +767,8 @@ private fun bearsAWord(text: String, from: Int, to: Int): Boolean =
 
 /**
  * The balloon's three numbers, which **partition the distinct names in the snippet**: every name is
- * counted exactly once, and the three add up to what is in the snippet.
+ * counted exactly once, and the three add up to what is in the snippet. The part of `unknown` kept
+ * comments brought rides beside them and is a part of `unknown`, never a fourth number.
  *
  * They are counted by *outcome* — replaced, or surviving verbatim — rather than by the origin the
  * plan reported, and that is a correction the name-constrained rules force. A project method that

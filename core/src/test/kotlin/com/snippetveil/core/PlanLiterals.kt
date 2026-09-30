@@ -324,3 +324,32 @@ internal fun SnippetPlan.withComment(comment: String, verdict: CommentVerdict): 
         rootPackage,
     )
 }
+
+/**
+ * The same plan with every occurrence lying inside the next occurrence of [comment] re-tagged as read
+ * from that comment — which is what the builder reports for a comment whose body parsed: its parts,
+ * each tagged with the comment they were read from, and nothing spanning it.
+ */
+internal fun SnippetPlan.keeping(comment: String): SnippetPlan {
+    val taken = occurrences.mapNotNullTo(HashSet()) { it.container as? CodeContainer.ParsedComment }
+    val start = generateSequence(text.indexOf(comment)) { text.indexOf(comment, it + 1) }
+        .takeWhile { it >= 0 }
+        .firstOrNull { at -> taken.none { it.start == at } }
+        ?: error("`$comment` does not occur in the snippet once more")
+    val container = CodeContainer.ParsedComment(start, start + comment.length)
+
+    return SnippetPlan(
+        text,
+        occurrences.map { if (it.start >= container.start && it.end <= container.end) it.inside(container) else it },
+        rootPackage,
+        selectionExpanded,
+    )
+}
+
+/** [this] occurrence, tagged as read from [container]. */
+private fun Occurrence.inside(container: CodeContainer): Occurrence = when (this) {
+    is SymbolOccurrence -> SymbolOccurrence(start, end, text, symbol, language, nameStart, nameEnd, container, suffix)
+    is LiteralOccurrence -> LiteralOccurrence(start, end, kind, contentStart, contentEnd, references, language, container)
+    is CommentOccurrence -> CommentOccurrence(start, end, verdict, language, container)
+    else -> error("a ${this::class.simpleName} is never read from a comment")
+}

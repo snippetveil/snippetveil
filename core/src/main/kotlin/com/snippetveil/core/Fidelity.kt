@@ -42,7 +42,9 @@ package com.snippetveil.core
  * ### The rule they follow, which is the opposite of the counts'
  *
  * **Nothing is said when nothing was lost.** The counts beside these are shown every time including
- * the zeroes, because a number that appeared only when it fired would make its absence unreadable.
+ * the zeroes, because a number that appeared only when it fired would make its absence unreadable —
+ * all but the kept-comment count and the part of `unknown` kept comments brought, which have no
+ * population on a snippet with no commented-out code and are absent there rather than zero.
  * A *notice* is a sentence rather than a number: one that fired on every invocation is one nobody
  * reads on the invocation where it matters.
  *

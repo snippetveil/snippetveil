@@ -77,11 +77,13 @@ internal enum class Subject(
     ;
 
     /**
-     * **The counts strip under the preview's panes, and one conditional clause.**
+     * **The counts strip under the preview's panes, and the entries that are conditional.**
      *
      * `14 renamed · 3 unknown · 22 preserved` — every number this invocation *has* every time,
      * including the zeroes, because a number that appeared only when it fired would make its absence
-     * unreadable. Preserved JDK and third-party symbols are here rather than in the table: their
+     * unreadable. The two kept-comment entries below are the exception, and the reason is theirs: a
+     * snippet with no commented-out code has no kept comment to count, and a zero said on every such
+     * snippet is noise rather than a measurement. Preserved JDK and third-party symbols are here rather than in the table: their
      * preservation is deliberate and a declared non-goal, so each would be a row the user can do
      * nothing about.
      *
@@ -90,7 +92,7 @@ internal enum class Subject(
      * read as a bug. The notices sit on their own lines below this one and follow the opposite rule:
      * nothing at all when the loss did not happen.
      *
-     * *Selection expanded to whole tokens* is the exception among the counts, and it is conditional
+     * *Selection expanded to whole tokens* is conditional too, and it is conditional
      * in the other direction: always-on it is noise, and conditional it is information. It fires only
      * when snapping actually moved an end of the selection — the copy then contains text the user did
      * not select, and the pane beside this line is where they can see what. It stays a clause of this
