@@ -304,13 +304,14 @@ internal class QueryRowsTest : QuerySnippetTestCase() {
 
     /**
      * **The refused `(n from SQL)` split** — named here so that nobody adds it believing it an
-     * omission. No count carries a query-sourced breakdown: [NameCounts] holds three numbers and
-     * nothing else, and neither the strip nor the balloon says anything about a query.
+     * omission. No count carries a query-sourced breakdown: [NameCounts] holds the three numbers and
+     * the part of `unknown` that kept comments brought — the one split the product makes, by comment
+     * and never by query — and neither the strip nor the balloon says anything about a query.
      */
     fun `test no count carries the refused n-from-SQL split`() {
         assertTheQueryHarnessHolds()
         assertEquals(
-            listOf("preserved", "replaced", "unknown"),
+            listOf("preserved", "replaced", "unknown", "unknownFromComments"),
             NameCounts::class.java.declaredFields.map { it.name }.sorted(),
         )
 

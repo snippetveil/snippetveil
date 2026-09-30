@@ -610,10 +610,20 @@ fun anonymize(
         names = names.values.toList(),
         unknowns = unknowns,
         flattened = flattenedNamesIn(names.values),
-        counts = countsOf(namedSymbols, ::isReplaced, unknowns.size, planCountsOf(plan, planNames, settings)),
+        counts = countsOf(
+            namedSymbols,
+            ::isReplaced,
+            unknowns.size,
+            unknownsOnlyInCommentsOf(symbols),
+            planCountsOf(plan, planNames, settings),
+        ),
         comments = CommentCounts(
             prose = stripped.count { it.verdict == CommentVerdict.PROSE },
             code = stripped.count { it.verdict == CommentVerdict.CODE },
+            // Read off the names and literals the output keeps, never off the comments: prose nested
+            // in a kept line carries that line's tag and goes, and a line that held nothing else had
+            // nothing in it anonymized.
+            anonymized = (symbols + literals).mapNotNullTo(HashSet()) { it.container as? CodeContainer.ParsedComment }.size,
         ),
         delta = LedgerDelta(persisted, allocator.nextNumber, mintedStems),
     )
@@ -757,7 +767,8 @@ private fun bearsAWord(text: String, from: Int, to: Int): Boolean =
 
 /**
  * The balloon's three numbers, which **partition the distinct names in the snippet**: every name is
- * counted exactly once, and the three add up to what is in the snippet.
+ * counted exactly once, and the three add up to what is in the snippet. The part of `unknown` kept
+ * comments brought rides beside them and is a part of `unknown`, never a fourth number.
  *
  * They are counted by *outcome* — replaced, or surviving verbatim — rather than by the origin the
  * plan reported, and that is a correction the name-constrained rules force. A project method that
@@ -778,6 +789,7 @@ private fun countsOf(
     named: List<SymbolEvidence>,
     isReplaced: (SymbolEvidence) -> Boolean,
     unknown: Int,
+    unknownFromComments: Int,
     plan: PlanCounts,
 ): NameCounts {
     val unresolvedKeys = named
@@ -791,8 +803,25 @@ private fun countsOf(
         replaced = resolved.count(isReplaced) + plan.replaced,
         unknown = unknown,
         preserved = resolved.count { !isReplaced(it) } + plan.preserved,
+        unknownFromComments = unknownFromComments,
     )
 }
+
+/**
+ * **How many of the unknowns came from kept comments alone** — the distinct unresolved names every
+ * occurrence of which was read from a comment whose body parsed. See [NameCounts.unknownFromComments].
+ *
+ * Read off the same identifiers [AnonymizationResult.unknowns] is, so the part is a part of that
+ * total by construction: a name is in it only if it is in the total, and a name any live occurrence
+ * of which is unresolved is counted in the live part and not here.
+ *
+ * @param symbols the identifiers that survive into the output — a name written only inside a stripped
+ *   comment is not an unknown of this snippet at all, so it is not one of these either
+ */
+private fun unknownsOnlyInCommentsOf(symbols: List<SymbolOccurrence>): Int = symbols
+    .filter { it.symbol.origin == SymbolOrigin.UNRESOLVED }
+    .groupBy { sharedKeyOf(it.symbol) }
+    .count { (_, occurrences) -> occurrences.all { it.container is CodeContainer.ParsedComment } }
 
 /** What a plan container contributed to the two counts it has a population for. See [planCountsOf]. */
 private class PlanCounts(val replaced: Int, val preserved: Int)

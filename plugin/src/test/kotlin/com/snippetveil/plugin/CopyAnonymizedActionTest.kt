@@ -876,7 +876,8 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
      *
      * **It counts what was stripped and nothing else.** The commented-out call beside the TODO is
      * kept, anonymized, on this fast path with no tick — so it is not in the count, and the notice no
-     * longer carries a clause pointing at the tick as the way to get it back.
+     * longer carries a clause pointing at the tick as the way to get it back. It is counted on the
+     * counts line instead, as a kept comment.
      *
      * On the balloon rather than only in the preview: `Copy Anonymized` has no preview, so a
      * disclosure the dialog carried alone would never fire for the people who never open it.
@@ -906,9 +907,58 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
             clipboard(),
         )
         assertEquals(
-            "2 names replaced · 0 unknown · 2 preserved<br>1 comment stripped",
+            "2 names replaced · 0 unknown · 2 preserved · 1 comment anonymized<br>1 comment stripped",
             notifications.single().content,
         )
+    }
+
+    /**
+     * **A kept comment is counted, and the unknowns it brings are split out** — on the balloon,
+     * because `Copy Anonymized` has no dialog and these numbers would otherwise never reach the users
+     * who do not open the preview.
+     *
+     * `legacyAudit` resolves nowhere and is written only in the commented-out line, so it is one of
+     * the two unknowns and the one from comments; `missingHelper` is red in live code. The kept line
+     * is a count on the counts line, not a notice: the stripped TODO is the only thing the notice
+     * below it says.
+     */
+    fun `test the balloon counts a kept comment and splits the unknowns it brings`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>void audit(int amount) {
+                    // TODO: fix this
+                    // legacyAudit(amount);
+                    missingHelper(amount);
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals(
+            "2 names replaced · 2 unknown (1 from comments) · 0 preserved · 1 comment anonymized<br>1 comment stripped",
+            notifications.single().content,
+        )
+    }
+
+    /**
+     * **Absent, not zero.** A snippet with no kept comment says nothing about kept comments, and
+     * nothing about where its unknowns came from: always on, both are noise.
+     */
+    fun `test the balloon says nothing of kept comments when there are none`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            "class Ledger { <selection>void audit(int amount) { missingHelper(amount); }</selection> }",
+        )
+
+        invokeCopyAnonymized()
+
+        assertEquals("2 names replaced · 1 unknown · 0 preserved", notifications.single().content)
     }
 
     /**

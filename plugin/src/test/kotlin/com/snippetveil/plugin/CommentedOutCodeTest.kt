@@ -313,7 +313,8 @@ class CommentedOutCodeTest : JavaSnippetTestCase() {
     /**
      * **Each occurrence carries the container it came from, and the plan stays flat.** A kept
      * fragment is never one occurrence spanning the comment: its parts lie inside it, each tagged as
-     * read from a parsed comment, and no two occurrences anywhere in the plan overlap.
+     * read from that comment — by its range, so that kept comments can be counted — and no two
+     * occurrences anywhere in the plan overlap.
      */
     fun `test occurrences are tagged with their container and never overlap`() {
         assertTheHarnessResolves()
@@ -336,8 +337,12 @@ class CommentedOutCodeTest : JavaSnippetTestCase() {
             inside.map { it::class.simpleName },
         )
         assertTrue("an occurrence spans the whole comment", inside.none { it.start == comment.first && it.end == comment.last })
-        assertTrue(inside.all { it.container == CodeContainer.PARSED_COMMENT })
-        assertTrue(outside.isNotEmpty() && outside.all { it.container == CodeContainer.LIVE_CODE })
+        assertEquals(
+            "every part of the kept line, the prose nested in it included, names that line",
+            setOf(CodeContainer.ParsedComment(comment.first, comment.last)),
+            inside.map { it.container }.toSet(),
+        )
+        assertTrue(outside.isNotEmpty() && outside.all { it.container == CodeContainer.LiveCode })
         assertTrue(
             "two occurrences overlap: ${plan.occurrences.map { it.start to it.end }}",
             plan.occurrences.zipWithNext().all { (first, second) -> first.end <= second.start },
