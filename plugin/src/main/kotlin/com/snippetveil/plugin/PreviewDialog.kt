@@ -589,7 +589,9 @@ internal object TracePreviewDialogs : Previews {
  * **The `Preserve` column exists only where a reduction is possible, and its cells only where a
  * reduction is offered** — on `Unknown` rows while [unlocked] is false, and on every keyed row once
  * it is true. A literal row never has one: it has no key, and literal text is the most directly
- * sensitive content the product handles.
+ * sensitive content the product handles. Nor does a trace's remainder — the part of a generated name
+ * left after its resolved prefix — whose row says `(generated)` rather than what it was: preserving
+ * it could only print a declared name.
  *
  * **A query row is not a literal row, and the exclusion does not reach it** — which is the exclusion
  * working rather than an exception to it. Both of its reasons are about the whole literal as one
@@ -661,12 +663,14 @@ internal class MappingTableModel(
     }
 
     /**
-     * Whether this row offers the override. **The key decides**, not the kind: a preserve travels as
-     * a key, so a row without one — a replaced literal — has nothing to hand back and is not offered
-     * a box it could not act on. The kind decides only what is offered while the column is locked.
+     * Whether this row offers the override. **The engine decides**, not the kind: a preserve travels
+     * as a key, so a row without one — a replaced literal — has nothing to hand back and is not
+     * offered a box it could not act on, and a trace's **remainder** has a key and is refused anyway,
+     * because preserving it would print a declared name. See [MappedName.preservable]. The kind
+     * decides only what is offered while the column is locked.
      */
     private fun offersPreserve(name: MappedName): Boolean =
-        reducible && name.key != null && (unlocked || name.kind == MappedKind.UNKNOWN)
+        reducible && name.preservable && (unlocked || name.kind == MappedKind.UNKNOWN)
 
     /**
      * Whether this row's placeholder can be renamed — [Renaming.OFFERED] and the reduction opening,

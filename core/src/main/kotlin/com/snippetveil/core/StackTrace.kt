@@ -141,8 +141,9 @@ class StackTrace(
  *
  * @param type the declaring class, as the JVM wrote it — a binary name, so an inner class carries
  *   its `$`
- * @param method the method, or `null` for `<init>` and `<clinit>`: the JVM's own names for a
- *   constructor and an initializer, which name nothing of anybody's
+ * @param method the method, or `null` for `<init>` and `<clinit>` — the JVM's own names for a
+ *   constructor and an initializer — and for a coroutine's `invokeSuspend`: names the platform
+ *   fixed, which name nothing of anybody's
  * @param file the source file name, or `null` for `(Native Method)` and `(Unknown Source)`, which are
  *   fixed JVM tokens with no file in them. A line number is shape rather than domain and is not
  *   reported: it stays where it is.
@@ -176,7 +177,7 @@ private fun readFrame(rest: String, out: StringBuilder, frames: MutableList<Trac
 
     val typeName = TraceName(out.length, out.length + type.length, type)
     out.append(type).append('.')
-    val methodName = TraceName(out.length, out.length + method.length, method).takeUnless { method in JVM_METHOD_NAMES }
+    val methodName = TraceName(out.length, out.length + method.length, method).takeUnless { method in LANGUAGE_FIXED_METHODS }
     out.append(method).append('(')
 
     val file = if (location in FIXED_LOCATIONS) {
@@ -216,4 +217,14 @@ private val ELIDED = Regex("""\.\.\. \d+ more""")
 
 private val FIXED_LOCATIONS = setOf("Native Method", "Unknown Source")
 
-private val JVM_METHOD_NAMES = setOf("<init>", "<clinit>")
+/**
+ * **The method names a frame reports as no method at all**, because the platform rather than the
+ * developer fixed how they are spelled: the JVM's own `<init>` and `<clinit>`, and `invokeSuspend`,
+ * the method every coroutine's generated state machine is compiled into. A generated name is silent
+ * exactly when the *language* fixes its spelling — the test that keeps `it` and `component1` in a
+ * snippet — and none of these names anything of anybody's.
+ *
+ * A generated name whose spelling a *declared* symbol fixes is not here and never could be:
+ * `charge$suspendImpl` carries `charge`, and it is resolved as far as the platform accepts it.
+ */
+private val LANGUAGE_FIXED_METHODS = setOf("<init>", "<clinit>", "invokeSuspend")

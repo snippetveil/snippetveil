@@ -33,9 +33,39 @@ import com.snippetveil.core.TraceName
  * engine, not here. A lookup in the ledger alone was disqualified: it cannot tell
  * `com.acme.internal.Foo` from `java.util.HashMap`, since neither may ever have been named before.
  *
- * **A class or a method that does not resolve is one whole `Unknown`** — the whole qualified name,
- * package included, as a single placeholder. Resolving the package of a class that did not resolve is
- * partial resolution, and not this builder's to do.
+ * ### Longest prefix first, and the remainder replaced whole
+ *
+ * Synthetic frames are where a real trace spends most of its names — lambdas, coroutine state
+ * machines, proxies, inner classes — and the owning class of one usually resolves perfectly well.
+ * So **at each name position, the longest prefix of the JVM binary name the index accepts is
+ * resolved, and what is left over is one `Unknown`**:
+ *
+ * ```
+ * com.acme.BillingService$charge$1.invokeSuspend(BillingService.java:42)
+ *     ->  com.pkg1.Type2$Unknown3.invokeSuspend(Type2.java:42)
+ * com.acme.BillingService.charge$suspendImpl(BillingService.java:42)
+ *     ->  com.pkg1.Type2.method4$Unknown5(Type2.java:42)
+ * ```
+ *
+ * **Text only enumerates the candidates, and the index decides.** A candidate is the name cut before
+ * one of its `$`s, tried longest first; each is resolved exactly as a whole name is, spelling check
+ * included. Longest-first is monotone: a wrong split resolves a *shorter* prefix and drops *more*
+ * into `Unknown`, so no split can print more than the right one. That is what makes this allowed
+ * where de-mangling is not — stripping `$$…` or `lambda$…` to recover an owner decides a symbol from
+ * the shape of its text and fails toward printing more, and nothing here does it. A name with no
+ * accepted prefix is still **one whole `Unknown`**, package included; the cuts are at `$` only, so a
+ * class that does not resolve does not have its package resolved instead.
+ *
+ * **The remainder is replaced wholesale and never read.** `$charge$1` carries `charge`, a declared
+ * method's name: printing it leaks, and renaming the `charge` in it would be text surgery deciding
+ * that a `$`-segment is a method. It is reported whole as [SymbolEvidence.remainder], so it renders
+ * one `Unknown`, counts as one, is never offered for preserve, and its text lives in the mapping
+ * a reply decodes against and nowhere a person reads.
+ *
+ * A frame whose class only partly resolved has **no method to look up** — the class it would be
+ * declared in is the compiler's — so its method is one whole `Unknown`, unless the language fixed its
+ * spelling and `parseTrace` reported no method at all, as it does for `invokeSuspend`. Its **file
+ * name** is still the resolved prefix's file's, which is the file the compiler generated it from.
  *
  * ### The file name
  *
@@ -63,8 +93,8 @@ internal object TracePlanBuilder {
         for (frame in trace.frames) {
             val type = resolver.classNamed(frame.type)
             occurrences += type.occurrences
-            frame.method?.let { occurrences += resolver.method(type.resolved, it) }
-            frame.file?.let { occurrences += resolver.file(type.resolved, it) }
+            frame.method?.let { occurrences += resolver.method(type.declaring, it) }
+            frame.file?.let { occurrences += resolver.file(type.prefix, it) }
         }
         for (text in trace.texts) {
             occurrences += LiteralOccurrence(
@@ -81,8 +111,16 @@ internal object TracePlanBuilder {
         return SnippetPlan(trace.text, occurrences.sortedBy { it.start })
     }
 
-    /** One class name as the trace wrote it, and what it resolved to — or `null` where it did not. */
-    private class ResolvedClass(val resolved: PsiClass?, val occurrences: List<Occurrence>)
+    /**
+     * One class name as the trace wrote it, and what it resolved to.
+     *
+     * @param declaring the class the **whole** name resolved to, which is where the frame's method is
+     *   looked up — `null` where only a prefix resolved, or nothing did
+     * @param prefix the class the **longest accepted prefix** resolved to, which is whose file the
+     *   frame's file name is — the whole name's class where the whole name resolved, and `null` where
+     *   nothing did
+     */
+    private class ResolvedClass(val declaring: PsiClass?, val prefix: PsiClass?, val occurrences: List<Occurrence>)
 
     private class Resolver(private val project: Project) {
 
@@ -91,29 +129,47 @@ internal object TracePlanBuilder {
 
         /**
          * The class [name] names, reported segment by segment — each package segment, the outer
-         * class and every class nested in it — or one whole `Unknown` where it does not resolve.
+         * class and every class nested in it — then, where only a prefix of it resolved, **the rest
+         * as one remainder**, and one whole `Unknown` where no prefix did.
+         *
+         * The whole name is the longest candidate, so it is tried first; then the name cut before
+         * each of its `$`s, longest first. See the class comment for why that order is the whole
+         * argument.
+         */
+        fun classNamed(name: TraceName): ResolvedClass {
+            resolvedExactly(name.text, name.start)?.let { (found, occurrences) -> return ResolvedClass(found, found, occurrences) }
+            for (cut in prefixCuts(name.text)) {
+                val (found, occurrences) = resolvedExactly(name.text.substring(0, cut), name.start) ?: continue
+                return ResolvedClass(null, found, occurrences + remainderOf(name, cut))
+            }
+            return ResolvedClass(null, null, listOf(unresolved(name)))
+        }
+
+        /**
+         * The class [binaryName] names, and its segments as occurrences starting at [start] — or
+         * `null` where it does not resolve.
          *
          * **The resolution is checked against the spelling.** A binary name is looked up with its
          * `$` read as a `.`, and `com.acme.Foo$Bar` could then find a class `Bar` in a package
          * `com.acme.Foo`; a class is accepted only where its own chain spells the name back exactly,
          * and anything else fails closed.
          */
-        fun classNamed(name: TraceName): ResolvedClass {
-            val found = find(name.text) ?: return unresolved(name)
+        private fun resolvedExactly(binaryName: String, start: Int): Pair<PsiClass, List<Occurrence>>? {
+            val found = find(binaryName) ?: return null
             val chain = generateSequence(found) { it.containingClass }.toList().asReversed()
             val outer = chain.first()
             val packageName = outer.qualifiedName?.substringBeforeLast('.', "").orEmpty()
             val spelled = listOfNotNull(packageName.takeIf { it.isNotEmpty() }, chain.joinToString("$") { it.name.orEmpty() })
                 .joinToString(".")
-            if (spelled != name.text) return unresolved(name)
+            if (spelled != binaryName) return null
 
             val occurrences = mutableListOf<Occurrence>()
-            var at = name.start
+            var at = start
             if (packageName.isNotEmpty()) {
                 val segments = packageName.split('.')
                 for ((index, segment) in segments.withIndex()) {
                     val qualified = segments.take(index + 1).joinToString(".")
-                    val psiPackage = facade.findPackage(qualified) ?: return unresolved(name)
+                    val psiPackage = facade.findPackage(qualified) ?: return null
                     occurrences += symbol(at, segment, SymbolFacts.evidenceOf(project, psiPackage, segment))
                     at += segment.length + 1
                 }
@@ -123,20 +179,35 @@ internal object TracePlanBuilder {
                 occurrences += symbol(at, simple, SymbolFacts.evidenceOf(project, type, simple))
                 at += simple.length + 1
             }
-            return ResolvedClass(found, occurrences)
+            return found to occurrences
         }
 
         /**
-         * The method [name] names in [owner], or a whole `Unknown` where either did not resolve.
+         * The method [name] names in [owner] — or, where only a prefix of it names one, that method
+         * followed by the rest as one remainder — or a whole `Unknown` where nothing resolved.
+         *
+         * `charge$suspendImpl` is the case: the compiler's name for a suspend function's body, spelled
+         * after the declared function, so it renders that function's placeholder and an `Unknown`. The
+         * candidates are cut at `$` and tried longest first, exactly as a class name's are.
          *
          * **By name, and the first overload found is as good as any**: a method's key omits its
          * signature, so every overload shares one placeholder — see [SymbolKeys.keyOf]. Declared in
          * the frame's own class only, because a frame names the class whose code was running.
          */
-        fun method(owner: PsiClass?, name: TraceName): Occurrence {
-            val method = owner?.findMethodsByName(name.text, false)?.firstOrNull()
-                ?: return symbol(name.start, name.text, SymbolFacts.unresolvedEvidence(name.text))
-            return symbol(name.start, name.text, SymbolFacts.evidenceOf(project, method, name.text))
+        fun method(owner: PsiClass?, name: TraceName): List<Occurrence> {
+            if (owner != null) {
+                methodNamed(owner, name.text, name.start)?.let { return listOf(it) }
+                for (cut in prefixCuts(name.text)) {
+                    val prefix = methodNamed(owner, name.text.substring(0, cut), name.start) ?: continue
+                    return listOf(prefix, remainderOf(name, cut))
+                }
+            }
+            return listOf(unresolved(name))
+        }
+
+        private fun methodNamed(owner: PsiClass, written: String, start: Int): Occurrence? {
+            val method = owner.findMethodsByName(written, false).firstOrNull() ?: return null
+            return symbol(start, written, SymbolFacts.evidenceOf(project, method, written))
         }
 
         /**
@@ -181,12 +252,34 @@ internal object TracePlanBuilder {
         private fun find(binaryName: String): PsiClass? =
             facade.findClass(binaryName, scope) ?: facade.findClass(binaryName.replace('$', '.'), scope)
 
-        private fun unresolved(name: TraceName) =
-            ResolvedClass(null, listOf(symbol(name.start, name.text, SymbolFacts.unresolvedEvidence(name.text))))
+        /** [name], whole, as one `Unknown`. */
+        private fun unresolved(name: TraceName): Occurrence = symbol(name.start, name.text, SymbolFacts.unresolvedEvidence(name.text))
+
+        /**
+         * What follows the `$` at [cut] in [name], **whole**, as one remainder — see
+         * [SymbolEvidence.remainder]. The `$` itself stays where it is, as the separator the output
+         * reads `Type1$Unknown2` by.
+         */
+        private fun remainderOf(name: TraceName, cut: Int): Occurrence {
+            val start = name.start + cut + 1
+            return symbol(start, name.text.substring(cut + 1), SymbolFacts.remainderEvidence(name.text.substring(cut + 1)))
+        }
 
         private fun symbol(start: Int, text: String, evidence: SymbolEvidence) =
             SymbolOccurrence(start, start + text.length, text, evidence, LANGUAGE)
     }
+
+    /**
+     * **Where [written] may be cut into a prefix and a remainder**: before each `$`, longest prefix
+     * first. The text only enumerates the candidates — whether a prefix is one is the index's
+     * question, asked by the caller. A cut that would leave the prefix or the remainder empty, or the
+     * prefix ending in a `$` of its own, is no candidate: `Foo$$Proxy` is tried as `Foo` and nothing
+     * else.
+     */
+    private fun prefixCuts(written: String): List<Int> =
+        written.indices.reversed().filter { cut ->
+            written[cut] == '$' && cut > 0 && cut < written.lastIndex && written[cut - 1] != '$' && written[cut - 1] != '.'
+        }
 
     /**
      * **A frame names a Java symbol whichever language declared it**: the trace is the JVM's

@@ -95,9 +95,13 @@ class FlattenedName(val placeholders: List<String>)
  * destroyed — and string-literal text is a stated, accepted loss with no notice and no affordance:
  * the preview shows every one of them, so the loss is not invisible and the trigger test never
  * fires.
+ *
+ * A **remainder**'s row is excluded too — see [SymbolEvidence.remainder]. It is a generated string
+ * rather than a name anybody chose, and its row shows [REMAINDER_ORIGINAL] in place of its text, so a
+ * group-by over what the rows show would pair every remainder with every other.
  */
 internal fun flattenedNamesIn(names: Collection<MappedName>): List<FlattenedName> = names
-    .filter { it.placeholder != null && it.kind != MappedKind.LITERAL }
+    .filter { it.placeholder != null && it.kind != MappedKind.LITERAL && it.remainder == null }
     .groupBy { it.original }
     .values
     .filter { it.size > 1 }

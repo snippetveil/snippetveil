@@ -138,6 +138,20 @@ class StackTraceTest {
     }
 
     /**
+     * **`invokeSuspend` reports no method either**: a coroutine's state machine is a generated class
+     * and the language, not the developer, fixed what its method is called. It is silent for the
+     * reason `it` and `component1` are in a snippet, and it stays verbatim.
+     */
+    @Test
+    fun `a coroutine's invokeSuspend reports no method, because the language fixed its spelling`() {
+        val trace = read("com.acme.Boom: x\n\tat com.acme.Ledger\$charge\$1.invokeSuspend(Ledger.kt:42)")
+
+        assertEquals(null, trace.frames.single().method)
+        assertEquals("com.acme.Ledger\$charge\$1", trace.frames.single().type.text)
+        assertEquals("\tat com.acme.Ledger\$charge\$1.invokeSuspend(Ledger.kt:42)", trace.text.lines().last())
+    }
+
+    /**
      * **The prefix is dropped, and the output is deliberately not the input.** A named project module
      * is usually the organisation's package prefix verbatim, and the prefix is deployment metadata
      * rather than a program symbol — so it has no placeholder and no ledger row, and the cost of

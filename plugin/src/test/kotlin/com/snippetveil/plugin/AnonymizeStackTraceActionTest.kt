@@ -10,9 +10,11 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.ui.EditorTextField
 import com.snippetveil.core.MappedKind
+import com.snippetveil.core.REMAINDER_ORIGINAL
 import com.snippetveil.core.SymbolOccurrence
 import com.snippetveil.core.SymbolOrigin
 import com.snippetveil.core.TraceReading
+import com.snippetveil.core.deanonymize
 import com.snippetveil.core.parseTrace
 import com.snippetveil.sweep.LeakOracle
 import java.awt.Container
@@ -207,6 +209,144 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
         assertEquals(
             "a name the trace carries survived: ${survivors.map { "${it.name} at line ${it.line}: ${it.text}" }}",
             KNOWN_SURVIVORS,
+            survivors.map { it.name }.toSet(),
+        )
+    }
+
+    /**
+     * **A generated class resolves as far as the platform accepts it, and no further**: the owning
+     * class renders its placeholder, what the compiler added renders one `Unknown`, and a coroutine's
+     * `invokeSuspend` stays as the language spelled it. A method the compiler suffixed does the same
+     * at the method position.
+     */
+    fun `test a generated class and a generated method resolve by their longest prefix`() {
+        addPayoutsProject()
+        addBillingProject()
+
+        val output = invokeAndCapture(GENERATED_TRACE).result.text
+        val service = placeholderOf("class:com.acme.billing.BillingService")
+        val charge = placeholderOf("method:class:com.acme.billing.BillingService#charge")
+
+        assertTrue(output, Regex("""\.$service\${'$'}Unknown\d+\.invokeSuspend\($service\.java:42\)\n""").containsMatchIn(output))
+        assertTrue(output, Regex("""\.$service\.$charge\${'$'}Unknown\d+\($service\.java:40\)\n""").containsMatchIn(output))
+    }
+
+    /**
+     * **Longest first, at both positions.** `BillingService$Charge$retry$1` has two prefixes the index
+     * accepts, and the longer one — the nested class — is the one rendered; `charge$retry$suspendImpl`
+     * has two methods it could be read as, and the longer one wins. A shorter split would drop more
+     * into `Unknown` and never print more, and no split prints a character of what was left.
+     */
+    fun `test the longest prefix the index accepts is the one chosen`() {
+        addPayoutsProject()
+        addBillingProject()
+
+        val output = invokeAndCapture(GENERATED_TRACE).result.text
+        val service = placeholderOf("class:com.acme.billing.BillingService")
+        val nested = placeholderOf("class:com.acme.billing.BillingService.Charge")
+        val chargeRetry = placeholderOf("method:class:com.acme.billing.BillingService#charge\$retry")
+
+        assertTrue(output, Regex("""\.$service\${'$'}$nested\${'$'}Unknown\d+\.Unknown\d+\($service\.java:30\)\n""").containsMatchIn(output))
+        assertTrue(output, Regex("""\.$service\.$chargeRetry\${'$'}Unknown\d+\($service\.java:20\)\n""").containsMatchIn(output))
+        for (word in REMAINDER_WORDS) assertFalse("`$word` reached the output:\n$output", word in output)
+    }
+
+    /**
+     * **No text from a remainder reaches the output or the preview's table** — the rows are still
+     * there, since their placeholders are in the output, but they say the name was generated and not
+     * what it was. The text is in the mapping a reply decodes against, and nowhere a person reads.
+     */
+    fun `test no part of a remainder appears in the output or the preview model`() {
+        addPayoutsProject()
+        addBillingProject()
+
+        val result = invokeAndCapture(GENERATED_TRACE).result
+        val table = MappingTableModel(result.names, reducible = true, onPreserve = { _, _ -> }, onRename = { _, _ -> })
+            .also { it.unlocked = true }
+        val cells = (0 until table.rowCount).flatMap { row -> (0 until table.columnCount).map { table.getValueAt(row, it)?.toString().orEmpty() } }
+
+        assertTrue("the fixture left nothing over", result.names.any { it.original == REMAINDER_ORIGINAL })
+        for (word in REMAINDER_WORDS) assertFalse("`$word` reached the output:\n${result.text}", word in result.text)
+        // Whole remainders, and the word only a remainder carries: `charge` and `retry` are declared
+        // methods as well, and the preview shows a declared method's own name on its own row.
+        for (remainder in REMAINDERS) {
+            assertTrue("`$remainder` reached the preview's table: $cells", cells.none { remainder in it })
+            assertTrue("`$remainder` reached the unknowns: ${result.unknowns.map { it.name }}", result.unknowns.none { remainder in it.name })
+        }
+        assertTrue("the remainder is not in the mapping a reply decodes against", "charge\$1" in result.mapping.values)
+    }
+
+    /** **One `Unknown`, not two**: the owning class resolved, so what was left is the frame's only unknown. */
+    fun `test a partially resolved name contributes exactly one to the unknown count`() {
+        addPayoutsProject()
+        addBillingProject()
+        val trace = "com.acme.payouts.PayoutRejected: x\n" +
+            "\tat com.acme.billing.BillingService\$charge\$1.invokeSuspend(BillingService.java:42)\n" +
+            "\tat org.junit.Assert.fail(Assert.java:89)"
+
+        val result = invokeAndCapture(trace).result
+
+        assertEquals("unknowns: ${result.unknowns.map { it.key }}", 1, result.counts.unknown)
+    }
+
+    /**
+     * **A remainder has no *Preserve*, and a whole-frame `Unknown` keeps it** — asserted on the
+     * result, which is what the engine enforces, rather than on the dialog, which only offers it.
+     */
+    fun `test a remainder is not preservable and a whole-frame unknown is`() {
+        addPayoutsProject()
+        addBillingProject()
+
+        val unknowns = invokeAndCapture(GENERATED_TRACE).result.unknowns
+        val remainder = unknowns.first { it.name == REMAINDER_ORIGINAL }
+        val ghost = unknowns.single { it.name == "com.acme.payouts.PayoutGhost" }
+
+        assertFalse("a remainder is preservable: ${remainder.key}", remainder.preservable)
+        assertTrue("a whole-frame unknown lost its preserve", ghost.preservable)
+    }
+
+    /**
+     * **De-anonymizing gives the trace back**: `Type1$Unknown2`, `method3$Unknown4` and a bare
+     * `Unknown5` file name each restore exactly, off the tables the copy recorded — the prefixes
+     * aside, which were dropped on purpose.
+     */
+    fun `test the anonymized trace de-anonymizes to the trace it was made from`() {
+        addPayoutsProject()
+        addBillingProject()
+
+        invokeAndCapture(GENERATED_TRACE)
+        val copied = clipboard()
+        val reversal = deanonymize(
+            copied,
+            PlaceholderSidecar.getInstance(project).window(),
+            PlaceholderLedger.getInstance().snapshotOf(project),
+        )
+
+        assertTrue("there is no bare file-name Unknown to restore:\n$copied", Regex("""\(Unknown\d+:9\)""").containsMatchIn(copied))
+        assertEquals((parseTrace(GENERATED_TRACE) as TraceReading.Read).trace.text, reversal.text)
+        assertEmpty(reversal.unrestored)
+    }
+
+    /**
+     * **The leak check splits on `$`**, so it finds `charge` inside `$charge$1` — asserted on the input,
+     * so that a clean output means the remainder was replaced rather than that nobody looked.
+     */
+    fun `test the leak oracle finds the names inside a remainder and none survives`() {
+        addPayoutsProject()
+        addBillingProject()
+        val oracle = LeakOracle.overTrace(GENERATED_TRACE, declaredByTheJdkAndLibraries(GENERATED_TRACE))
+
+        val input = oracle.survivorsIn(GENERATED_TRACE)
+        assertTrue(
+            "the oracle cannot see inside a remainder: ${input.map { it.name }}",
+            input.filter { "\$charge\$1" in it.text }.map { it.name }.contains("charge"),
+        )
+
+        val output = invokeAndCapture(GENERATED_TRACE).result.text
+        val survivors = oracle.survivorsIn(output)
+        assertEquals(
+            "a name the trace carries survived: ${survivors.map { "${it.name} at line ${it.line}: ${it.text}" }}",
+            GENERATED_SURVIVORS,
             survivors.map { it.name }.toSet(),
         )
     }
@@ -411,6 +551,31 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
         )
     }
 
+    /**
+     * A public class with a nested class and two methods, one of whose names carries a `$` — so that
+     * a generated name has more than one prefix the index accepts, at both positions. Nothing named
+     * `charge$1`, `retry$1` or `suspendImpl` is declared: those are what a compiler adds.
+     */
+    private fun addBillingProject() {
+        myFixture.addFileToProject(
+            "com/acme/billing/BillingService.java",
+            """
+            package com.acme.billing;
+
+            public class BillingService {
+                public void charge() {}
+                public void charge${'$'}retry() {}
+                public static class Charge {
+                    void retry() {}
+                }
+            }
+            """.trimIndent(),
+        )
+    }
+
+    private fun placeholderOf(key: String): String =
+        PlaceholderLedger.getInstance().snapshotOf(project).placeholders.getValue(key).placeholder
+
     private fun codeIn(component: Container): EditorTextField =
         descendantsOf(component).filterIsInstance<EditorTextField>().single()
 
@@ -452,3 +617,34 @@ private val KNOWN_SURVIVORS = setOf("com", "init", "Exception", "in", "thread", 
 
 /** What a user's clipboard held before an invocation that must not touch it. */
 private const val PREVIOUS_CLIPBOARD = "the trace the user copied a minute ago"
+
+/**
+ * A synthetic trace of generated names over the fixture project: a coroutine's state machine, a
+ * method the compiler suffixed, a generated class under a nested class, a generated method under a
+ * method whose own name carries a `$`, a frame whose class does not resolve at all, and a library
+ * and a JDK frame for the harness to classify and the leak check to subtract.
+ */
+private val GENERATED_TRACE = listOf(
+    "com.acme.payouts.PayoutRejected: x",
+    "\tat com.acme.billing.BillingService\$charge\$1.invokeSuspend(BillingService.java:42)",
+    "\tat com.acme.billing.BillingService.charge\$suspendImpl(BillingService.java:40)",
+    "\tat com.acme.billing.BillingService\$Charge\$retry\$1.run(BillingService.java:30)",
+    "\tat com.acme.billing.BillingService.charge\$retry\$suspendImpl(BillingService.java:20)",
+    "\tat com.acme.payouts.PayoutGhost.haunt(PayoutGhost.java:9)",
+    "\tat org.junit.Assert.fail(Assert.java:89)",
+    "\tat java.base/java.lang.Thread.run(Thread.java:840)",
+).joinToString("\n")
+
+/** Every remainder in [GENERATED_TRACE]: what is left of each name after its longest resolved prefix. */
+private val REMAINDERS = listOf("charge\$1", "retry\$1", "suspendImpl")
+
+/** Every word a remainder in [GENERATED_TRACE] carries, none of which the output may. */
+private val REMAINDER_WORDS = listOf("charge", "retry", "suspendImpl")
+
+/**
+ * **What survives the oracle on [GENERATED_TRACE] by design**: `com`, for the reason it does on the
+ * other trace, and `invokeSuspend`, the method the language compiles every coroutine into — silent
+ * exactly as `it` and `component1` are in a snippet. The fixture has no Kotlin runtime attached to
+ * declare it, so it is adjudicated here rather than subtracted.
+ */
+private val GENERATED_SURVIVORS = setOf("com", "invokeSuspend", "at")

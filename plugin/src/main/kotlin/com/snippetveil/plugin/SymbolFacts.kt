@@ -167,6 +167,20 @@ internal object SymbolFacts {
     )
 
     /**
+     * **What was left of a JVM binary name after the longest prefix the index accepted** — see
+     * [SymbolEvidence.remainder]. Unresolved, like any name nobody vouches for, and keyed in a
+     * namespace of its own so that it never shares a row with a whole unresolved name spelled alike:
+     * the one is offered for preserve and the other never is.
+     */
+    fun remainderEvidence(remainder: String): SymbolEvidence = SymbolEvidence(
+        key = "remainder:" + remainder,
+        role = SymbolRole.TYPE,
+        origin = SymbolOrigin.UNRESOLVED,
+        declaredName = remainder,
+        remainder = true,
+    )
+
+    /**
      * A method's parameter types, which is evidence and deliberately not part of its key: overloads
      * share a name in source, so they share a placeholder, and the engine collapses them by ignoring
      * this.

@@ -436,7 +436,7 @@ class AnonymizationResult(
      * would decode a reply that never needed decoding.
      */
     val mapping: Map<String, String> =
-        names.mapNotNull { name -> name.placeholder?.let { it to name.original } }.toMap()
+        names.mapNotNull { name -> name.placeholder?.let { it to name.decoding } }.toMap()
 }
 
 /**
@@ -470,6 +470,10 @@ class AnonymizationResult(
  *   see [Renaming]. Stated by the engine rather than worked out by the dialog, because every one of
  *   the four answers turns on something only the engine has: the ledger it ran against, the
  *   namespace it chose, and how the placeholder was allocated.
+ * @param remainder a **remainder**'s own text, where this row is one — see
+ *   [SymbolEvidence.remainder] — and `null` everywhere else. [original] is then
+ *   [REMAINDER_ORIGINAL], and this is the only place the text is kept: [AnonymizationResult.mapping]
+ *   and the export read it, and nothing a preview can reach does.
  */
 class MappedName(
     val original: String,
@@ -477,7 +481,28 @@ class MappedName(
     val kind: MappedKind,
     val key: String? = null,
     val renaming: Renaming = Renaming.NONE,
-)
+    internal val remainder: String? = null,
+) {
+
+    /**
+     * **Whether a per-invocation preserve may reach this row** — every keyed row but a remainder's.
+     * A row with no key has nothing a preserve could be expressed in; a remainder's row has a key and
+     * is refused anyway, because preserving it would put a declared name back on the clipboard. See
+     * [SymbolEvidence.remainder]. The engine enforces it whatever a preview sends, so this is what a
+     * preview *offers* rather than what keeps the output safe.
+     */
+    val preservable: Boolean get() = key != null && remainder == null
+
+    /** What a reply decodes this row's placeholder back to — [original], or a remainder's own text. */
+    internal val decoding: String get() = remainder ?: original
+}
+
+/**
+ * **What a remainder's row says in place of its text** — see [SymbolEvidence.remainder]. The row is
+ * still there, because its placeholder is in the output and a reader has to be able to find it; what
+ * it stood for is not, because that is a compiler-generated string built out of declared names.
+ */
+const val REMAINDER_ORIGINAL: String = "(generated)"
 
 /**
  * **Whether this row's placeholder can be renamed, and when it cannot, what to say instead.**
@@ -624,11 +649,15 @@ class CommentCounts(val prose: Int, val code: Int, val anonymized: Int) {
  * @param placeholder what it renders as, or `null` when this invocation preserved it and its real
  *   name was emitted. Null rather than the name itself: a preserved item has no placeholder, and
  *   saying it stands for itself would put a row in the mapping table that maps nothing.
+ * @param preservable whether a per-invocation preserve reaches this name. `true` for every unknown
+ *   but a **remainder** — see [SymbolEvidence.remainder] — whose [name] is [REMAINDER_ORIGINAL]
+ *   rather than its text, for the same reason.
  */
 class UnknownName(
     val key: String,
     val name: String,
     val placeholder: String?,
+    val preservable: Boolean = true,
 )
 
 /**
