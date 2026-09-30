@@ -109,10 +109,12 @@ private fun flattenedNamesNotice(flattened: List<FlattenedName>): String =
  * **Notice 2** — *`2 comments stripped`*: what the strip removed, as a number.
  *
  * **No clause.** It used to read *`2 comments stripped, 1 of them commented-out code`*, and the clause
- * was there to point at the keep-comments tick as the way to get that code back. That recourse is
- * automatic now: commented-out Java code that parses is anonymized and kept on the fast path, so a
- * clause pointing at the tick would point at nothing. What is stripped is prose, and the tick is
- * still the one place prose can be kept.
+ * was there to point at the keep-comments tick as the way to get that code back. In Java that
+ * recourse is automatic now: commented-out code that parses is anonymized and kept on the fast
+ * path, so what a Java strip removes is prose, and the tick is the one place prose can be kept.
+ * Kotlin's and a query's commented-out code is still stripped and still counted here — the notice
+ * is one sentence for every language, and the clause went for all of them with the ticket that
+ * made it pointless for Java.
  *
  * **A comment that was nearly code is not reported apart from prose.** Telling *nearly code* from
  * prose would be a guess, and what decides a comment's fate is a parse verdict: a body that did not

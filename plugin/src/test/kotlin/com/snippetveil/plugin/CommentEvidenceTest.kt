@@ -2,6 +2,7 @@ package com.snippetveil.plugin
 
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiErrorElement
+import com.intellij.psi.PsiJavaCodeReferenceElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.CodeContainer
@@ -47,18 +48,22 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
      * least one error element and no throw; a known-good body yields none.
      *
      * The good bodies are chosen so that each parses **only** at its own position — a method is not a
-     * statement, a statement is not a member, and an import is neither — so this fails if a comment is
-     * parsed anywhere but where it is written. That is the point of it: a parse with the wrong context
-     * strips everything, and passes every prose test there is.
+     * statement, a statement is not a member, and a class is neither — so this fails if a comment is
+     * parsed anywhere but where it is written. And each good body names something that resolves only
+     * from where the comment sits — `audit` in the class, `Positions` in the file's package — so it
+     * fails too if the context element is wrong. That is the point of it: a parse with the wrong
+     * context strips everything, and passes every prose test there is.
      */
     fun `test the parse is observable at member, statement and file position`() {
         val file = myFixture.addFileToProject(
             "probe/Positions.java",
             """
-            // import java.util.List;
+            package probe;
+
+            // class Vip extends Positions {}
             // TODO: fix this
             class Positions {
-                // public void charge() {}
+                // public void charge() { audit(); }
                 // TODO: fix this
                 void audit() {
                     // this.audit();
@@ -83,6 +88,11 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
             val found = PsiTreeUtil.findChildrenOfType(parsed, PsiErrorElement::class.java).size
             if (errors == 0) {
                 assertEquals("`${comment.text}` did not parse at $position", 0, found)
+                // And the name in it resolves, which it does only from the comment's own place.
+                val unresolved = PsiTreeUtil.findChildrenOfType(parsed, PsiJavaCodeReferenceElement::class.java)
+                    .filter { it.resolve() == null }
+                    .map { it.text }
+                assertEquals("`${comment.text}` was parsed without its context", emptyList<String>(), unresolved)
             } else {
                 assertTrue("`${comment.text}` parsed at $position", found > 0)
             }

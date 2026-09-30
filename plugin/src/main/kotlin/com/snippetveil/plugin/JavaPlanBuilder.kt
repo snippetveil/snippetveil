@@ -60,33 +60,33 @@ internal object JavaPlanBuilder : PlanBuilder {
 
     /**
      * The walk, with [container] reading whatever fragments are injected into the snippet's literals,
-     * and [comments] parsing each comment's body at its own position.
+     * and [commentParser] parsing each comment's body at its own position.
      *
      * [build] passes [RegisteredContainers]: the reader of queries written in the persistence query
      * languages, and the SQL reader where the database plugin is. `null` is the walk that never asks
      * the platform about injection at all, which is what every fragment that falls back produces:
      * exactly what the walk produced before there was a seam.
      *
-     * [comments] is the platform's parser everywhere but in the test that makes it throw — which is
+     * [commentParser] is the platform's parser everywhere but in the test that makes it throw — which is
      * how *a parse that throws fails the invocation closed* is shown rather than asserted.
      */
     internal fun build(
         request: SnippetRequest,
         container: InjectedContainer?,
-        comments: CommentParser = JavaCommentParser,
+        commentParser: CommentParser = JavaCommentParser,
     ): SnippetPlan {
         val file = request.file
         val snapped = snappedRangesOf(file, request.selections, ::tokenOf)
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
-        val bodies = commentsIn(file, fragments).associateWith { parsedBodyOf(it, comments) }
+        val bodies = commentsIn(file, fragments).associateWith { parsedBodyOf(it, commentParser) }
         val kept = bodies.filterValues { it != null }.keys.map { it.textRange }
         val injected = injectedOccurrencesIn(file, fragments, container)
         val occurrences = (
             symbolsIn(request.project, file, fragments, kept) +
                 injected.occurrences +
-                literalsAndCommentsIn(request.project, file, fragments, injected.hosts, bodies, comments)
+                literalsAndCommentsIn(request.project, file, fragments, injected.hosts, bodies, commentParser)
             )
             .sortedBy { it.start }
 
@@ -185,7 +185,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         fragments: List<Fragment>,
         decomposed: Set<PsiElement>,
         bodies: Map<PsiComment, PsiFile?>,
-        comments: CommentParser,
+        commentParser: CommentParser,
     ): List<Occurrence> =
         // Typed at PsiElement explicitly: left to inference, Kotlin picks the nearest common
         // supertype of the two, which today is an `@Experimental` interface — and the Plugin
@@ -197,7 +197,7 @@ internal object JavaPlanBuilder : PlanBuilder {
                     ?: return@flatMap emptyList()
 
                 if (element is PsiComment) {
-                    commentOccurrencesOf(project, element, bodies[element], fragment::translate, CodeContainer.LIVE_CODE, comments)
+                    commentOccurrencesOf(project, element, bodies[element], fragment::translate, CodeContainer.LIVE_CODE, commentParser)
                 } else {
                     listOf(literalOccurrenceOf(project, element as PsiLiteralExpression, fragment::translate, CodeContainer.LIVE_CODE))
                 }
@@ -242,7 +242,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         parsed: PsiFile?,
         at: (Int) -> Int,
         container: CodeContainer,
-        comments: CommentParser,
+        commentParser: CommentParser,
     ): List<Occurrence> {
         if (parsed == null) {
             val range = comment.textRange
@@ -253,7 +253,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         // The body is the comment's own text with its delimiters blanked, so an offset in the parsed
         // fragment is an offset into the comment.
         val base = comment.textRange.startOffset
-        return partsOf(project, parsed, { at(base + it) }, comments)
+        return partsOf(project, parsed, { at(base + it) }, commentParser)
     }
 
     /**
@@ -268,7 +268,7 @@ internal object JavaPlanBuilder : PlanBuilder {
      * A walk over the whole fragment rather than a leaf walk, because nothing here is cut by a
      * selection — the comment is whole, so every part of it is.
      */
-    private fun partsOf(project: Project, parsed: PsiFile, at: (Int) -> Int, comments: CommentParser): List<Occurrence> {
+    private fun partsOf(project: Project, parsed: PsiFile, at: (Int) -> Int, commentParser: CommentParser): List<Occurrence> {
         val parts = mutableListOf<Occurrence>()
         parsed.accept(
             object : PsiRecursiveElementWalkingVisitor() {
@@ -283,8 +283,8 @@ internal object JavaPlanBuilder : PlanBuilder {
                         }
 
                         is PsiComment -> {
-                            val nested = parsedBodyOf(element, comments)
-                            parts += commentOccurrencesOf(project, element, nested, at, CodeContainer.PARSED_COMMENT, comments)
+                            val nested = parsedBodyOf(element, commentParser)
+                            parts += commentOccurrencesOf(project, element, nested, at, CodeContainer.PARSED_COMMENT, commentParser)
                             // A nested body that parsed was read from its own fragment, so nothing
                             // under it is read a second time here.
                             if (nested != null) return

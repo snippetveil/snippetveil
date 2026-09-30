@@ -15,8 +15,10 @@
   whether the preview's tick is on or off; the tick keeps the comments that are not code, exactly as
   written, for that snippet.
 - **The comment count reads `2 comments stripped`**, in the preview and in the notification. It used
-  to add `, 1 of them commented-out code`, to point at the tick as the way to keep that code; the
-  code is kept without it now. The count includes only the comments that were removed.
+  to add `, 1 of them commented-out code`, to point at the tick as the way to keep that code; in a
+  `.java` file the code is kept without it now. In a `.kt` file commented-out code is still
+  stripped, counted in the same sentence, and kept by the tick. The count includes only the
+  comments that were removed.
 
 ## [1.5.0] - 2026-09-29
 

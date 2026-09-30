@@ -110,7 +110,8 @@ internal object JavaCommentParser : CommentParser {
  *    a comment anonymized.
  */
 internal fun parsedBodyOf(comment: PsiComment, parser: CommentParser): PsiFile? {
-    val parsed = parser.parse(comment, bodyOf(comment), positionOf(comment))
+    val position = positionOf(comment)
+    val parsed = parser.parse(comment, bodyOf(comment), position)
     if (PsiTreeUtil.findChildOfType(parsed, PsiErrorElement::class.java) != null) return null
     if (parsed.children.none { it !is PsiWhiteSpace && it !is PsiComment && it.textLength > 0 }) return null
 
@@ -121,7 +122,7 @@ internal fun parsedBodyOf(comment: PsiComment, parser: CommentParser): PsiFile? 
         READ_FROM,
         ReadFrom(
             comment = comment,
-            position = positionOf(comment),
+            position = position,
             anchor = outer?.anchor ?: comment,
             offset = if (outer == null) 0 else outer.offset + comment.textRange.startOffset,
         ),

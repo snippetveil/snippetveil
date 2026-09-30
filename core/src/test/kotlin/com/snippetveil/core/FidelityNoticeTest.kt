@@ -317,7 +317,7 @@ class FidelityNoticeTest {
     /**
      * **The notice is the strip count and nothing else.** It used to add *`1 of them commented-out
      * code`*, to point at the keep-comments tick as the way to get that code back. That recourse is
-     * automatic now — commented-out Java code that parses is anonymized and kept on the fast path —
+     * automatic in Java now — commented-out Java code that parses is anonymized and kept on the fast path —
      * so the clause has nothing left to point at, and it is gone.
      */
     @Test
