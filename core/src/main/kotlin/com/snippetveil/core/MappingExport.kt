@@ -45,6 +45,10 @@ package com.snippetveil.core
  * name, so a row for it would map a name to itself, and it would be the one line in this file that
  * printed a real name in the placeholder column.
  *
+ * **A remainder's row carries its own text here**, where the preview shows only that it was
+ * generated — see [SymbolEvidence.remainder]. This file is a reversal key, and `Type1$Unknown4` read
+ * back by hand needs what `Unknown4` stood for exactly as a reply decoded against the sidecar does.
+ *
  * @return the file's whole content, header included — an invocation that minted no placeholders
  *   yields the header alone, and the export action is what decides that such a file is not offered
  */
@@ -52,7 +56,7 @@ fun AnonymizationResult.mappingCsv(): String = buildString {
     append(row("Placeholder", "Original", "Kind"))
     for (name in names) {
         val placeholder = name.placeholder ?: continue
-        append(row(placeholder, name.original, name.kind.label))
+        append(row(placeholder, name.decoding, name.kind.label))
     }
 }
 

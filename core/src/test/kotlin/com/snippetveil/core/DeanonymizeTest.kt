@@ -311,6 +311,57 @@ class DeanonymizeTest {
         assertEquals("9Type1 x_Type1 Type1_x", reversal.text)
         assertEquals(emptyList<String>(), reversal.restored)
     }
+
+    /**
+     * **Reversal is total over the three forms a trace renders that no source file can produce**:
+     * a remainder after a class's placeholder, a remainder after a method's, and a bare `Unknown` in
+     * the file-name position — no dot, no qualifier, inside parentheses. Each is restored from the
+     * table, exactly, and the last one is restored rather than taken for a word the model coined.
+     */
+    @Test
+    fun `a trace's partial names and its bare file-name Unknown are restored exactly`() {
+        val reversal = deanonymize(
+            "\tat com.pkg1.Type2\$Unknown3.invokeSuspend(Type2.java:42)\n" +
+                "\tat com.pkg1.Type2.method4\$Unknown5(Type2.java:40)\n" +
+                "\tat com.pkg1.Unknown6.Unknown7(Unknown8:9)",
+            sidecarOf("Unknown3" to "charge\$1", "Unknown5" to "suspendImpl", "Unknown6" to "Ghost", "Unknown7" to "haunt", "Unknown8" to "Ghost.java"),
+            mappingOf(9, "pkg1" to "acme", "Type2" to "Ledger", "method4" to "charge"),
+        )
+
+        assertEquals(
+            "\tat com.acme.Ledger\$charge\$1.invokeSuspend(Ledger.java:42)\n" +
+                "\tat com.acme.Ledger.charge\$suspendImpl(Ledger.java:40)\n" +
+                "\tat com.acme.Ghost.haunt(Ghost.java:9)",
+            reversal.text,
+        )
+        assertEquals(emptyList<Unrestored>(), reversal.unrestored)
+    }
+
+    /**
+     * **The three under-recovery buckets, over trace-shaped input** — which is where a reply is most
+     * likely to come back holding a placeholder in a shape no snippet printed. A remainder the window
+     * forgot is evicted, a bare file-name `Unknown` above the counter is foreign, and an accessor
+     * spelling the model built is an unsent spelling. None of them is absorbed.
+     */
+    @Test
+    fun `a trace's unrestored placeholders fall into the three buckets and none is absorbed`() {
+        val reply = "\tat com.pkg1.Type2\$Unknown3.invokeSuspend(Type2.java:42)\n" +
+            "\tat com.pkg1.Type2.setField4(Unknown40:9)"
+        val reversal = deanonymize(reply, sidecarOf(), mappingOf(9, "pkg1" to "acme", "Type2" to "Ledger", "field4" to "total"))
+
+        assertEquals(
+            listOf(
+                Unrestored("Unknown3", UnrestoredReason.EVICTED),
+                Unrestored("setField4", UnrestoredReason.UNSENT_SPELLING),
+                Unrestored("Unknown40", UnrestoredReason.FOREIGN),
+            ),
+            reversal.unrestored,
+        )
+        assertEquals(
+            "\tat com.acme.Ledger\$Unknown3.invokeSuspend(Ledger.java:42)\n\tat com.acme.Ledger.setField4(Unknown40:9)",
+            reversal.text,
+        )
+    }
 }
 
 /** A window holding one invocation that named [table]. */

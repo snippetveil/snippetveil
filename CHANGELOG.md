@@ -22,6 +22,20 @@
   runs over more than one line, and a frame of a hidden class such as a lambda
   (`Foo$$Lambda/0x…`). A JDK or library frame whose method the IDE cannot find, such as
   `lambda$main$0`, has that method replaced with an `Unknown`.
+- **A stack trace frame of a generated class resolves as far as the IDE can take it.** A lambda, a
+  coroutine, a proxy or an anonymous class used to turn the whole frame into `Unknown`s even when its
+  owning class was yours and resolved. Now the longest part of the name the IDE finds is replaced as
+  usual and only the rest becomes one `Unknown`:
+  `com.acme.BillingService$charge$1.invokeSuspend(BillingService.java:42)` reads
+  `com.pkg1.Type2$Unknown3.invokeSuspend(Type2.java:42)`, and `charge$suspendImpl` reads
+  `method4$Unknown5`. `invokeSuspend` is kept as printed, like `<init>`. The part that did not
+  resolve is replaced whole, so no piece of it, such as `charge` in `$charge$1`, is ever printed.
+  In the preview its row reads `(generated)` rather than its text, and it has no `Preserve` box,
+  because preserving it would print your own method name; an `Unknown` for a whole frame still has
+  one. `De-anonymize Clipboard` restores these names exactly, and an exported mapping lists what
+  each one stood for. **The `unknown` count falls for the same trace**: the frame above used to
+  count three unknowns, its class, its method and its file name, and now counts one, because more
+  of it resolved.
 - **Commented-out Java code is kept, with its names replaced.** `Copy Anonymized` used to strip
   every comment, so a line such as `// this.customer.setOrder(order);` was lost on every paste. In a
   `.java` file a comment whose text parses as Java where it is written is now kept, and every name

@@ -15,7 +15,10 @@ package com.snippetveil.core
  *   placeholder, or a variable called `filter` that the question is entirely about.
  *
  *   **A key may name any symbol this invocation would otherwise replace** — a resolved local,
- *   parameter, field, method or type as readily as an unresolved name. The friction that used to be
+ *   parameter, field, method or type as readily as an unresolved name — **except a trace's
+ *   remainder**, which the engine refuses whatever key arrives: it is a compiler-generated string
+ *   built out of declared names, so preserving it could only print one. See
+ *   [SymbolEvidence.remainder] and [MappedName.preservable]. The friction that used to be
  *   *the engine refuses* is an explicit unlock in the preview instead: locked again on every open,
  *   warned before it opens, and remembered nowhere. That puts the friction at the moment of
  *   reduction, where it is read, rather than on every invocation — and it leaves the governing rule
@@ -418,8 +421,8 @@ class AnonymizationResult(
 ) {
 
     /**
-     * placeholder -> what it stands for: a real name, or the text of a literal that was replaced
-     * whole. **Injective**, which is the whole point: a reverse mapping is well-defined only if no
+     * placeholder -> what it stands for: a real name, the text of a literal that was replaced
+     * whole, or a trace's remainder — see [SymbolEvidence.remainder]. **Injective**, which is the whole point: a reverse mapping is well-defined only if no
      * two symbols render to one placeholder, and the AI's reply carries no scope context to
      * disambiguate with if they did. Two occurrences of the same literal text are two rows standing
      * for one string, which is that same direction working rather than an exception to it — the
@@ -431,12 +434,15 @@ class AnonymizationResult(
      * it is never written into the persistent mapping. In first-occurrence order.
      *
      * Derived from [names] rather than carried beside them, so that the table a user reads and the
-     * table a reply is decoded against cannot be two things. A name this invocation **preserved**
+     * table a reply is decoded against cannot be two things. **One row reads differently in each, on
+     * purpose**: a remainder's row shows [REMAINDER_ORIGINAL] and decodes to its own text, because
+     * that text is a compiler-generated string built out of declared names and is kept where a
+     * reply is decoded rather than where a person reads. It is still one row. A name this invocation **preserved**
      * has no placeholder and is not here: it stands for itself, and a row mapping a name to itself
      * would decode a reply that never needed decoding.
      */
     val mapping: Map<String, String> =
-        names.mapNotNull { name -> name.placeholder?.let { it to name.original } }.toMap()
+        names.mapNotNull { name -> name.placeholder?.let { it to name.decoding } }.toMap()
 }
 
 /**
@@ -453,7 +459,8 @@ class AnonymizationResult(
  * the tick that preserved it is on the row, and a row that vanished when ticked could not be
  * unticked.
  *
- * @param original the name as it is written in the snippet, or a replaced literal's text
+ * @param original the name as it is written in the snippet, a replaced literal's text, or
+ *   [REMAINDER_ORIGINAL] on a remainder's row — see [remainder]
  * @param placeholder what it renders as, or `null` when it was preserved and its own text was
  *   emitted
  * @param kind what it is, which is what makes the table readable at a glance and the export
@@ -470,6 +477,10 @@ class AnonymizationResult(
  *   see [Renaming]. Stated by the engine rather than worked out by the dialog, because every one of
  *   the four answers turns on something only the engine has: the ledger it ran against, the
  *   namespace it chose, and how the placeholder was allocated.
+ * @param remainder a **remainder**'s own text, where this row is one — see
+ *   [SymbolEvidence.remainder] — and `null` everywhere else. [original] is then
+ *   [REMAINDER_ORIGINAL], and this is the only place the text is kept: [AnonymizationResult.mapping]
+ *   and the export read it, and nothing a preview can reach does.
  */
 class MappedName(
     val original: String,
@@ -477,7 +488,28 @@ class MappedName(
     val kind: MappedKind,
     val key: String? = null,
     val renaming: Renaming = Renaming.NONE,
-)
+    internal val remainder: String? = null,
+) {
+
+    /**
+     * **Whether a per-invocation preserve may reach this row** — every keyed row but a remainder's.
+     * A row with no key has nothing a preserve could be expressed in; a remainder's row has a key and
+     * is refused anyway, because preserving it would put a declared name back on the clipboard. See
+     * [SymbolEvidence.remainder]. The engine enforces it whatever a preview sends, so this is what a
+     * preview *offers* rather than what keeps the output safe.
+     */
+    val preservable: Boolean get() = key != null && remainder == null
+
+    /** What a reply decodes this row's placeholder back to — [original], or a remainder's own text. */
+    internal val decoding: String get() = remainder ?: original
+}
+
+/**
+ * **What a remainder's row says in place of its text** — see [SymbolEvidence.remainder]. The row is
+ * still there, because its placeholder is in the output and a reader has to be able to find it; what
+ * it stood for is not, because that is a compiler-generated string built out of declared names.
+ */
+const val REMAINDER_ORIGINAL: String = "(generated)"
 
 /**
  * **Whether this row's placeholder can be renamed, and when it cannot, what to say instead.**
@@ -620,15 +652,19 @@ class CommentCounts(val prose: Int, val code: Int, val anonymized: Int) {
  *
  * @param key the symbol key — the same one [MappedName.key] carries for this name, which is the key
  *   a preserve override is expressed in
- * @param name the name as it is written in the snippet
+ * @param name the name as it is written in the snippet, or [REMAINDER_ORIGINAL] for a remainder
  * @param placeholder what it renders as, or `null` when this invocation preserved it and its real
  *   name was emitted. Null rather than the name itself: a preserved item has no placeholder, and
  *   saying it stands for itself would put a row in the mapping table that maps nothing.
+ * @param preservable whether a per-invocation preserve reaches this name. `true` for every unknown
+ *   but a **remainder** — see [SymbolEvidence.remainder] — whose [name] is [REMAINDER_ORIGINAL]
+ *   rather than its text, for the same reason.
  */
 class UnknownName(
     val key: String,
     val name: String,
     val placeholder: String?,
+    val preservable: Boolean = true,
 )
 
 /**

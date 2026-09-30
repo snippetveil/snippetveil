@@ -392,6 +392,19 @@ enum class CommentVerdict {
  *   **Each one is a member the platform reported, never a name assembled from a prefix and the
  *   field's.** A `val` has no setter, so no setter is here; Kotlin's `val isSettled` is read as the
  *   `isSettled` its light class declares, and a `getIsSettled` nobody can write is never minted.
+ * @param remainder **whether this name is what was left of a JVM binary name after the longest prefix
+ *   the platform resolved** — `charge$1` in `com.acme.BillingService$charge$1`, `suspendImpl` in
+ *   `charge$suspendImpl`. A fact about how the builder read the name, and always reported with
+ *   [SymbolOrigin.UNRESOLVED]: nothing resolved it, so it renders as an `Unknown` after the prefix's
+ *   placeholder and counts as one.
+ *
+ *   What the engine adds is two refusals. **It is never preserved**, whatever a preview sends: a
+ *   remainder is a compiler-generated string built out of declared names, so `Type1$Unknown1`
+ *   preserved is `Type1$charge$1` — the developer's own method name on the clipboard. And **its text
+ *   is never shown**: the row the preview reads says it was generated rather than what it says, and
+ *   the text reaches [AnonymizationResult.mapping], which is what a reply decodes against, and
+ *   nothing else. The text is carried whole in [declaredName] and no rule here reads, splits or
+ *   renames it.
  */
 class SymbolEvidence(
     val key: String,
@@ -405,6 +418,7 @@ class SymbolEvidence(
     val accessor: AccessorEvidence? = null,
     val keyIsQualified: Boolean = false,
     val siblingAccessors: List<SymbolEvidence> = emptyList(),
+    val remainder: Boolean = false,
 )
 
 /**

@@ -71,11 +71,16 @@ fun anonymize(
     // above were going to replace it — so a key naming a library symbol, a name Java forbids from
     // being renamed, or nothing at all is a no-op rather than a route around the spine rule. See
     // [AnonymizationSettings.preservedSymbols].
-    fun isPreserved(symbol: SymbolEvidence): Boolean =
-        wouldReplace(symbol) && sharedKeyOf(symbol) in settings.preservedSymbols
+    //
+    // **A remainder is never preserved**, whatever key arrives: it is a compiler-generated string
+    // built out of declared names, so preserving it could only put one of those names back on the
+    // clipboard. See [SymbolEvidence.remainder].
+    fun isTicked(symbol: SymbolEvidence): Boolean =
+        !symbol.remainder && sharedKeyOf(symbol) in settings.preservedSymbols
 
-    fun isReplaced(symbol: SymbolEvidence): Boolean =
-        wouldReplace(symbol) && sharedKeyOf(symbol) !in settings.preservedSymbols
+    fun isPreserved(symbol: SymbolEvidence): Boolean = wouldReplace(symbol) && isTicked(symbol)
+
+    fun isReplaced(symbol: SymbolEvidence): Boolean = wouldReplace(symbol) && !isTicked(symbol)
 
     // The custom stems this invocation actually minted under — a set of words rather than a third
     // tier of key, and the only thing a renamed **local** leaves behind. See [LedgerDelta]. It is
@@ -277,7 +282,16 @@ fun anonymize(
         // renames while the call site stays.
         val key = sharedKeyOf(symbol)
         names.getOrPut(placeholder ?: PRESERVED + key) {
-            MappedName(symbol.declaredName, placeholder, kindOf(symbol), key, renamingOf(symbol, key, placeholder))
+            // A remainder's row says it was generated and keeps its text where only the mapping
+            // reads it — see [SymbolEvidence.remainder].
+            MappedName(
+                original = if (symbol.remainder) REMAINDER_ORIGINAL else symbol.declaredName,
+                placeholder = placeholder,
+                kind = kindOf(symbol),
+                key = key,
+                renaming = renamingOf(symbol, key, placeholder),
+                remainder = symbol.declaredName.takeIf { symbol.remainder },
+            )
         }
     }
 
@@ -599,9 +613,10 @@ fun anonymize(
         .map { occurrence ->
             UnknownName(
                 key = sharedKeyOf(occurrence.symbol),
-                name = occurrence.symbol.declaredName,
+                name = if (occurrence.symbol.remainder) REMAINDER_ORIGINAL else occurrence.symbol.declaredName,
                 placeholder = placeholderByKey[sharedKeyOf(occurrence.symbol)]
                     ?.takeIf { isReplaced(occurrence.symbol) },
+                preservable = !occurrence.symbol.remainder,
             )
         }
 
