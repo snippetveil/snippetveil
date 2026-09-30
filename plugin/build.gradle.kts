@@ -2246,7 +2246,9 @@ tasks.test {
  *
  * Non-transitive, and old for the stdlib's reason: 1.8.0 was compiled by Kotlin 1.9.21, which is
  * older than every compiler in the matrix, so its metadata is readable wherever the Kotlin fixtures
- * run. Nothing loads a class out of it.
+ * run. **The rule is held by an outcome, not by this comment**: `KotlinTraceTest` asserts every
+ * `kotlinx.*` class its traces name resolves to a library before it believes any output, and a jar
+ * too new for the compiler fails there by name. Nothing loads a class out of it.
  */
 val kotlinFixtureCoroutines: Configuration = configurations.create("kotlinFixtureCoroutines") {
     isCanBeConsumed = false

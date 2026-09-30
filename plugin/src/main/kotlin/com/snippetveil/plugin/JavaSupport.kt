@@ -37,8 +37,13 @@ internal class JavaSupport : LanguageSupport {
      * class alone in a file its name is not.
      *
      * The class's navigation element rather than the class, so that a library class with sources
-     * attached names its `.java` rather than the `.class` it was compiled to. A class the JVM loaded
-     * from Kotlin is not Java's, whatever file PSI it wears, and is left to Kotlin.
+     * attached names its `.java` rather than the `.class` it was compiled to.
+     *
+     * **Only a class whose PSI is Java's**: a Kotlin light class wears a Java file's PSI, and where
+     * the Kotlin plugin is running a compiled Kotlin class does too — both report the Kotlin language
+     * and are left to Kotlin, so the answer does not depend on the order languages are registered in.
+     * Where the Kotlin plugin is not running, a compiled Kotlin class is plain Java PSI and is read
+     * here, by its `.class` name.
      */
     override fun traceFileOf(outer: PsiClass): TraceFile? {
         if (outer.language != JavaLanguage.INSTANCE) return null

@@ -146,7 +146,7 @@ class CoroutineTraceTest {
      */
     @Test
     fun `both renderings of both legacy markers are admitted verbatim`() {
-        for (marker in LEGACY_MARKERS) {
+        for (marker in LEGACY_ROWS) {
             val text = "com.acme.Boom: x\n\tat com.acme.Job.run(Job.kt:7)\n$marker\n\tat com.acme.Main.main(Main.kt:3)"
             val trace = read(text)
 
@@ -279,7 +279,7 @@ private fun legacy(fixture: String): String {
  * The four legacy rows: the backspace form a copy holds, and the form a terminal renders it as. The
  * parenthesised pair holds no U+0008 by definition and does not go through [legacy].
  */
-private val LEGACY_MARKERS = listOf(
+private val LEGACY_ROWS = listOf(
     legacy("\tat \b\b\b(Coroutine boundary.\b(\b)"),
     legacy("\tat \b\b\b(Coroutine creation stacktrace.\b(\b)"),
     "\t(Coroutine boundary)",

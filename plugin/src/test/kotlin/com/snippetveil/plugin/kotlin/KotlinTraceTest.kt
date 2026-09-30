@@ -28,9 +28,11 @@ import java.io.File
  * file's name is fixed to.
  *
  * **The coroutines library is attached as a real jar**, beside the stdlib — see
- * `kotlinFixtureCoroutines` in `plugin/build.gradle.kts` — and the harness asserts it classified
- * before any claim about the output is believed: a fixture whose `kotlinx.*` stopped resolving would
- * render every such frame `Unknown`, and nothing would be printed that should not be.
+ * `kotlinFixtureCoroutines` in `plugin/build.gradle.kts` — and every invocation here first asserts
+ * that each `kotlinx.*` class its trace names resolved to a library: a fixture whose `kotlinx.*`
+ * stopped resolving — a jar too new for the compiler reading its metadata, say — would render every
+ * such frame `Unknown`, and nothing would be printed that should not be. See
+ * [complaintAboutTheCoroutinesLibrary].
  */
 internal class KotlinTraceTest : KotlinSnippetTestCase() {
 
@@ -112,22 +114,35 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
     }
 
     /**
-     * **`kotlinx.*` resolves, and resolves to library** — the harness's own precondition for every
-     * claim above that a `kotlinx.*` frame was kept because it is a library's. Asked of the classes
-     * the fixture's frames name, facades and nested classes among them.
+     * **The harness's precondition, shown red**: the complaint fires on a `kotlinx.*` class that did
+     * not resolve and on one that resolved into project content — the two ways a broken attachment
+     * would make the output look cleaner than a correct one — and is silent on a library's.
      */
-    fun `test the coroutines library is attached as a library`() {
+    fun `test the coroutines precondition fires on an unresolved or a project-owned kotlinx class`() {
+        assertNotNull(complaintAboutTheCoroutinesLibrary("kotlinx.coroutines.DispatchedTask", null))
+        assertNotNull(complaintAboutTheCoroutinesLibrary("kotlinx.coroutines.DispatchedTask", SymbolOrigin.IN_CONTENT))
+        assertNull(complaintAboutTheCoroutinesLibrary("kotlinx.coroutines.DispatchedTask", SymbolOrigin.LIBRARY))
+    }
+
+    /**
+     * **Every `kotlinx.*` class [trace]'s frames name resolves, and to a library** — asserted before
+     * anything is believed about the output. Read off the trace itself, so the check cannot drift
+     * from the fixture it guards.
+     */
+    private fun assertTheCoroutinesLibraryIsALibrary(trace: String) {
         val facade = JavaPsiFacade.getInstance(project)
         val scope = GlobalSearchScope.allScope(project)
-        for (name in KOTLINX_CLASSES) {
-            val found = facade.findClass(name, scope)
-            assertNotNull("`$name` does not resolve, so kotlinx-coroutines is not attached to this fixture", found)
-            assertEquals("`$name` is not a library's", SymbolOrigin.LIBRARY, SymbolFacts.originOf(project, found!!))
+        val named = (parseTrace(trace) as TraceReading.Read).trace.frames.map { it.type.text }.filter { it.startsWith("kotlinx.") }
+        assertFalse("the fixture names no kotlinx.* frame, so nothing here is about the library", named.isEmpty())
+        for (name in named) {
+            val found = facade.findClass(name.replace('$', '.'), scope)
+            complaintAboutTheCoroutinesLibrary(name, found?.let { SymbolFacts.originOf(project, it) })?.let { fail(it) }
         }
     }
 
     /** Invokes over [trace], lets the preview through unchanged, and returns what it was shown. */
     private fun invokeAndCapture(trace: String): Analysis {
+        assertTheCoroutinesLibraryIsALibrary(trace)
         var shown: Analysis? = null
         dropEarlierBalloons()
         myFixture.testAction(AnonymizeStackTraceAction(FakeClipboard(trace), Previews { _, analysis -> analysis.also { shown = it } }))
@@ -169,11 +184,11 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
 }
 
 /** [text] with its control characters named, so a failure message can be read. */
-private fun visible(text: String): String = text.replace("\b", "\\b")
+private fun visible(text: String): String = text.replace("\b", "\\b").replace("\t", "\\t")
 
 /**
  * A frame of the facade, one of the class in the same file, one of a class in a file with no facade,
- * and a `kotlinx.*` frame for the harness to classify.
+ * and a `kotlinx.*` frame, which a trace with no library frame in it would not be.
  */
 private val FACADE_TRACE = listOf(
     "java.lang.IllegalStateException: x",
@@ -215,14 +230,17 @@ private val COROUTINE_TRACE = listOf(
     "\tat com.acme.billing.BillingKt.settle(Billing.kt:3)",
 ).joinToString("\n")
 
-/** The `kotlinx.*` classes [COROUTINE_TRACE] names, in the form the index looks them up by. */
-private val KOTLINX_CLASSES = listOf(
-    "kotlinx.coroutines.DispatchedTask",
-    "kotlinx.coroutines.scheduling.CoroutineScheduler.Worker",
-    "kotlinx.coroutines.intrinsics.CancellableKt",
-    "kotlinx.coroutines.BuildersKt__Builders_commonKt",
-    "kotlinx.coroutines.BuildersKt",
-)
+/**
+ * What is wrong with the fixture when the `kotlinx.*` class [name] resolved to [origin] — `null` for
+ * nothing — or `null` when nothing is.
+ */
+internal fun complaintAboutTheCoroutinesLibrary(name: String, origin: SymbolOrigin?): String? = when (origin) {
+    SymbolOrigin.LIBRARY -> null
+    null -> "`$name` does not resolve, so kotlinx-coroutines is not attached to this fixture — or its metadata " +
+        "is newer than the compiler reading it — and every kotlinx.* frame would render as Unknown."
+    else -> "`$name` resolved to $origin, not to a library, so a kotlinx.* frame here is not being kept for the " +
+        "reason the output claims."
+}
 
 private val COROUTINES_CLASSPATH: LightProjectDescriptor = KotlinCoroutinesClasspath()
 

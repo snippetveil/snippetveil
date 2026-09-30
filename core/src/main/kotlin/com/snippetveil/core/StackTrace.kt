@@ -158,9 +158,10 @@ private fun refusalOf(text: String): TraceReading {
 private fun isCoroutineMarker(rest: String): Boolean = rest in LEGACY_MARKERS || MODERN_MARKER.matches(rest)
 
 /**
- * **What [parseTrace] made of the paste** — a trace, or the verdict that it is not one.
+ * **What [parseTrace] made of the paste** — a trace, or one of two verdicts that it is not one: the
+ * generic one, and the one that names a `DebugProbes` dump.
  *
- * The refusal carries no `String`, for the reason `PlanReading`'s does not: there is nowhere for a
+ * Neither refusal carries a `String`, for the reason `PlanReading`'s does not: there is nowhere for a
  * line of the user's paste to travel from into a balloon.
  */
 sealed class TraceReading {

@@ -1519,11 +1519,12 @@ alternative brings a competing test framework and a coroutines runtime into a mo
 dependencies.
 
 Fixture jars are not among them, because they are on no classpath: the Kotlin standard library the
-Kotlin fixtures attach, the `kotlinx-coroutines` jar the Kotlin trace fixtures attach, and the persistence jars the query fixtures attach — the Jakarta Persistence
-API, Spring Data and Hibernate — reach a test only as file paths, and are read as PSI the way a
-user's own dependencies would be. Nothing loads a class out of them. Nor is the database plugin's API
-jar the IC cells compile against: the IDE provides the plugin wherever the code naming it runs, and
-`assertNothingThirdPartyIsShipped` would fail the build if its jars reached the distribution.
+Kotlin fixtures attach, the `kotlinx-coroutines` jar the Kotlin trace fixtures attach, and the
+persistence jars the query fixtures attach — the Jakarta Persistence API, Spring Data and Hibernate
+— reach a test only as file paths, and are read as PSI the way a user's own dependencies would be.
+Nothing loads a class out of them. Nor is the database plugin's API jar the IC cells compile against:
+the IDE provides the plugin wherever the code naming it runs, and `assertNothingThirdPartyIsShipped`
+would fail the build if its jars reached the distribution.
 
 ## Issues
 

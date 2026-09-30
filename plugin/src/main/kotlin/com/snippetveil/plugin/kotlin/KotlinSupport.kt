@@ -61,7 +61,11 @@ internal class KotlinSupport : LanguageSupport {
      * **A compiled Kotlin class names the source its bytecode records**, since a library `.class`
      * carries no file facade to find — `kotlinx.coroutines.intrinsics.CancellableKt` was compiled from
      * `Cancellable.kt`, and a class and its file's facade are two `.class` files that nothing links.
-     * It is fixed to the frame's own class there, which is a library's and is kept as printed.
+     * It is fixed to the frame's own class there, which a library owns and which is therefore kept
+     * as printed. **That is a narrower rule than the facade's, taken knowingly**: were a compiled
+     * Kotlin class ever renamed — an internal-library prefix covering a jar with no sources — a
+     * class other than its file's facade would name the file. Visible as a second placeholder for
+     * one file, never as a leak.
      */
     override fun traceFileOf(outer: PsiClass): TraceFile? {
         val file = outer.navigationElement.containingFile as? KtFile ?: return null
@@ -70,7 +74,7 @@ internal class KotlinSupport : LanguageSupport {
             return TraceFile(file.findFacadeClass(), virtualFile.nameWithoutExtension, virtualFile.extension)
         }
         val recorded = recordedSourceOf(outer) ?: return null
-        return TraceFile(outer, recorded.substringBeforeLast('.'), recorded.substringAfterLast('.', "").ifEmpty { null })
+        return TraceFile.named(recorded, fixedTo = outer)
     }
 
     /**
@@ -80,6 +84,7 @@ internal class KotlinSupport : LanguageSupport {
     private fun recordedSourceOf(compiled: PsiClass): String? {
         val classFile = compiled.containingFile?.virtualFile ?: return null
         val stub = ClsFileImpl.buildFileStub(classFile, classFile.contentsToByteArray()) ?: return null
-        return stub.childrenStubs.filterIsInstance<PsiClassStub<*>>().firstOrNull()?.sourceFileName
+        val classStub = stub.childrenStubs.filterIsInstance<PsiClassStub<*>>().firstOrNull() ?: return null
+        return classStub.sourceFileName
     }
 }

@@ -228,7 +228,7 @@ internal object TracePlanBuilder {
         fun file(owner: PsiClass?, name: TraceName): Occurrence {
             val outer = owner?.let { generateSequence(it) { nested -> nested.containingClass }.last() }
             val traceFile = outer?.let(::traceFileOf)
-            val fixedTo = traceFile?.fixedTo?.takeIf { name.text.substringBeforeLast('.') == traceFile.stem }
+            val fixedTo = traceFile?.fixedTo?.takeIf { traceFile.isNamedBy(name.text) }
                 ?: return symbol(name.start, name.text, SymbolFacts.unresolvedEvidence(name.text))
             return SymbolOccurrence(
                 start = name.start,
@@ -236,7 +236,7 @@ internal object TracePlanBuilder {
                 text = name.text,
                 symbol = SymbolFacts.evidenceOf(project, fixedTo, fixedTo.name.orEmpty()),
                 language = LANGUAGE,
-                suffix = traceFile.extension?.let { ".$it" }.orEmpty(),
+                suffix = traceFile.suffix,
             )
         }
 
