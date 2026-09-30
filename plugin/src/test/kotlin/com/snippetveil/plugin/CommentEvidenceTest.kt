@@ -336,7 +336,7 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
     private fun isKeptIn(source: String): Boolean {
         val file = myFixture.addFileToProject("probe/Probe" + probe++ + ".java", source)
         val plan = JavaPlanBuilder.build(SnippetRequest(project, file, emptyList()))
-        return plan.occurrences.none { it is CommentOccurrence && it.container == CodeContainer.LIVE_CODE }
+        return plan.occurrences.none { it is CommentOccurrence && it.container == CodeContainer.LiveCode }
     }
 
     /** Each probe needs a file of its own; a fixture cannot hold two files under one path. */

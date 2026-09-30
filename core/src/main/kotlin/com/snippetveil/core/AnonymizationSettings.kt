@@ -587,11 +587,22 @@ enum class MappedKind(val label: String) {
  * in it**, because it was kept; a comment nested inside one and stripped is, although the user never
  * saw it as a comment of its own, because what the count reports is what was stripped.
  *
+ * **[anonymized] is the other side of the same line**: the comments that were not stripped because
+ * their body parsed as code, and were kept with their names replaced. It rides here because it is a
+ * number about comments, and it is never in [stripped] — the stripped-comments notice reads
+ * [stripped] and nothing else, and says nothing about a kept comment.
+ *
  * @param prose comments whose body does not parse as code
  * @param code comments whose body does — stripped anyway, which is only ever a Kotlin or a query
  *   comment; see [CommentVerdict]
+ * @param anonymized comments whose body parsed as code and that were kept, anonymized, counted from
+ *   the [CodeContainer.ParsedComment] tag their parts carry. **A count, not a notice**: a kept comment
+ *   is loudly visible in the output, so it is inventory the pane shows rather than a loss the output
+ *   hides, and it is said beside the name counts — only when it is not zero. A kept comment with
+ *   nothing in it to anonymize — `// return;` — carries no part, and so is not counted: nothing in it
+ *   was anonymized.
  */
-class CommentCounts(val prose: Int, val code: Int) {
+class CommentCounts(val prose: Int, val code: Int, val anonymized: Int) {
 
     /** How many comments the strip removed, which is what the balloon says. */
     val stripped: Int get() = prose + code
@@ -649,5 +660,13 @@ class UnknownName(
  *   was told by hand to emit as written**. Outcome-based, so a ticked resolved name moves here out
  *   of [replaced]: this number is a claim about what is on the clipboard, and a name emitted as
  *   written was not replaced whatever the reason.
+ * @param unknownFromComments **the part of [unknown] that came from kept comments** — the distinct
+ *   unresolved names that occur *only* inside a comment whose body parsed as code, read off the
+ *   [CodeContainer.ParsedComment] tag. A name unresolved in live code and in a kept comment both is
+ *   counted once, in the live part, so this can never exceed [unknown]. Commented-out code is stale
+ *   by construction, and its unresolved names would otherwise inflate [unknown] on every paste from
+ *   a file with commented-out history — a number that is habitually high stops being read. The
+ *   total is not wrong, so it is neither suppressed nor merged: this is a split *of* it, said as a
+ *   parenthetical beside it and only when it is not zero.
  */
-class NameCounts(val replaced: Int, val unknown: Int, val preserved: Int)
+class NameCounts(val replaced: Int, val unknown: Int, val preserved: Int, val unknownFromComments: Int)

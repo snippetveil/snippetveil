@@ -312,6 +312,75 @@ class PreviewDialogTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **A kept comment is counted on the strip, and the unknowns it brings are split in place** —
+     * and neither appears when there is nothing to say: `0 comments anonymized` and `(0 from
+     * comments)` are noise on every snippet with no commented-out code.
+     */
+    fun `test the counts strip counts a kept comment and splits the unknowns it brings`() {
+        assertTheHarnessResolves()
+        val kept = analysisOf(
+            """
+            class Ledger {
+                <selection>void settle(int amount) {
+                    // legacyAudit(amount);
+                    missingHelper(amount);
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "2 renamed · 2 unknown (1 from comments) · 0 preserved · 1 comment anonymized",
+            Subject.SNIPPET.strip(kept),
+        )
+
+        val live = analysisOf("class Ledger { <selection>void settle(int amount) { missingHelper(amount); }</selection> }")
+
+        val strip = Subject.SNIPPET.strip(live)
+        assertEquals("2 renamed · 1 unknown · 0 preserved", strip)
+        assertFalse("the strip counts a kept comment there is none of: $strip", "anonymized" in strip)
+    }
+
+    /**
+     * **`Show mapping` shows the same numbers as the balloon it was opened from.** The balloon has one
+     * number where the preview has rows, which is why the split has to be in it — and the read-only
+     * re-open is the same invocation re-rendered, so its strip may not tell a different story.
+     *
+     * Read off the label on screen rather than off [Subject.strip], because *"the re-open shows"* is a
+     * claim about what is on screen; and compared number for number, because the two surfaces word
+     * `renamed` differently on purpose.
+     */
+    fun `test the read-only re-open shows the numbers the balloon showed`() {
+        assertTheHarnessResolves()
+        val analysis = analysisOf(
+            """
+            class Ledger {
+                <selection>void settle(int amount) {
+                    // TODO: fix this
+                    // legacyAudit(amount);
+                    missingHelper(amount);
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+        val balloon = Subject.SNIPPET.balloon(analysis)
+        assertTrue("the fixture splits nothing, so this asserts nothing: $balloon", "(1 from comments)" in balloon)
+
+        withDialog(PreviewDialog.forReview(project, analysis)) { dialog ->
+            val shown = descendantsOf(dialog.createCenterPanel())
+                .filterIsInstance<JBLabel>()
+                .map { it.text }
+                .single { "renamed" in it }
+
+            assertEquals(numbersIn(balloon), numbersIn(shown))
+            assertTrue("the re-open drops the split: $shown", "unknown (1 from comments)" in shown)
+            assertTrue("the re-open drops the kept comment: $shown", "1 comment anonymized" in shown)
+        }
+    }
+
+    private fun numbersIn(text: String): List<String> = Regex("\\d+").findAll(text).map { it.value }.toList()
+
+    /**
      * **Unsorted is first occurrence, and a header click re-sorts.**
      *
      * The default is the engine's own order, which is the order the snippet introduces the names —

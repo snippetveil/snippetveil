@@ -97,10 +97,23 @@ internal enum class Subject(
      * line rather than a third notice because it is a fact about how the snippet was *cut*, which the
      * pane beside it shows in full; the notices are about what is missing from that pane.
      *
-     * **No count is split by where its names came from**, and `(n from SQL)` is refused rather than
-     * missing. It would appear for a user whose IDE decomposes queries and not for one whose IDE does
-     * not, which makes its *absence* the only in-product signal that a query went out whole — the
-     * availability tell this product declines to build.
+     * **No count is split by the container that read its names, with one exception.** `(n from SQL)`
+     * is refused rather than missing: it would appear for a user whose IDE decomposes queries and not
+     * for one whose IDE does not, which makes its *absence* the only in-product signal that a query
+     * went out whole — the availability tell this product declines to build.
+     *
+     * **The exception is `unknown`, split by kept comments** — `3 unknown (1 from comments)`.
+     * Commented-out code is stale by construction, so its unresolved names would otherwise inflate
+     * `unknown` on every paste from a file with commented-out history, and a number that is habitually
+     * high stops being read. It is not the availability tell: a kept comment is in the pane for anyone
+     * to see, and so is every `Unknown` it brought. The number is not wrong, so it is neither
+     * suppressed nor merged — the split is a parenthetical on it, absent when its part is zero. See
+     * [unknownOf].
+     *
+     * **`1 comment anonymized` is a count, shown only when it is not zero.** It is inventory the pane
+     * shows — a kept comment is loudly visible — so it is not a notice and is never folded into the
+     * stripped-comments one; and always on, `0 comments anonymized` would be noise on every snippet
+     * with no commented-out code in it. See [anonymizedCommentsOf].
      *
      * **And an entry with no population is absent rather than zero**, which is the whole of what the
      * plan's strip does differently: a plan resolves nothing and holds no comments, so a zero there
@@ -110,13 +123,14 @@ internal enum class Subject(
         val counts = analysis.result.counts
         return when (this) {
             SNIPPET -> {
-                val strip = "${counts.replaced} renamed · ${counts.unknown} unknown · ${counts.preserved} preserved"
+                val strip = "${counts.replaced} renamed · ${unknownOf(analysis)} · ${counts.preserved} preserved" +
+                    anonymizedCommentsOf(analysis)
                 if (analysis.plan.selectionExpanded) "$strip · selection expanded to whole tokens" else strip
             }
 
             PLAN -> "${counts.replaced} renamed · ${counts.preserved} preserved"
 
-            TRACE -> "${counts.replaced} renamed · ${counts.unknown} unknown · ${counts.preserved} preserved"
+            TRACE -> "${counts.replaced} renamed · ${unknownOf(analysis)} · ${counts.preserved} preserved"
         }
     }
 
@@ -128,11 +142,29 @@ internal enum class Subject(
         val counts = analysis.result.counts
         return when (this) {
             SNIPPET ->
-                "${counts.replaced} names replaced · ${counts.unknown} unknown · ${counts.preserved} preserved"
+                "${counts.replaced} names replaced · ${unknownOf(analysis)} · ${counts.preserved} preserved" +
+                    anonymizedCommentsOf(analysis)
 
             PLAN -> "${counts.replaced} names replaced · ${counts.preserved} preserved"
 
-            TRACE -> "${counts.replaced} names replaced · ${counts.unknown} unknown · ${counts.preserved} preserved"
+            TRACE -> "${counts.replaced} names replaced · ${unknownOf(analysis)} · ${counts.preserved} preserved"
         }
+    }
+
+    /**
+     * `3 unknown`, or `3 unknown (1 from comments)` when kept comments brought some of them — the same
+     * words on the strip and on the balloon. A trace holds no comments, so its part is always zero and
+     * its parenthetical never appears.
+     */
+    private fun unknownOf(analysis: Analysis): String {
+        val counts = analysis.result.counts
+        val fromComments = counts.unknownFromComments.takeIf { it > 0 }?.let { " ($it from comments)" }.orEmpty()
+        return "${counts.unknown} unknown$fromComments"
+    }
+
+    /** ` · 1 comment anonymized`, or nothing at all when no comment was kept as code. */
+    private fun anonymizedCommentsOf(analysis: Analysis): String {
+        val kept = analysis.result.comments.anonymized
+        return if (kept == 0) "" else " · $kept ${if (kept == 1) "comment" else "comments"} anonymized"
     }
 }

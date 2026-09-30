@@ -67,6 +67,7 @@ class AnonymizeExecutionPlanActionTest : JavaSnippetTestCase() {
         assertEquals(NotificationType.INFORMATION, balloon.type)
         assertEquals("9 names replaced · 1 preserved", balloon.content.substringBefore("<br>"))
         assertFalse("the balloon counts what a plan cannot have: " + balloon.content, "unknown" in balloon.content)
+        assertFalse("the balloon mentions a comment: " + balloon.content, "comment" in balloon.content)
     }
 
     /**

@@ -39,6 +39,19 @@
   `.java` file the code is kept without it now. In a `.kt` file commented-out code is still
   stripped, counted in the same sentence, and kept by the tick. The count includes only the
   comments that were removed.
+- **A kept comment is counted: `1 comment anonymized`.** The preview's counts and the `Copy
+  Anonymized` notification now say how many commented-out Java lines were kept with their names
+  replaced. It appears only when there is at least one; a snippet with no commented-out code shows
+  no such entry, not a zero. It is a count, beside the others, and not part of `2 comments
+  stripped`, which still counts only the comments that were removed. A commented-out line with no
+  name or string in it, such as `// return;`, has nothing to anonymize and is not counted.
+- **The `unknown` count now says how many came from comments**: `3 unknown (1 from comments)`.
+  Commented-out code is often out of date, so the names in it that no longer resolve used to swell
+  `unknown` on every paste from a file with commented-out history. The total is unchanged; the
+  bracket says how many of those names appear only in kept comments. A name that is unresolved in
+  live code and in a comment is counted once, as live code. The bracket is absent when none came from
+  comments. `Show mapping` shows the same numbers as the notification it was opened from. An
+  execution plan's counts are unchanged.
 
 ## [1.5.0] - 2026-09-29
 

@@ -65,7 +65,7 @@ sealed class Occurrence {
      * A tag rather than a nesting, for the reason [language] is one: the plan stays a flat list of
      * non-overlapping ranges. A comment whose body parsed never appears as one occurrence spanning
      * its range — its names, literals and nested comments are occurrences of their own, each inside
-     * it and tagged [CodeContainer.PARSED_COMMENT], and every rule treats them as it treats the same
+     * it and tagged [CodeContainer.ParsedComment], and every rule treats them as it treats the same
      * token in live code. See [CodeContainer].
      */
     abstract val container: CodeContainer
@@ -74,22 +74,30 @@ sealed class Occurrence {
 /**
  * **What an occurrence was read from** — a fact about where the token sat, reported like every other.
  *
- * **No rule reads it.** A name in a commented-out line takes the placeholder it takes in live code,
- * a literal there is a literal, and a nested comment meets the same verdict as any other comment —
- * which is the whole of *anonymized on the same terms as live code*. It is carried so that what came
- * out of a comment can be said apart from what came out of live code, without any rule having to
- * change for it to be said.
+ * **No rewriting rule reads it.** A name in a commented-out line takes the placeholder it takes in
+ * live code, a literal there is a literal, and a nested comment meets the same verdict as any other
+ * comment — which is the whole of *anonymized on the same terms as live code*. It is carried so that
+ * what came out of a comment can be said apart from what came out of live code, and **the two numbers
+ * that say it are computed from it and from nothing else**: how many comments were kept as code, and
+ * how many `Unknown`s came only from them. See [CommentCounts.anonymized] and
+ * [NameCounts.unknownFromComments].
  */
-enum class CodeContainer {
+sealed class CodeContainer {
 
     /** Code that is not inside a comment — which is nearly everything, and the default. */
-    LIVE_CODE,
+    data object LiveCode : CodeContainer()
 
     /**
      * **Inside a comment whose body parsed as code**, at the comment's own position: somebody's
      * commented-out statement, member or import, kept and anonymized rather than stripped.
+     *
+     * It names **which** comment, as that comment's range `[start, end)` in [SnippetPlan.text] —
+     * delimiters included — because *how many comments were kept* is a count of comments rather than
+     * of tokens, and two kept lines one above the other are two. A comment nested inside a kept one
+     * is read from the comment the walk started at, so everything a kept line holds carries that
+     * line's range, and a line comment with a second one written after its code is one comment kept.
      */
-    PARSED_COMMENT,
+    data class ParsedComment(val start: Int, val end: Int) : CodeContainer()
 }
 
 /**
@@ -168,7 +176,7 @@ class SymbolOccurrence(
     override val language: SourceLanguage,
     val nameStart: Int = start,
     val nameEnd: Int = end,
-    override val container: CodeContainer = CodeContainer.LIVE_CODE,
+    override val container: CodeContainer = CodeContainer.LiveCode,
     val suffix: String = "",
 ) : Occurrence() {
 
@@ -217,7 +225,7 @@ class LiteralOccurrence(
     val contentEnd: Int,
     val references: List<LiteralReference> = emptyList(),
     override val language: SourceLanguage,
-    override val container: CodeContainer = CodeContainer.LIVE_CODE,
+    override val container: CodeContainer = CodeContainer.LiveCode,
 ) : Occurrence()
 
 /**
@@ -279,7 +287,7 @@ class LiteralReference(val start: Int, val end: Int, val symbol: SymbolEvidence)
  *
  * **A Java comment whose body parses never arrives as one of these.** It is decomposed instead — its
  * names, its literals and the comments nested in it each reported as occurrences of their own,
- * tagged [CodeContainer.PARSED_COMMENT] — so that it is anonymized and kept on exactly the terms
+ * tagged [CodeContainer.ParsedComment] — so that it is anonymized and kept on exactly the terms
  * live code is, and there is nothing whole left for a strip to remove. A nested comment is one of
  * these again whenever its own body does not parse, which is how the prose inside a kept line still
  * goes.
@@ -293,7 +301,7 @@ class CommentOccurrence(
     override val end: Int,
     val verdict: CommentVerdict,
     override val language: SourceLanguage,
-    override val container: CodeContainer = CodeContainer.LIVE_CODE,
+    override val container: CodeContainer = CodeContainer.LiveCode,
 ) : Occurrence()
 
 /**
@@ -666,8 +674,8 @@ class PlanOccurrence(
     /** Always [SourceLanguage.PLAN], and not a parameter: a plan token is written in one language. */
     override val language: SourceLanguage = SourceLanguage.PLAN
 
-    /** Always [CodeContainer.LIVE_CODE]: a plan is printed text with no comments in it to parse. */
-    override val container: CodeContainer = CodeContainer.LIVE_CODE
+    /** Always [CodeContainer.LiveCode]: a plan is printed text with no comments in it to parse. */
+    override val container: CodeContainer = CodeContainer.LiveCode
 
     init {
         require(start <= nameStart && nameStart <= nameEnd && nameEnd <= end) {

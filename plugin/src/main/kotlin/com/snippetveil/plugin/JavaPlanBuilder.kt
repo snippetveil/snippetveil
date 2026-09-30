@@ -139,7 +139,7 @@ internal object JavaPlanBuilder : PlanBuilder {
             var leaf: PsiElement? = file.findElementAt(fragment.range.startOffset)
             while (leaf != null && leaf.textRange.startOffset < fragment.range.endOffset) {
                 if (leaf is PsiIdentifier && fragment.range.contains(leaf.textRange) && kept.none { it.contains(leaf.textRange) }) {
-                    occurrences += symbolOccurrenceOf(project, leaf, fragment::translate, CodeContainer.LIVE_CODE)
+                    occurrences += symbolOccurrenceOf(project, leaf, fragment::translate, CodeContainer.LiveCode)
                 }
                 leaf = PsiTreeUtil.nextLeaf(leaf)
             }
@@ -197,9 +197,9 @@ internal object JavaPlanBuilder : PlanBuilder {
                     ?: return@flatMap emptyList()
 
                 if (element is PsiComment) {
-                    commentOccurrencesOf(project, element, bodies[element], fragment::translate, CodeContainer.LIVE_CODE, commentParser)
+                    commentOccurrencesOf(project, element, bodies[element], fragment::translate, CodeContainer.LiveCode, commentParser)
                 } else {
-                    listOf(literalOccurrenceOf(project, element as PsiLiteralExpression, fragment::translate, CodeContainer.LIVE_CODE))
+                    listOf(literalOccurrenceOf(project, element as PsiLiteralExpression, fragment::translate, CodeContainer.LiveCode))
                 }
             }
 
@@ -250,10 +250,15 @@ internal object JavaPlanBuilder : PlanBuilder {
                 docReferencesIn(project, comment, at, container)
         }
 
+        // Everything a kept line holds is read from the comment the walk started at, so a comment
+        // nested in one keeps the tag it was handed rather than naming itself.
+        val kept = container as? CodeContainer.ParsedComment
+            ?: CodeContainer.ParsedComment(at(comment.textRange.startOffset), at(comment.textRange.endOffset))
+
         // The body is the comment's own text with its delimiters blanked, so an offset in the parsed
         // fragment is an offset into the comment.
         val base = comment.textRange.startOffset
-        return partsOf(project, parsed, { at(base + it) }, commentParser)
+        return partsOf(project, parsed, { at(base + it) }, kept, commentParser)
     }
 
     /**
@@ -262,29 +267,36 @@ internal object JavaPlanBuilder : PlanBuilder {
      * terms**, recursively. `// customer.charge(); // premium tier only` keeps the call and strips
      * the prose after it; `// customer.charge(); // order.ship();` keeps both.
      *
-     * Everything here is tagged [CodeContainer.PARSED_COMMENT], nested comments included: the tag
-     * says where a token was read from, and all of these were read from inside a comment.
+     * Everything here is tagged [kept], nested comments included: the tag says where a token was read
+     * from, all of these were read from inside that comment, and it names the comment so that kept
+     * comments can be counted.
      *
      * A walk over the whole fragment rather than a leaf walk, because nothing here is cut by a
      * selection — the comment is whole, so every part of it is.
      */
-    private fun partsOf(project: Project, parsed: PsiFile, at: (Int) -> Int, commentParser: CommentParser): List<Occurrence> {
+    private fun partsOf(
+        project: Project,
+        parsed: PsiFile,
+        at: (Int) -> Int,
+        kept: CodeContainer.ParsedComment,
+        commentParser: CommentParser,
+    ): List<Occurrence> {
         val parts = mutableListOf<Occurrence>()
         parsed.accept(
             object : PsiRecursiveElementWalkingVisitor() {
                 override fun visitElement(element: PsiElement) {
                     when (element) {
-                        is PsiIdentifier -> parts += symbolOccurrenceOf(project, element, at, CodeContainer.PARSED_COMMENT)
+                        is PsiIdentifier -> parts += symbolOccurrenceOf(project, element, at, kept)
 
                         // A literal is one token to the plan, and nothing inside it is a name.
                         is PsiLiteralExpression -> {
-                            parts += literalOccurrenceOf(project, element, at, CodeContainer.PARSED_COMMENT)
+                            parts += literalOccurrenceOf(project, element, at, kept)
                             return
                         }
 
                         is PsiComment -> {
                             val nested = parsedBodyOf(element, commentParser)
-                            parts += commentOccurrencesOf(project, element, nested, at, CodeContainer.PARSED_COMMENT, commentParser)
+                            parts += commentOccurrencesOf(project, element, nested, at, kept, commentParser)
                             // A nested body that parsed was read from its own fragment, so nothing
                             // under it is read a second time here.
                             if (nested != null) return
