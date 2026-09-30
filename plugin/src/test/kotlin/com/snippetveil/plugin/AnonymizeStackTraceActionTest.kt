@@ -5,6 +5,8 @@ import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.util.Disposer
+import com.intellij.psi.JavaPsiFacade
+import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.ui.EditorTextField
 import com.snippetveil.core.MappedKind
@@ -113,6 +115,21 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **A printed file name that is not the resolved file's is a bare `Unknown`**, rather than the
+     * placeholder of a class whose file the trace never printed.
+     */
+    fun `test a file name that does not match the resolved file renders a bare Unknown`() {
+        addPayoutsProject()
+        val trace = "com.acme.payouts.PayoutRejected: x\n" +
+            "\tat org.junit.Assert.fail(Assert.java:89)\n" +
+            "\tat com.acme.payouts.PayoutLedger.settle(Elsewhere.java:42)"
+
+        val output = invokeAndCapture(trace).result.text
+
+        assertTrue(output, Regex("""\(Unknown\d+:42\)$""").containsMatchIn(output))
+    }
+
+    /**
      * **The thread name and the messages are `str` literals** — `main` included, and a library
      * exception's message included, because ownership belongs to symbols and nothing here owns the
      * text. Asserted on the result's own rows rather than by a leak check, which would be green on a
@@ -178,7 +195,7 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
      */
     fun `test nothing the trace names survives unless the JDK or a library declares it`() {
         addPayoutsProject()
-        val oracle = LeakOracle.overTrace(TRACE, DECLARED_BY_THE_JDK_AND_LIBRARIES)
+        val oracle = LeakOracle.overTrace(TRACE, declaredByTheJdkAndLibraries(TRACE))
 
         assertTrue(
             "the oracle cannot fail: the trace itself came back clean",
@@ -187,7 +204,32 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
 
         val output = invokeAndCapture(TRACE).result.text
         val survivors = oracle.survivorsIn(output)
-        assertEmpty(survivors.map { "${it.name} at line ${it.line}: ${it.text}" })
+        assertEquals(
+            "a name the trace carries survived: ${survivors.map { "${it.name} at line ${it.line}: ${it.text}" }}",
+            KNOWN_SURVIVORS,
+            survivors.map { it.name }.toSet(),
+        )
+    }
+
+    /**
+     * **The oracle's one subtraction, read off the classpath rather than typed out**: every frame and
+     * header class the fixture resolves to the JDK or a library contributes its package segments, its
+     * class names and the frame's method, where that class declares it.
+     */
+    private fun declaredByTheJdkAndLibraries(trace: String): Set<String> {
+        val reading = parseTrace(trace) as TraceReading.Read
+        val facade = JavaPsiFacade.getInstance(project)
+        val scope = GlobalSearchScope.allScope(project)
+        val declared = mutableSetOf<String>()
+        val named = reading.trace.exceptions.map { it to null } + reading.trace.frames.map { it.type to it.method }
+        for ((type, method) in named) {
+            val found = facade.findClass(type.text.replace('$', '.'), scope) ?: continue
+            val origin = originInTheFixture(project, found)
+            if (origin != FixtureOrigin.JDK && origin != FixtureOrigin.LIBRARY) continue
+            declared += type.text.split('.', '$')
+            if (method != null && found.findMethodsByName(method.text, false).isNotEmpty()) declared += method.text
+        }
+        return declared
     }
 
     /**
@@ -315,7 +357,14 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
      * stopped resolving would render every frame `Unknown`, and every leak check would pass on it.
      */
     private fun assertTheTraceResolved(analysis: Analysis) {
-        val origins = analysis.plan.occurrences.filterIsInstance<SymbolOccurrence>().map { it.symbol.origin }.toSet()
+        // The frames' classes only: a header or a package segment resolving is not a frame being
+        // classified, and a check that counted them would pass on a trace whose every frame fell to
+        // `Unknown`.
+        val frames = (parseTrace(analysis.plan.text) as TraceReading.Read).trace.frames.map { it.type }
+        val origins = analysis.plan.occurrences.filterIsInstance<SymbolOccurrence>()
+            .filter { occurrence -> frames.any { occurrence.start >= it.start && occurrence.end <= it.end } }
+            .map { it.symbol.origin }
+            .toSet()
         assertTrue("no frame was classified project-owned, so the fixture resolves nothing: $origins", SymbolOrigin.IN_CONTENT in origins)
         assertTrue("no frame was classified library-owned, so the library is not attached: $origins", SymbolOrigin.LIBRARY in origins)
     }
@@ -391,17 +440,15 @@ private val TRACE = listOf(
 ).joinToString("\n")
 
 /**
- * **What the JDK and the libraries declare, among the trace's sub-tokens** — the oracle's one
- * subtraction. The packages, classes and methods of the preserved frames; `com`, which the JDK
- * declares as the root of `com.sun`; `init`, the JVM's own constructor name; and the words the JDK's
- * trace printer writes itself — `Exception in thread`, `at`, `Caused by`, `more`.
+ * **What survives the oracle by design, each one adjudicated** — the leak check's known false
+ * positives on this trace, pinned so that a new survivor goes red.
+ *
+ * `com` is the top-level package segment, which the engine passes through by a positional rule and
+ * which the source oracle reports for the same reason (CONTRIBUTING.md, *One subtraction*). `init`
+ * is the JVM's `<init>`, which names nothing of anybody's. The rest are the words the JDK's trace
+ * printer writes itself: `Exception in thread`, `at`, `Caused by`, `... more`.
  */
-private val DECLARED_BY_THE_JDK_AND_LIBRARIES = setOf(
-    "java", "lang", "Thread", "run", "sql", "SQLException",
-    "org", "junit", "Assert", "fail",
-    "com", "init",
-    "Exception", "in", "thread", "at", "Caused", "by", "more",
-)
+private val KNOWN_SURVIVORS = setOf("com", "init", "Exception", "in", "thread", "at", "Caused", "by", "more")
 
 /** What a user's clipboard held before an invocation that must not touch it. */
 private const val PREVIOUS_CLIPBOARD = "the trace the user copied a minute ago"

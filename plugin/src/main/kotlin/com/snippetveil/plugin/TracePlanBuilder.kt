@@ -145,15 +145,21 @@ internal object TracePlanBuilder {
          *
          * The class's navigation element rather than the class, so that a library class with sources
          * attached names its `.java` rather than the `.class` it was compiled to.
+         *
+         * **The printed name has to be that file's name**, extension aside: a trace that says
+         * `Other.java` where the class resolved into `Foo.java` is naming a file this index does not
+         * have, and rendering `Foo`'s placeholder there would print a file name the trace never did.
+         * The extension is left out of the comparison because a compiled library class resolves to
+         * its `.class`, and the trace prints the source it was compiled from.
          */
         fun file(owner: PsiClass?, name: TraceName): Occurrence {
             val outer = owner?.let { generateSequence(it) { nested -> nested.containingClass }.last() }
             val source = (outer?.navigationElement as? PsiClass) ?: outer
             val file = source?.containingFile as? PsiJavaFile
             val virtualFile = file?.virtualFile
-            val fixedTo = file?.classes?.firstOrNull {
-                it.hasModifierProperty(PsiModifier.PUBLIC) && it.name == virtualFile?.nameWithoutExtension
-            }
+            val stem = virtualFile?.nameWithoutExtension
+            val fixedTo = file?.classes?.firstOrNull { it.hasModifierProperty(PsiModifier.PUBLIC) && it.name == stem }
+                ?.takeIf { name.text.substringBefore('.') == stem }
             if (fixedTo == null || virtualFile == null) {
                 return symbol(name.start, name.text, SymbolFacts.unresolvedEvidence(name.text))
             }

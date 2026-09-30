@@ -396,7 +396,7 @@ hands over everything the plugin just concealed and makes the product theatre. A
 mapping as an appended comment block, and the mapping as a second clipboard-history entry, because
 paste history is obscure and one wrong pick is still a full leak.
 
-Both halves are checked rather than described. `ActionRegistrationTest` pins the four action ids
+Both halves are checked rather than described. `ActionRegistrationTest` pins the six action ids
 this plugin registers, so an export that acquired a menu entry goes red rather than shipping; and
 `ExportMappingTest` asserts that an export leaves the clipboard byte-identical, and that the file it
 wrote reverses the snippet the way `De-anonymize Clipboard` does.

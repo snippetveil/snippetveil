@@ -8,14 +8,14 @@ import com.intellij.openapi.fileTypes.PlainTextFileType
  * **What one invocation is over** — a snippet cut from an editor, an execution plan pasted from a
  * console, or a stack trace pasted from anywhere.
  *
- * It exists because the two invocations differ in **what they are about** and in nothing else. The
+ * It exists because the invocations differ in **what they are about** and in nothing else. The
  * threading, the fail-closed guarantee, the ledger's commit point, the preview and the balloon are
  * all shared, and every one of them would have grown a second copy if the plan had arrived as a
  * second path. So the differences are collected here, where a reader can see the whole list of them
  * at once: a title, a button, whether the pane highlights anything, whether the comments tick has a
  * population, and which numbers there are to say.
  *
- * **A count with no population is absent rather than zero**, which is the rule that shapes both
+ * **A count with no population is absent rather than zero**, which is the rule that shapes the
  * strips below. A plan resolves nothing, so it has no unresolved names; it holds no comments, so
  * nothing is stripped from one. Printing `0 unknown` beside a plan would be a measurement of
  * something that cannot happen, and a reader has no way to tell that from a measurement that came

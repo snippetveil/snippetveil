@@ -13,11 +13,15 @@
   `(Native Method)`, `(Unknown Source)`, `Caused by:`, `Suppressed:` and `... 12 more` are kept as
   printed; the thread name and every exception message, a library exception's included, become
   `str` literals. Module and classloader prefixes such as `java.base/` and `app//` are removed, so
-  the output is not the input byte for byte. The item is always enabled, reads the clipboard only
-  when you invoke it, is greyed out while the IDE is indexing, and always opens the preview, whose
+  the output is not the input byte for byte. The item is enabled whatever is on the clipboard and
+  reads the clipboard only when you invoke it. Like `Copy Anonymized`, it is greyed out while the
+  IDE is indexing. It always opens the preview, whose
   button reads `Copy Anonymized Trace`. The clipboard has to hold the trace and nothing else: a
   line that is not part of a trace, such as a log line above it, refuses the whole paste and leaves
-  the clipboard as it was.
+  the clipboard as it was. Two shapes are not read yet and are refused the same way: a message that
+  runs over more than one line, and a frame of a hidden class such as a lambda
+  (`Foo$$Lambda/0x…`). A JDK or library frame whose method the IDE cannot find, such as
+  `lambda$main$0`, has that method replaced with an `Unknown`.
 - **Commented-out Java code is kept, with its names replaced.** `Copy Anonymized` used to strip
   every comment, so a line such as `// this.customer.setOrder(order);` was lost on every paste. In a
   `.java` file a comment whose text parses as Java where it is written is now kept, and every name
