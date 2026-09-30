@@ -153,6 +153,12 @@ enum class SourceLanguage {
  *   still never split a token and a word inside the delimiters is still the token's own.
  * @param nameEnd where the name ends — before the closing delimiter. See [nameStart].
  * @param container where this identifier sat; see [Occurrence.container]
+ * @param suffix what is written **after the placeholder** when the name is replaced, and never
+ *   otherwise. Empty for every identifier a walk over source reports. A stack trace's file name is
+ *   the one position that needs it: `Ledger.java` is named after the public class it holds, so it
+ *   renders that class's placeholder with the resolved file's real extension — `Type1.java` — while
+ *   a preserved one stays exactly as the trace printed it. The extension is a fact the plugin read
+ *   off the file, which is why it is carried as evidence rather than rebuilt here from the text.
  */
 class SymbolOccurrence(
     override val start: Int,
@@ -163,6 +169,7 @@ class SymbolOccurrence(
     val nameStart: Int = start,
     val nameEnd: Int = end,
     override val container: CodeContainer = CodeContainer.LIVE_CODE,
+    val suffix: String = "",
 ) : Occurrence() {
 
     init {

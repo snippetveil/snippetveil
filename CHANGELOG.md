@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+- **A Java stack trace can be anonymized from the clipboard.** `Anonymize Stack Trace…`, the sixth
+  item in the SnippetVeil menu, reads an exception trace off the clipboard and replaces every name
+  in it that belongs to your project with the placeholder your snippets already use, so a frame
+  reads `at com.pkg1.pkg2.Type3.method4(Type3.java:42)` and lines up with the code you sent
+  alongside it. A name the trace mentions for the first time gets a new placeholder and is
+  remembered, as it would be from a snippet. JDK and library frames are kept as printed. A class or
+  method that no longer resolves becomes a single `Unknown`, and so does a file name that no public
+  class is named after. An inner class's file is named after its outer class. Line numbers,
+  `(Native Method)`, `(Unknown Source)`, `Caused by:`, `Suppressed:` and `... 12 more` are kept as
+  printed; the thread name and every exception message, a library exception's included, become
+  `str` literals. Module and classloader prefixes such as `java.base/` and `app//` are removed, so
+  the output is not the input byte for byte. The item is always enabled, reads the clipboard only
+  when you invoke it, is greyed out while the IDE is indexing, and always opens the preview, whose
+  button reads `Copy Anonymized Trace`. The clipboard has to hold the trace and nothing else: a
+  line that is not part of a trace, such as a log line above it, refuses the whole paste and leaves
+  the clipboard as it was.
 - **Commented-out Java code is kept, with its names replaced.** `Copy Anonymized` used to strip
   every comment, so a line such as `// this.customer.setOrder(order);` was lost on every paste. In a
   `.java` file a comment whose text parses as Java where it is written is now kept, and every name

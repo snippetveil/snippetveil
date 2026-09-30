@@ -528,6 +528,13 @@ internal class PreviewDialog private constructor(
         fun forPlan(project: Project, analysis: Analysis, files: MappingFiles = SavedMappingFiles): PreviewDialog =
             PreviewDialog(project, analysis, reducible = true, files = files, subject = Subject.PLAN)
 
+        /**
+         * **The same reduction surface over a stack trace**, and for the plan's reason the only view
+         * of the output there is: the trace came off a clipboard, never through an editor.
+         */
+        fun forTrace(project: Project, analysis: Analysis, files: MappingFiles = SavedMappingFiles): PreviewDialog =
+            PreviewDialog(project, analysis, reducible = true, files = files, subject = Subject.TRACE)
+
         /** The balloon's `Show mapping`: the same dialog over an invocation that has already left. */
         fun forReview(
             project: Project,
@@ -562,6 +569,12 @@ internal object PreviewDialogs : Previews {
 internal object PlanPreviewDialogs : Previews {
     override fun confirm(project: Project, analysis: Analysis): Analysis? =
         PreviewDialog.forPlan(project, analysis).let { if (it.showAndGet()) it.analysis else null }
+}
+
+/** The same seam over a stack trace, which opens the same dialog in the shape a trace is shown in. */
+internal object TracePreviewDialogs : Previews {
+    override fun confirm(project: Project, analysis: Analysis): Analysis? =
+        PreviewDialog.forTrace(project, analysis).let { if (it.showAndGet()) it.analysis else null }
 }
 
 /**

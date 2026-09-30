@@ -150,6 +150,13 @@ class BalloonFamilyTest : JavaSnippetTestCase() {
             // report link, which is where *a plugin refusing input correctly is not a defect* is
             // actually checked.
             Row("planUnreadable", Footprint.CLIPBOARD_NOT_WRITTEN) { notify.planUnreadable(project) },
+
+            // The trace's refusal, on the same footing: a warning with the clipboard clause and no
+            // report link, because a paste that is not a trace is not a defect.
+            Row("traceUnreadable", Footprint.CLIPBOARD_NOT_WRITTEN) { notify.traceUnreadable(project) },
+            Row("copied", Footprint.WROTE_CLIPBOARD) {
+                notify.copied(project, analysisOf(REVERSAL_SNIPPET), Subject.TRACE)
+            },
         ) +
             // The refusal of a plan this product recognises and cannot read soundly, **once per
             // recognised shape**. Each has a sentence of its own and the rules here are about the

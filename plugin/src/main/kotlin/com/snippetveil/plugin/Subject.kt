@@ -5,8 +5,8 @@ import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.PlainTextFileType
 
 /**
- * **What one invocation is over** — a snippet cut from an editor, or an execution plan pasted from a
- * console.
+ * **What one invocation is over** — a snippet cut from an editor, an execution plan pasted from a
+ * console, or a stack trace pasted from anywhere.
  *
  * It exists because the two invocations differ in **what they are about** and in nothing else. The
  * threading, the fail-closed guarantee, the ledger's commit point, the preview and the balloon are
@@ -60,6 +60,20 @@ internal enum class Subject(
         fileType = PlainTextFileType.INSTANCE,
         offersComments = false,
     ),
+
+    /**
+     * **A stack trace off the clipboard.** Plain, because a trace is the JVM's printout rather than
+     * source; no comments tick, because a trace holds none — but, unlike a plan, it **resolves**, so
+     * it has an `unknown` count and the `Preserve` on an `Unknown` row that comes with one.
+     */
+    TRACE(
+        previewTitle = "Anonymize Stack Trace",
+        reviewTitle = "Anonymized Stack Trace",
+        copyButton = "Copy Anonymized Trace",
+        balloonTitle = "Anonymized stack trace copied",
+        fileType = PlainTextFileType.INSTANCE,
+        offersComments = false,
+    ),
     ;
 
     /**
@@ -101,6 +115,8 @@ internal enum class Subject(
             }
 
             PLAN -> "${counts.replaced} renamed · ${counts.preserved} preserved"
+
+            TRACE -> "${counts.replaced} renamed · ${counts.unknown} unknown · ${counts.preserved} preserved"
         }
     }
 
@@ -115,6 +131,8 @@ internal enum class Subject(
                 "${counts.replaced} names replaced · ${counts.unknown} unknown · ${counts.preserved} preserved"
 
             PLAN -> "${counts.replaced} names replaced · ${counts.preserved} preserved"
+
+            TRACE -> "${counts.replaced} names replaced · ${counts.unknown} unknown · ${counts.preserved} preserved"
         }
     }
 }

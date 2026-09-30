@@ -422,6 +422,26 @@ internal object SnippetVeilNotifications {
     }
 
     /**
+     * **The clipboard is not a stack trace** — the one refusal the trace action ships.
+     *
+     * **It quotes nothing**, for the reason [planUnreadable] quotes nothing: the verdict carries no
+     * `String` — see `TraceReading` — and a line of the paste echoed into a balloon is the product
+     * handing back what it exists to hold. **It says what to do**: the paste that produces it is
+     * almost always a console copy with log lines around the trace, and the fix is to select the
+     * trace alone.
+     *
+     * **Warning, and no report link.** The product is working and describing its input; a report
+     * link here would be the highest-volume one in the plugin, collecting pastes that were never a
+     * trace.
+     */
+    fun traceUnreadable(project: Project?) {
+        group().createNotification(
+            "Clipboard is not a stack trace \u2014 select the trace only. $CLIPBOARD_UNCHANGED",
+            NotificationType.WARNING,
+        ).notify(project)
+    }
+
+    /**
      * **A plan this product recognises and cannot read soundly** — said in the words of the shape
      * that actually arrived.
      *
