@@ -1,15 +1,18 @@
 package com.snippetveil.plugin
 
+import com.intellij.psi.PsiComment
+import com.intellij.psi.PsiErrorElement
+import com.intellij.psi.util.PsiTreeUtil
 import com.snippetveil.core.AnonymizationSettings
+import com.snippetveil.core.CodeContainer
 import com.snippetveil.core.CommentOccurrence
-import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.anonymize
 
 /**
  * **The two things about a comment that only a real Java parser can say**, read off real Java:
- * whether its body is code somebody commented out, and which words in it are resolvable references
- * rather than prose.
+ * whether its body is code somebody commented out — parsed at the comment's own position — and
+ * which words in it are resolvable references rather than prose.
  *
  * What is done with either answer is `:core`'s business and is tested there against plan literals,
  * at millisecond speed. What cannot be tested there is whether the plan told the truth about a real
@@ -21,42 +24,69 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
 
     /**
      * **The verdict is a parse, not a guess.** The ticket's own two examples, either side of the
-     * line: an assignment somebody commented out parses as a code block, and a TODO does not.
-     *
-     * This is the split that makes the strip count actionable — and it matters more than it looks.
-     * The one question every variant in the naming experiment answered at a full 9/9 was *"find the
-     * commented-out assignment"*: the ground-truth bug **was** a comment, and a reviewer called that
-     * line the single most useful surviving clue.
+     * line: an assignment somebody commented out parses, and is kept; a TODO does not, and is not.
      */
     fun `test a commented-out statement is code and a TODO is prose`() {
-        assertEquals(CommentVerdict.CODE, verdictOf("// this.customer.setOrder(order);"))
-        assertEquals(CommentVerdict.PROSE, verdictOf("// TODO: fix this"))
+        assertTrue(isKept("// this.customer.setOrder(order);"))
+        assertFalse(isKept("// TODO: fix this"))
     }
 
     /** More of both sides, because a rule with one fixture on each side is one fixture from a coincidence. */
     fun `test the verdict holds either side of the line`() {
-        assertEquals(CommentVerdict.CODE, verdictOf("// int retries = 3;"))
-        assertEquals(CommentVerdict.CODE, verdictOf("/* if (amount > 0) { audit(amount); } */"))
-        assertEquals(CommentVerdict.CODE, verdictOf("// audit(amount); // and the old reason why"))
+        assertTrue(isKept("// int retries = 3;"))
+        assertTrue(isKept("/* if (amount > 0) { audit(amount); } */"))
+        assertTrue(isKept("// audit(amount); // and the old reason why"))
 
-        assertEquals(CommentVerdict.PROSE, verdictOf("// reconcile against the merchant ledger"))
-        assertEquals(CommentVerdict.PROSE, verdictOf("/* the ledger is authoritative */"))
-        assertEquals(CommentVerdict.PROSE, verdictOf("// see PaymentBatch#settle for why this is not a loop"))
+        assertFalse(isKept("// reconcile against the merchant ledger"))
+        assertFalse(isKept("/* the ledger is authoritative */"))
+        assertFalse(isKept("// see PaymentBatch#settle for why this is not a loop"))
     }
 
     /**
-     * **The stated limit, on a fixture rather than only in a doc comment.**
+     * **The parse self-check, both arms, at every position.** A known-unparseable body yields at
+     * least one error element and no throw; a known-good body yields none.
      *
-     * The verdict is a code *block* parse, so a commented-out local declaration is code and a
-     * commented-out *method* is prose — a method declaration is not a statement, and inside a block
-     * it does not parse. Widening the rule means trying the body against every context Java has, and
-     * each context added is another way for a line of prose to parse by accident. The limit is
-     * asserted here so that a later widening is a decision somebody makes rather than one that
-     * happens.
+     * The good bodies are chosen so that each parses **only** at its own position — a method is not a
+     * statement, a statement is not a member, and an import is neither — so this fails if a comment is
+     * parsed anywhere but where it is written. That is the point of it: a parse with the wrong context
+     * strips everything, and passes every prose test there is.
      */
-    fun `test the verdict is a code block and a commented-out method is therefore prose`() {
-        assertEquals(CommentVerdict.CODE, verdictOf("// private String merchantRef;"))
-        assertEquals(CommentVerdict.PROSE, verdictOf("// void pay(int amount) {}"))
+    fun `test the parse is observable at member, statement and file position`() {
+        val file = myFixture.addFileToProject(
+            "probe/Positions.java",
+            """
+            // import java.util.List;
+            // TODO: fix this
+            class Positions {
+                // public void charge() {}
+                // TODO: fix this
+                void audit() {
+                    // this.audit();
+                    // TODO: fix this
+                }
+            }
+            """.trimIndent(),
+        )
+        val comments = PsiTreeUtil.findChildrenOfType(file, PsiComment::class.java).toList()
+        val expected = listOf(
+            CommentPosition.FILE to 0, CommentPosition.FILE to null,
+            CommentPosition.MEMBER to 0, CommentPosition.MEMBER to null,
+            CommentPosition.STATEMENT to 0, CommentPosition.STATEMENT to null,
+        )
+        assertEquals(expected.size, comments.size)
+
+        for ((comment, arm) in comments.zip(expected)) {
+            val (position, errors) = arm
+            assertEquals(comment.text, position, positionOf(comment))
+
+            val parsed = JavaCommentParser.parse(comment, bodyOf(comment), position)
+            val found = PsiTreeUtil.findChildrenOfType(parsed, PsiErrorElement::class.java).size
+            if (errors == 0) {
+                assertEquals("`${comment.text}` did not parse at $position", 0, found)
+            } else {
+                assertTrue("`${comment.text}` parsed at $position", found > 0)
+            }
+        }
     }
 
     /**
@@ -65,27 +95,27 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
      * line of prose into a statement that parses, which is a way for an exact verdict not to be.
      */
     fun `test a line comment's leading asterisk is text and not a javadoc prefix`() {
-        assertEquals(CommentVerdict.PROSE, verdictOf("// * total = 3;"))
+        assertFalse(isKept("// * total = 3;"))
     }
 
     /**
-     * An empty comment is prose. `{}` parses, so a rule that only asked the parser would call an
-     * empty comment commented-out code — the one verdict here that is plainly false.
+     * An empty comment is not code. It parses to nothing at all, and calling it commented-out code
+     * would be the one verdict here that is plainly false.
      */
     fun `test an empty comment is prose`() {
-        assertEquals(CommentVerdict.PROSE, verdictOf("//"))
-        assertEquals(CommentVerdict.PROSE, verdictOf("/* */"))
+        assertFalse(isKept("//"))
+        assertFalse(isKept("/* */"))
     }
 
     /**
-     * Javadoc is read with its leading asterisks taken off, which is what a reader of it sees and
-     * therefore what there is to parse. Both sides again, because a javadoc block holding
-     * commented-out code is exactly as real as a line comment holding it.
+     * Javadoc is read with its delimiters and leading asterisks dropped as tokens, which is what a
+     * reader of it sees and therefore what there is to parse. It sits in front of a method, so it is
+     * at member position: a commented-out member in it is kept, and prose or a tag is not.
      */
     fun `test javadoc is read as the text a reader of it sees`() {
-        assertEquals(CommentVerdict.PROSE, javadocVerdictOf("/**\n * Reconciles a batch against the ledger.\n */"))
-        assertEquals(CommentVerdict.PROSE, javadocVerdictOf("/**\n * @param amount the amount to settle\n */"))
-        assertEquals(CommentVerdict.CODE, javadocVerdictOf("/**\n * this.customer.setOrder(order);\n */"))
+        assertFalse(isKeptJavadoc("/**\n * Reconciles a batch against the ledger.\n */"))
+        assertFalse(isKeptJavadoc("/**\n * @param amount the amount to settle\n */"))
+        assertTrue(isKeptJavadoc("/**\n * private int total;\n */"))
     }
 
     // ------------------------------------------------------------------ Javadoc's resolvable half
@@ -268,8 +298,8 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
         )
     }
 
-    /** The verdict for a comment written inside a method body, which is where most of them are. */
-    private fun verdictOf(comment: String): CommentVerdict = verdictIn(
+    /** Whether [comment], written inside a method body where most of them are, is kept as code. */
+    private fun isKept(comment: String): Boolean = isKeptIn(
         """
         class Ledger {
             void audit(int amount) {
@@ -279,8 +309,8 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
         """.trimIndent(),
     )
 
-    /** The verdict for a javadoc block, which has to sit in front of a declaration to be one. */
-    private fun javadocVerdictOf(javadoc: String): CommentVerdict = verdictIn(
+    /** Whether a javadoc block, which has to sit in front of a declaration to be one, is kept as code. */
+    private fun isKeptJavadoc(javadoc: String): Boolean = isKeptIn(
         """
         class Ledger {
         $javadoc
@@ -289,10 +319,14 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
         """.trimIndent(),
     )
 
-    private fun verdictIn(source: String): CommentVerdict {
+    /**
+     * Whether the one comment in [source] is kept: a comment whose body parsed is decomposed into its
+     * parts, so the plan holds no occurrence of it in live code — only, at most, a comment nested in it.
+     */
+    private fun isKeptIn(source: String): Boolean {
         val file = myFixture.addFileToProject("probe/Probe" + probe++ + ".java", source)
         val plan = JavaPlanBuilder.build(SnippetRequest(project, file, emptyList()))
-        return plan.occurrences.filterIsInstance<CommentOccurrence>().first().verdict
+        return plan.occurrences.none { it is CommentOccurrence && it.container == CodeContainer.LIVE_CODE }
     }
 
     /** Each probe needs a file of its own; a fixture cannot hold two files under one path. */

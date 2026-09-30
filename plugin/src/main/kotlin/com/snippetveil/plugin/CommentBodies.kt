@@ -6,10 +6,10 @@ import com.intellij.psi.PsiComment
  * **What a comment's body is** — the half of a comment's verdict that is about delimiters rather
  * than about a language.
  *
- * Both walks share this rather than each carrying a copy, on the rule `SnippetFragments.kt` states:
- * neither could differ here without the difference being a bug. The delimiters and the leading
- * asterisk are spelled the same in Java and in Kotlin, and which parser the body is then handed to
- * is the one thing that does differ — so that stays in each walk.
+ * **The Kotlin walk's, and no longer the Java walk's.** Java reads a comment's body through PSI now —
+ * its delimiters and javadoc's leading asterisks dropped as tokens, never as text — because the body
+ * is parsed at the comment's own position and every offset in it has to land back on the comment.
+ * See `JavaCommentBodies.kt`. Kotlin's verdict is unchanged, and so is what it reads.
  */
 
 /**

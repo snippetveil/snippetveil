@@ -106,37 +106,24 @@ private fun flattenedNamesNotice(flattened: List<FlattenedName>): String =
     flattened.joinToString("; ") { "${listing(it.placeholders)} were the same name" }
 
 /**
- * **Notice 2** — *`2 comments stripped, 1 of them commented-out code`*: the count, and the half of
- * it a user can act on.
+ * **Notice 2** — *`2 comments stripped`*: what the strip removed, as a number.
  *
- * The count already existed and the split is what makes it actionable: *`2 comments stripped`* is a
- * number, and the keep-comments tick is already sitting in the preview. Disclosure plus that tick
- * closes the loop with no new leak surface and no reopened decision.
+ * **No clause.** It used to read *`2 comments stripped, 1 of them commented-out code`*, and the clause
+ * was there to point at the keep-comments tick as the way to get that code back. That recourse is
+ * automatic now: commented-out Java code that parses is anonymized and kept on the fast path, so a
+ * clause pointing at the tick would point at nothing. What is stripped is prose, and the tick is
+ * still the one place prose can be kept.
+ *
+ * **A comment that was nearly code is not reported apart from prose.** Telling *nearly code* from
+ * prose would be a guess, and what decides a comment's fate is a parse verdict: a body that did not
+ * parse is stripped, and it is counted here with every other one.
  *
  * It is here rather than on [CommentCounts], which is the type it reads and nothing else: the two
  * notices are **one closed list**, and half of that list living on its own count type is half of it
- * a reader looking for *the notices* would not find. What [CommentCounts] owns is the split; what
- * this file owns is that the split is disclosed and how the two disclosures agree with each other.
- *
- * **The split is stated whenever the notice is, zero included** — *`2 comments stripped, 0 of them
- * commented-out code`* — and that is the point rather than an oversight. A strip that took no code
- * is the case where the user does **not** need to open the preview, and a clause that vanished on
- * zero would leave them to work that out from its absence. Dropping it also lands the commonest
- * strip there is, all-prose, back on the bare *`2 comments stripped`* the split exists to replace.
- *
- * That is the opposite rule from the notice around it, and the two are not in tension: **whether
- * there is a notice** is conditional, because a snippet that lost nothing has nothing to say; what
- * a notice that exists **says** is not, because a number missing from a sentence is unreadable in
- * exactly the way a missing count is.
- *
- * One sentence shape rather than a branch per case. *`1 comment stripped, 1 of them commented-out
- * code`* is a shade stiff read aloud, and it is the trade taken knowingly: prose that varied with
- * the numbers would be copy this ticket did not buy, and a disclosure a user has to re-read to see
- * whether it is the same sentence as last time is worse than a stiff one they can scan.
+ * a reader looking for *the notices* would not find.
  */
 private fun strippedCommentsNotice(comments: CommentCounts): String =
-    "${comments.stripped} ${if (comments.stripped == 1) "comment" else "comments"} stripped" +
-        ", ${comments.code} of them commented-out code"
+    "${comments.stripped} ${if (comments.stripped == 1) "comment" else "comments"} stripped"
 
 /**
  * `a and b`, `a, b and c` — an English list, because a notice is read as a sentence.

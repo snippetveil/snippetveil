@@ -811,7 +811,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
             class Ledger {
                 <selection>/** Reconciles a batch against the merchant ledger. */
                 void settle(int amount) {
-                    // this.customer.setOrder(order);
+                    // the batch is settled before the audit runs
                     audit(amount); // the ledger is authoritative
                 }</selection>
 
@@ -869,13 +869,14 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
     }
 
     /**
-     * **The strip is reported, split by parse verdict, because a stripped comment is invisible in the
-     * output.** The text that comes back is clean, compiles and reads as ordinary code, and the AI
-     * answers accurately about a snippet the defect has been lifted out of — that is the quietest
-     * failure in the design, and the response to it is disclosure at the point of use.
+     * **The strip is reported, because a stripped comment is invisible in the output.** The text that
+     * comes back is clean, compiles and reads as ordinary code, and the AI answers accurately about a
+     * snippet the defect has been lifted out of — that is the quietest failure in the design, and the
+     * response to it is disclosure at the point of use.
      *
-     * *`2 comments stripped`* is not actionable and the split is: the keep-comments tick is already
-     * sitting in the preview, so this sentence plus that tick closes the loop.
+     * **It counts what was stripped and nothing else.** The commented-out call beside the TODO is
+     * kept, anonymized, on this fast path with no tick — so it is not in the count, and the notice no
+     * longer carries a clause pointing at the tick as the way to get it back.
      *
      * On the balloon rather than only in the preview: `Copy Anonymized` has no preview, so a
      * disclosure the dialog carried alone would never fire for the people who never open it.
@@ -888,7 +889,7 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
             class Ledger {
                 <selection>void audit(int amount) {
                     // TODO: fix this
-                    // this.customer.setOrder(order);
+                    // String.valueOf(amount);
                     String.valueOf(amount);
                 }</selection>
             }
@@ -898,7 +899,14 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
         invokeCopyAnonymized()
 
         assertEquals(
-            "2 names replaced · 0 unknown · 2 preserved<br>2 comments stripped, 1 of them commented-out code",
+            "void method1(int param2) {\n" +
+                "        // String.valueOf(param2);\n" +
+                "        String.valueOf(param2);\n" +
+                "    }",
+            clipboard(),
+        )
+        assertEquals(
+            "2 names replaced · 0 unknown · 2 preserved<br>1 comment stripped",
             notifications.single().content,
         )
     }
@@ -1211,6 +1219,41 @@ class CopyAnonymizedActionTest : JavaSnippetTestCase() {
             "The error does not state the clipboard fact: ${balloon.content}",
             balloon.content.contains("your clipboard was not changed"),
         )
+    }
+
+    /**
+     * **A comment parse that throws fails the invocation closed.** A parse that fails is observable —
+     * a tree carrying error elements — and that is the only verdict there is; a parse that *throws*
+     * cannot tell an unparseable body from a broken platform, so it is not caught and called prose.
+     * It fails like every other throw in anonymization: the clipboard untouched, and nothing
+     * committed to the mapping.
+     */
+    fun `test a comment parse that throws leaves the clipboard and the mapping untouched`() {
+        assertTheHarnessResolves()
+        myFixture.configureByText(
+            "Ledger.java",
+            """
+            class Ledger {
+                <selection>void settle() {
+                    // TODO: fix this
+                }</selection>
+            }
+            """.trimIndent(),
+        )
+        setClipboard(PREVIOUS_CLIPBOARD)
+        val committed = PlaceholderLedger.getInstance().snapshotOf(project)
+
+        invokeCopyAnonymized(
+            CopyAnonymizedAction { request ->
+                JavaPlanBuilder.build(request, RegisteredContainers) { _, _, _ -> error("the parser fell over") }
+            },
+        )
+
+        assertEquals("The clipboard was changed by a failed invocation.", PREVIOUS_CLIPBOARD, clipboard())
+        assertEquals(NotificationType.ERROR, notifications.single().type)
+        val after = PlaceholderLedger.getInstance().snapshotOf(project)
+        assertEquals("a failed invocation named a symbol", committed.placeholders, after.placeholders)
+        assertEquals("a failed invocation burnt a number", committed.nextNumber, after.nextNumber)
     }
 
     /**
