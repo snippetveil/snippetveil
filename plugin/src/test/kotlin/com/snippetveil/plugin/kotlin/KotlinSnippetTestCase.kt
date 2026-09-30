@@ -355,7 +355,7 @@ internal fun complaintAboutTheFacades(facadeWithoutCallables: String?, facadeWit
 private val KOTLIN_CLASSPATH: LightProjectDescriptor = KotlinClasspath()
 
 /** A class of its own rather than an anonymous one: see [RealClasspath.attachLibraries]. */
-private class KotlinClasspath : RealClasspath() {
+internal open class KotlinClasspath : RealClasspath() {
 
     override fun attachLibraries(model: ModifiableRootModel) {
         super.attachLibraries(model)

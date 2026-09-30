@@ -23,8 +23,13 @@ package com.snippetveil.core
  * | `\tSuppressed: <FQN>: <msg>` | keyword verbatim, the rest as a header, nesting preserved |
  * | `\t... <N> more` | verbatim, the count included |
  * | `(Native Method)`, `(Unknown Source)` | verbatim: fixed JVM tokens with no file in them |
+ * | `\tat _COROUTINE._BOUNDARY._(<location>)` | verbatim: a coroutine marker, anchored on its name |
+ * | `\tat _COROUTINE._CREATION._(<location>)` | the same; it heads a creation block of ordinary frames |
+ * | `\tat \b\b\b(Coroutine boundary.\b(\b)`, `\t(Coroutine boundary)` | verbatim: a whole-line fixed token |
+ * | `\tat \b\b\b(Coroutine creation stacktrace.\b(\b)`, `\t(Coroutine creation stacktrace)` | the same |
  *
  * `: <msg>` is optional, because `Throwable.toString` omits it for an exception with no message.
+ * `\b` is BACKSPACE, U+0008, and it is written as an escape everywhere it is spelled.
  *
  * **Any line outside that vocabulary refuses the whole paste**, and no line is ever passed through.
  * Emitting an unrecognised line verbatim would be free-text anonymization that resolves in the
@@ -33,7 +38,41 @@ package com.snippetveil.core
  * costs nothing in a navigation aid, and in a privacy tool it is the whole failure.
  *
  * Beyond the per-line vocabulary, a trace **starts with its header** and **has at least one frame**:
- * a paste cut mid-stack is not the trace, and a single word on a clipboard is not one either.
+ * a paste cut mid-stack is not the trace, and a single word on a clipboard is not one either. A
+ * coroutine marker is not a frame.
+ *
+ * ### Coroutine markers are matched ahead of the frame row
+ *
+ * `kotlinx.coroutines` writes markers into a failing coroutine's trace, and assertions being on is
+ * all it takes — which Gradle's test task turns on by default. The modern pair, since the library's
+ * own 1.7.0, has exactly a frame's shape: `_COROUTINE._BOUNDARY._(CoroutineDebugging.kt:42)` read as
+ * a frame would report a class, a method and a file, and render `Unknown1.Unknown2(Unknown3)` — safe,
+ * and a contradiction of *`kotlinx.*` is preserved*. So **the marker rows are tried first**. They are
+ * anchored on the name and the parentheses are wildcarded over the locations a frame may print,
+ * because `<N>` is the library's own source line and has moved between releases; everything in the
+ * row, `CoroutineDebugging.kt` included, is emitted verbatim and reports no name.
+ *
+ * The legacy pair carries literal BACKSPACE bytes and renders differently in a terminal than in the
+ * clipboard, so **both renderings are admitted**. It carries no class name to resolve, so it is a
+ * **whole-line fixed token** with zero variable parts, the way `(Native Method)` is. A marker nests
+ * like a frame, at any depth of tabs a frame may have.
+ *
+ * `_CREATION` heads a block of ordinary frames, and they are read exactly as the call stack's are.
+ *
+ * ### A `DebugProbes` dump is refused, and named as one
+ *
+ * `dumpCoroutines` output and the `printJob` / `jobToString` tree are not traces: the library's own
+ * README disclaims the format, a block header carries a package-less class name there is nothing to
+ * resolve from, and the tree's indentation *is* its parent/child structure. They are refused whatever
+ * else they hold, `_CREATION` frames included, and the refusal says which artifact arrived —
+ * [TraceReading.CoroutineDump] — because *not a stack trace* would be close to false for someone who
+ * selected the dump precisely. **The predicate is two fixed library literals**, asked only of a paste
+ * already refused: a line beginning `Coroutines dump `, or a line holding `continuation is … at line `.
+ * It identifies the artifact, and never why a symbol failed to resolve.
+ *
+ * The legacy marker is admitted because it is a literal with no variable part; a `printJob` line is a
+ * grammar with user text in it. **If that distinction is ever weakened, the dump refusal has to be
+ * re-read rather than quietly extended.**
  *
  * **The module or classloader prefix is dropped** — `java.base/`, `java.base@21.0.1/`, `app//`,
  * `com.acme.billing/`, `billing-worker//`. A named project module is usually the organisation's
@@ -87,7 +126,9 @@ fun parseTrace(text: String): TraceReading {
             rest.startsWith(CAUSED_BY) -> header(CAUSED_BY)
             depth == 0 -> false
             rest.startsWith(SUPPRESSED) -> header(SUPPRESSED)
-            ELIDED.matches(rest) -> {
+
+            // Ahead of the frame row, and the order is the rule: a modern marker has a frame's shape.
+            ELIDED.matches(rest) || isCoroutineMarker(rest) -> {
                 out.append(rest)
                 true
             }
@@ -95,13 +136,26 @@ fun parseTrace(text: String): TraceReading {
             rest.startsWith(AT) -> readFrame(rest.substring(AT.length), out.append(AT), frames)
             else -> false
         }
-        if (!admitted) return TraceReading.NotATrace
+        if (!admitted) return refusalOf(text)
         out.append(ending)
     }
 
-    if (frames.isEmpty()) return TraceReading.NotATrace
+    if (frames.isEmpty()) return refusalOf(text)
     return TraceReading.Read(StackTrace(out.toString(), exceptions, frames, texts))
 }
+
+/**
+ * **Which refusal [text] gets, once it is refused** — named as a dump where it is one, and the generic
+ * verdict otherwise. See *A `DebugProbes` dump is refused* on [parseTrace].
+ */
+private fun refusalOf(text: String): TraceReading {
+    val lines = text.split('\n').map { it.removeSuffix("\r") }
+    val dump = lines.any { it.startsWith(COROUTINES_DUMP) || CONTINUATION.containsMatchIn(it) }
+    return if (dump) TraceReading.CoroutineDump else TraceReading.NotATrace
+}
+
+/** Whether [rest] — a line with its indentation taken off — is one of the six coroutine marker rows. */
+private fun isCoroutineMarker(rest: String): Boolean = rest in LEGACY_MARKERS || MODERN_MARKER.matches(rest)
 
 /**
  * **What [parseTrace] made of the paste** — a trace, or the verdict that it is not one.
@@ -116,6 +170,13 @@ sealed class TraceReading {
 
     /** A line outside the vocabulary, or no trace at all. The clipboard is not to be touched. */
     object NotATrace : TraceReading()
+
+    /**
+     * **A `DebugProbes` coroutine dump**, recognised by a fixed library literal and refused whole —
+     * a verdict about which artifact was handed over, never about why a symbol did not resolve. The
+     * clipboard is not to be touched.
+     */
+    object CoroutineDump : TraceReading()
 }
 
 /**
@@ -205,13 +266,41 @@ private val HEADER = Regex("""($QUALIFIED)(?:(: )(.*)|(:))?""")
 /** Lazy on the thread name, so a quote inside it or inside the message cannot move the header. */
 private val THREAD = Regex("""Exception in thread "(.*?)" ($QUALIFIED(?:: .*|:)?)""")
 
+/** What a frame prints between its parentheses: a file, with or without a line, or a fixed JVM token. */
+private const val LOCATION = """Native Method|Unknown Source|[^\s():/\\]+(?::\d+)?"""
+
 /**
  * `[<classloader>/][<module>[@<version>]/]<FQN>.<method>(<location>)`. The prefix is matched and not
  * captured: nothing reads it, and nothing of it reaches the output.
  */
 private val FRAME = Regex(
-    """(?:[^\s/()]+/(?:[^\s/()]*/)?)?($QUALIFIED)\.(<init>|<clinit>|$IDENTIFIER)\((Native Method|Unknown Source|[^\s():/\\]+(?::\d+)?)\)""",
+    """(?:[^\s/()]+/(?:[^\s/()]*/)?)?($QUALIFIED)\.(<init>|<clinit>|$IDENTIFIER)\(($LOCATION)\)""",
 )
+
+/**
+ * **The modern coroutine markers**, `kotlinx.coroutines` 1.7.0 onwards: anchored on the name, with the
+ * parentheses wildcarded over [LOCATION] — any location a frame could print there, and nothing a frame
+ * could not.
+ */
+private val MODERN_MARKER = Regex("""at _COROUTINE\._(?:BOUNDARY|CREATION)\._\((?:$LOCATION)\)""")
+
+/**
+ * **The legacy coroutine markers**, before 1.7.0, in both renderings: the backspace form a copy holds
+ * and the parenthesised form a terminal shows. Whole-line fixed tokens with zero variable parts, each
+ * U+0008 written as an escape.
+ */
+private val LEGACY_MARKERS = setOf(
+    "at \b\b\b(Coroutine boundary.\b(\b)",
+    "at \b\b\b(Coroutine creation stacktrace.\b(\b)",
+    "(Coroutine boundary)",
+    "(Coroutine creation stacktrace)",
+)
+
+/** The first line of `DebugProbes.dumpCoroutines` output, before its timestamp. */
+private const val COROUTINES_DUMP = "Coroutines dump "
+
+/** A `printJob` / `jobToString` line, by the library's fixed words around the continuation's state. */
+private val CONTINUATION = Regex("""continuation is .+ at line """)
 
 private val ELIDED = Regex("""\.\.\. \d+ more""")
 

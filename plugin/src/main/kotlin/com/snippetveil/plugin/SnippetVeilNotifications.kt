@@ -422,7 +422,8 @@ internal object SnippetVeilNotifications {
     }
 
     /**
-     * **The clipboard is not a stack trace** — the one refusal the trace action ships.
+     * **The clipboard is not a stack trace** — the trace action's generic refusal, and one of its two;
+     * the other is [traceIsCoroutineDump].
      *
      * **It quotes nothing**, for the reason [planUnreadable] quotes nothing: the verdict carries no
      * `String` — see `TraceReading` — and a line of the paste echoed into a balloon is the product
@@ -437,6 +438,26 @@ internal object SnippetVeilNotifications {
     fun traceUnreadable(project: Project?) {
         group().createNotification(
             "Clipboard is not a stack trace \u2014 select the trace only. $CLIPBOARD_UNCHANGED",
+            NotificationType.WARNING,
+        ).notify(project)
+    }
+
+    /**
+     * **The clipboard is a `DebugProbes` coroutine dump**, and it is named as one.
+     *
+     * [traceUnreadable] would be close to false here: someone who selected a dump selected it
+     * precisely, and *select the trace only* is advice they already followed. So this says which
+     * artifact arrived and what the product does read instead — the exception trace a coroutine
+     * produces. **The engine decides it is a dump**, by a fixed library literal, and this only says
+     * so; like its sibling it quotes nothing, because the verdict carries no `String`.
+     *
+     * **Warning, and no report link**, on the same footing as [traceUnreadable]: the product is
+     * working, and describing its input.
+     */
+    fun traceIsCoroutineDump(project: Project?) {
+        group().createNotification(
+            "That is a DebugProbes coroutine dump, not a stack trace. SnippetVeil can anonymize the " +
+                "exception trace a coroutine produces, but not a dump. $CLIPBOARD_UNCHANGED",
             NotificationType.WARNING,
         ).notify(project)
     }
