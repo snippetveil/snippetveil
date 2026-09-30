@@ -430,7 +430,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
                 <selection>int balance;
 
                 void settle(int balance) {
-                    // this.total = 1;
+                    // reconcile against the merchant ledger
                     this.balance = balance;
                 }</selection>
             }
@@ -441,7 +441,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
             assertEquals(
                 listOf(
                     "field1 and param3 were the same name",
-                    "1 comment stripped, 1 of them commented-out code",
+                    "1 comment stripped",
                 ),
                 noticesIn(dialog),
             )
@@ -472,7 +472,7 @@ class PreviewDialogTest : JavaSnippetTestCase() {
 
         withDialog(PreviewDialog.forCopy(project, analysis)) { dialog ->
             val panel = dialog.createCenterPanel()
-            assertEquals(listOf("1 comment stripped, 0 of them commented-out code"), noticesIn(dialog))
+            assertEquals(listOf("1 comment stripped"), noticesIn(dialog))
 
             checkBoxesIn(panel).single().doClick()
 
@@ -490,17 +490,14 @@ class PreviewDialogTest : JavaSnippetTestCase() {
         val analysis = analysisOf(
             """
             class Ledger {
-                <selection>// this.total = 1;
+                <selection>// reconcile against the merchant ledger
                 void settle() {}</selection>
             }
             """.trimIndent(),
         )
 
         withDialog(PreviewDialog.forReview(project, analysis)) { dialog ->
-            assertEquals(
-                listOf("1 comment stripped, 1 of them commented-out code"),
-                noticesIn(dialog),
-            )
+            assertEquals(listOf("1 comment stripped"), noticesIn(dialog))
         }
     }
 

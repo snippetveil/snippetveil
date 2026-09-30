@@ -163,7 +163,8 @@ reverses.
 **Anonymize with Preview…** is the only place you can anonymize *less*, and there are exactly two
 reductions:
 
-- **Keep comments and javadoc**, for this snippet only.
+- **Keep comments and javadoc**, for this snippet only. It keeps comment prose as written;
+  commented-out Java code is kept, with its names replaced, whether it is ticked or not.
 - **Preserve**, on an individual row.
 
 **By default the Preserve column only has checkboxes on `Unknown` rows.** That is the override for a

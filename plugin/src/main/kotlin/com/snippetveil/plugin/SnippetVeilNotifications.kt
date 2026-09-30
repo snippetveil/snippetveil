@@ -82,8 +82,7 @@ internal object SnippetVeilNotifications {
      * can be said.
      *
      * **The comment notice replaces the old strip clause rather than joining it.** *"2 comments
-     * stripped, 1 of them commented-out code"* already contains that number, and a balloon that said
-     * it twice would read as a bug.
+     * stripped"* already contains that number, and a balloon that said it twice would read as a bug.
      *
      * **The unknown count is here at information level, and the level is the decision.** Under
      * fail-closed an `Unknown` *was* anonymized — it is a quality risk, never a privacy one — so

@@ -6,8 +6,6 @@ import com.intellij.psi.PsiBreakStatement
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiContinueStatement
 import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiElementFactory
-import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiIdentifier
 import com.intellij.psi.PsiImportStaticReferenceElement
@@ -20,6 +18,7 @@ import com.intellij.psi.PsiNameIdentifierOwner
 import com.intellij.psi.PsiNameValuePair
 import com.intellij.psi.PsiPackage
 import com.intellij.psi.PsiParameter
+import com.intellij.psi.PsiRecursiveElementWalkingVisitor
 import com.intellij.psi.PsiReference
 import com.intellij.psi.PsiRecordComponent
 import com.intellij.psi.javadoc.PsiDocComment
@@ -27,7 +26,7 @@ import com.intellij.psi.javadoc.PsiDocTagValue
 import com.intellij.psi.util.JavaPsiRecordUtil
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
-import com.intellij.util.IncorrectOperationException
+import com.snippetveil.core.CodeContainer
 import com.snippetveil.core.CommentOccurrence
 import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.LiteralKind
@@ -60,24 +59,34 @@ internal object JavaPlanBuilder : PlanBuilder {
     override fun build(request: SnippetRequest): SnippetPlan = build(request, RegisteredContainers)
 
     /**
-     * The walk, with [container] reading whatever fragments are injected into the snippet's literals.
+     * The walk, with [container] reading whatever fragments are injected into the snippet's literals,
+     * and [commentParser] parsing each comment's body at its own position.
      *
      * [build] passes [RegisteredContainers]: the reader of queries written in the persistence query
      * languages, and the SQL reader where the database plugin is. `null` is the walk that never asks
      * the platform about injection at all, which is what every fragment that falls back produces:
      * exactly what the walk produced before there was a seam.
+     *
+     * [commentParser] is the platform's parser everywhere but in the test that makes it throw — which is
+     * how *a parse that throws fails the invocation closed* is shown rather than asserted.
      */
-    internal fun build(request: SnippetRequest, container: InjectedContainer?): SnippetPlan {
+    internal fun build(
+        request: SnippetRequest,
+        container: InjectedContainer?,
+        commentParser: CommentParser = JavaCommentParser,
+    ): SnippetPlan {
         val file = request.file
         val snapped = snappedRangesOf(file, request.selections, ::tokenOf)
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
+        val bodies = commentsIn(file, fragments).associateWith { parsedBodyOf(it, commentParser) }
+        val kept = bodies.filterValues { it != null }.keys.map { it.textRange }
         val injected = injectedOccurrencesIn(file, fragments, container)
         val occurrences = (
-            symbolsIn(request.project, file, fragments) +
+            symbolsIn(request.project, file, fragments, kept) +
                 injected.occurrences +
-                literalsAndCommentsIn(request.project, file, fragments, injected.hosts)
+                literalsAndCommentsIn(request.project, file, fragments, injected.hosts, bodies, commentParser)
             )
             .sortedBy { it.start }
 
@@ -115,24 +124,22 @@ internal object JavaPlanBuilder : PlanBuilder {
         PsiTreeUtil.getParentOfType(leaf, PsiDocComment::class.java, false) ?: leaf
 
     /**
-     * Every identifier inside the analysed ranges, with what is known about the symbol it names.
+     * Every identifier inside the analysed ranges, with what is known about the symbol it names —
+     * except inside a comment in [kept], whose names are read out of its parsed body instead.
      *
      * A leaf walk rather than a visitor, because the unit of interest is the token: the snapped
-     * ranges are token-aligned, so "inside the range" is a question with no partial answers.
+     * ranges are token-aligned, so "inside the range" is a question with no partial answers. The one
+     * comment with identifiers of its own in the file's tree is javadoc — the class half of a
+     * `{@link}` — and a javadoc block that parsed as code is decomposed from its body like any other,
+     * so reporting its identifiers here too would be two occurrences over one range.
      */
-    private fun symbolsIn(project: Project, file: PsiFile, fragments: List<Fragment>): List<Occurrence> {
+    private fun symbolsIn(project: Project, file: PsiFile, fragments: List<Fragment>, kept: List<TextRange>): List<Occurrence> {
         val occurrences = mutableListOf<Occurrence>()
         for (fragment in fragments) {
             var leaf: PsiElement? = file.findElementAt(fragment.range.startOffset)
             while (leaf != null && leaf.textRange.startOffset < fragment.range.endOffset) {
-                if (leaf is PsiIdentifier && fragment.range.contains(leaf.textRange)) {
-                    occurrences += SymbolOccurrence(
-                        start = fragment.translate(leaf.textRange.startOffset),
-                        end = fragment.translate(leaf.textRange.endOffset),
-                        text = leaf.text,
-                        symbol = evidenceFor(project, leaf),
-                        language = LANGUAGE,
-                    )
+                if (leaf is PsiIdentifier && fragment.range.contains(leaf.textRange) && kept.none { it.contains(leaf.textRange) }) {
+                    occurrences += symbolOccurrenceOf(project, leaf, fragment::translate, CodeContainer.LIVE_CODE)
                 }
                 leaf = PsiTreeUtil.nextLeaf(leaf)
             }
@@ -140,13 +147,31 @@ internal object JavaPlanBuilder : PlanBuilder {
         return occurrences
     }
 
+    /** One identifier as the plan reports it, at the plan offsets [at] maps its own offsets to. */
+    private fun symbolOccurrenceOf(project: Project, identifier: PsiIdentifier, at: (Int) -> Int, container: CodeContainer) =
+        SymbolOccurrence(
+            start = at(identifier.textRange.startOffset),
+            end = at(identifier.textRange.endOffset),
+            text = identifier.text,
+            symbol = evidenceFor(project, identifier),
+            language = LANGUAGE,
+            container = container,
+        )
+
+    /**
+     * The comments lying whole inside the analysed ranges — the ones the plan says anything about. A
+     * comment cut by the selection cannot be one of them: the snap widens a selection to whole tokens,
+     * and a comment is one.
+     */
+    private fun commentsIn(file: PsiFile, fragments: List<Fragment>): List<PsiComment> =
+        PsiTreeUtil.findChildrenOfType(file, PsiComment::class.java)
+            .filter { comment -> fragments.any { it.range.contains(comment.textRange) } }
+
     /**
      * Literals and comments, whole, wherever they fall inside the analysed ranges — and, for each,
      * the references it carries: a literal's own, and the javadoc tag targets a comment holds.
      *
-     * A comment is reported with the verdict a Java parser reached about its body, and with nothing
-     * else said about it: whether it is stripped is [com.snippetveil.core.anonymize]'s decision, and
-     * it is the same decision for a line comment and for javadoc.
+     * A comment is reported by what its body parsed as, in [bodies] — see [commentOccurrencesOf].
      *
      * **The delimiters are read here rather than in the engine**, which is what lets the engine
      * preserve a literal's syntactic form without knowing how any of them are spelled: it rewrites
@@ -159,6 +184,8 @@ internal object JavaPlanBuilder : PlanBuilder {
         file: PsiFile,
         fragments: List<Fragment>,
         decomposed: Set<PsiElement>,
+        bodies: Map<PsiComment, PsiFile?>,
+        commentParser: CommentParser,
     ): List<Occurrence> =
         // Typed at PsiElement explicitly: left to inference, Kotlin picks the nearest common
         // supertype of the two, which today is an `@Experimental` interface — and the Plugin
@@ -168,29 +195,107 @@ internal object JavaPlanBuilder : PlanBuilder {
             .flatMap { element ->
                 val fragment = fragments.firstOrNull { it.range.contains(element.textRange) }
                     ?: return@flatMap emptyList()
-                val start = fragment.translate(element.textRange.startOffset)
-                val end = fragment.translate(element.textRange.endOffset)
 
                 if (element is PsiComment) {
-                    listOf(CommentOccurrence(start, end, verdictOf(project, element), LANGUAGE)) +
-                        docReferencesIn(project, file, element, fragment)
+                    commentOccurrencesOf(project, element, bodies[element], fragment::translate, CodeContainer.LIVE_CODE, commentParser)
                 } else {
-                    val literal = element as PsiLiteralExpression
-                    val kind = kindOf(literal)
-                    val content = contentRangeOf(kind, literal.text)
-                    listOf(
-                        LiteralOccurrence(
-                            start = start,
-                            end = end,
-                            kind = kind,
-                            contentStart = start + content.startOffset,
-                            contentEnd = start + content.endOffset,
-                            references = referencesIn(project, literal, fragment),
-                            language = LANGUAGE,
-                        ),
-                    )
+                    listOf(literalOccurrenceOf(project, element as PsiLiteralExpression, fragment::translate, CodeContainer.LIVE_CODE))
                 }
             }
+
+    /** One literal as the plan reports it, at the plan offsets [at] maps its own offsets to. */
+    private fun literalOccurrenceOf(project: Project, literal: PsiLiteralExpression, at: (Int) -> Int, container: CodeContainer): Occurrence {
+        val start = at(literal.textRange.startOffset)
+        val kind = kindOf(literal)
+        val content = contentRangeOf(kind, literal.text)
+        return LiteralOccurrence(
+            start = start,
+            end = at(literal.textRange.endOffset),
+            kind = kind,
+            contentStart = start + content.startOffset,
+            contentEnd = start + content.endOffset,
+            references = referencesIn(project, literal, at),
+            language = LANGUAGE,
+            container = container,
+        )
+    }
+
+    /**
+     * **What one comment puts in the plan: its parts when its body parsed as code, itself when it did
+     * not.**
+     *
+     * A body that did not parse is reported whole, as prose, with the javadoc tag targets it carries;
+     * whether it is stripped is [com.snippetveil.core.anonymize]'s decision, and it is the same
+     * decision for a line comment and for javadoc.
+     *
+     * **A body that parsed is never reported whole.** It is decomposed structurally — each name, each
+     * literal and each nested comment an occurrence of its own, at the offsets they have in the
+     * comment — so that it meets every rule on the terms live code does, and there is no occurrence
+     * spanning the comment for a strip to remove. It is never rewritten as one span of text.
+     *
+     * @param parsed the body parsed at the comment's position, or `null` — see [parsedBodyOf]
+     * @param at maps an offset in the comment's own tree to the plan
+     */
+    private fun commentOccurrencesOf(
+        project: Project,
+        comment: PsiComment,
+        parsed: PsiFile?,
+        at: (Int) -> Int,
+        container: CodeContainer,
+        commentParser: CommentParser,
+    ): List<Occurrence> {
+        if (parsed == null) {
+            val range = comment.textRange
+            return listOf(CommentOccurrence(at(range.startOffset), at(range.endOffset), CommentVerdict.PROSE, LANGUAGE, container)) +
+                docReferencesIn(project, comment, at, container)
+        }
+
+        // The body is the comment's own text with its delimiters blanked, so an offset in the parsed
+        // fragment is an offset into the comment.
+        val base = comment.textRange.startOffset
+        return partsOf(project, parsed, { at(base + it) }, commentParser)
+    }
+
+    /**
+     * **Every part of a parsed comment body the plan says anything about**: its names, its literals,
+     * and the comments nested inside it — **each nested comment meeting the verdict on its own
+     * terms**, recursively. `// customer.charge(); // premium tier only` keeps the call and strips
+     * the prose after it; `// customer.charge(); // order.ship();` keeps both.
+     *
+     * Everything here is tagged [CodeContainer.PARSED_COMMENT], nested comments included: the tag
+     * says where a token was read from, and all of these were read from inside a comment.
+     *
+     * A walk over the whole fragment rather than a leaf walk, because nothing here is cut by a
+     * selection — the comment is whole, so every part of it is.
+     */
+    private fun partsOf(project: Project, parsed: PsiFile, at: (Int) -> Int, commentParser: CommentParser): List<Occurrence> {
+        val parts = mutableListOf<Occurrence>()
+        parsed.accept(
+            object : PsiRecursiveElementWalkingVisitor() {
+                override fun visitElement(element: PsiElement) {
+                    when (element) {
+                        is PsiIdentifier -> parts += symbolOccurrenceOf(project, element, at, CodeContainer.PARSED_COMMENT)
+
+                        // A literal is one token to the plan, and nothing inside it is a name.
+                        is PsiLiteralExpression -> {
+                            parts += literalOccurrenceOf(project, element, at, CodeContainer.PARSED_COMMENT)
+                            return
+                        }
+
+                        is PsiComment -> {
+                            val nested = parsedBodyOf(element, commentParser)
+                            parts += commentOccurrencesOf(project, element, nested, at, CodeContainer.PARSED_COMMENT, commentParser)
+                            // A nested body that parsed was read from its own fragment, so nothing
+                            // under it is read a second time here.
+                            if (nested != null) return
+                        }
+                    }
+                    super.visitElement(element)
+                }
+            },
+        )
+        return parts
+    }
 
     /**
      * **What was read inside fragments injected into the snippet's literals** — names, strings and
@@ -271,47 +376,6 @@ internal object JavaPlanBuilder : PlanBuilder {
     private class Decomposition(val occurrences: List<Occurrence>, val hosts: Set<PsiElement>)
 
     /**
-     * **What a Java parser makes of one comment's body: a code block, or not.**
-     *
-     * Commented-out code is not prose and it separates exactly — `// this.customer.setOrder(order);`
-     * parses, `// TODO: fix this` does not — and the parser is what says so. This is evidence in the
-     * same sense a literal's type is: a fact obtained from the platform, reported without a judgment
-     * attached, and read by a rule that lives on the other side of the seam.
-     *
-     * **A code block and nothing wider**, and that is a stated limit rather than an oversight.
-     * `// private String merchantRef;` parses, because inside a block it reads as a local
-     * declaration; `// void pay() {}` does not, because a method declaration is not a statement — so
-     * a commented-out *method* is counted as prose. Widening the rule means trying the body against
-     * every context Java has, and each context added is another way for a line of prose to parse by
-     * accident. A verdict that is exact about a narrow question beats one that guesses at a broad
-     * one, and the count it feeds is a disclosure rather than a gate.
-     *
-     * An empty body is prose. `{}` parses, and calling an empty comment *commented-out code* would be
-     * the one verdict here that is plainly false.
-     *
-     * A parse that the platform refuses outright is prose for the same reason a failed parse is: the
-     * question was *does this parse*, and the answer was no. It is not an anonymization failure, so
-     * it does not fail the invocation closed.
-     */
-    private fun verdictOf(project: Project, comment: PsiComment): CommentVerdict {
-        val body = commentBodyOf(comment)
-        if (body.isBlank()) return CommentVerdict.PROSE
-
-        return try {
-            // The closing brace goes on a line of its own, because a body ending in a line comment
-            // would otherwise swallow it.
-            val block = PsiElementFactory.getInstance(project).createCodeBlockFromText("{" + body + "\n}", null)
-            if (PsiTreeUtil.findChildOfType(block, PsiErrorElement::class.java) == null) {
-                CommentVerdict.CODE
-            } else {
-                CommentVerdict.PROSE
-            }
-        } catch (refused: IncorrectOperationException) {
-            CommentVerdict.PROSE
-        }
-    }
-
-    /**
      * The symbols a javadoc block names through **resolvable references**: the `#member` half of
      * `{@link …}` and `@see`, and an `@param` target.
      *
@@ -332,11 +396,12 @@ internal object JavaPlanBuilder : PlanBuilder {
      */
     private fun docReferencesIn(
         project: Project,
-        file: PsiFile,
         comment: PsiComment,
-        fragment: Fragment,
+        at: (Int) -> Int,
+        container: CodeContainer,
     ): List<Occurrence> {
         if (comment !is PsiDocComment) return emptyList()
+        val file = comment.containingFile
 
         return PsiTreeUtil.findChildrenOfType(comment, PsiDocTagValue::class.java)
             .flatMap { value -> value.references.asIterable() }
@@ -346,11 +411,12 @@ internal object JavaPlanBuilder : PlanBuilder {
 
                 val written = range.substring(file.text)
                 SymbolOccurrence(
-                    start = fragment.translate(range.startOffset),
-                    end = fragment.translate(range.endOffset),
+                    start = at(range.startOffset),
+                    end = at(range.endOffset),
                     text = written,
                     symbol = evidenceOf(project, reference.resolve(), written),
                     language = LANGUAGE,
+                    container = container,
                 )
             }
             .sortedBy { it.start }
@@ -446,13 +512,13 @@ internal object JavaPlanBuilder : PlanBuilder {
      * against a plan literal. There is usually one: the reflection contributor puts a reference over
      * the whole of `"com.acme.billing.Payment"` alongside the four that resolve.
      */
-    private fun referencesIn(project: Project, literal: PsiLiteralExpression, fragment: Fragment): List<LiteralReference> =
+    private fun referencesIn(project: Project, literal: PsiLiteralExpression, at: (Int) -> Int): List<LiteralReference> =
         literal.references
             .mapNotNull { reference ->
                 val range = rangeOf(reference) ?: return@mapNotNull null
                 LiteralReference(
-                    start = fragment.translate(range.startOffset),
-                    end = fragment.translate(range.endOffset),
+                    start = at(range.startOffset),
+                    end = at(range.endOffset),
                     symbol = evidenceOf(project, reference.resolve(), range.substring(literal.containingFile.text)),
                 )
             }
@@ -515,6 +581,10 @@ internal object JavaPlanBuilder : PlanBuilder {
         // A name that resolved to nothing is reported as unresolved rather than dropped, and the
         // engine fails it closed. Why, and what it is keyed on, is [SymbolFacts.unresolvedEvidence].
         val symbol = declaration?.let(::declaredSymbolOf) ?: return SymbolFacts.unresolvedEvidence(writtenName)
+
+        // Declared inside commented-out code rather than anywhere the project can place it. See
+        // [commentDeclarationEvidence].
+        commentDeclarationEvidence(symbol, declaredName)?.let { return it }
 
         return SymbolFacts.evidenceOf(project, symbol, declaredName)
     }

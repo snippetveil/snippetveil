@@ -165,9 +165,11 @@ release note because a trust document that lists only its strengths is not a tru
   domain, and destroying them makes snippets unanswerable for no gain. The cost is that **a secret
   encoded as numbers survives** — an account number, a key material array, an identifier that
   happens to be an integer.
-- **Comments leak wholesale when you keep them.** They are stripped by default because prose is
-  where a snippet's domain vocabulary actually lives. Keeping them for one snippet, from the
-  preview, hands over their text unmodified — renaming symbols does nothing to a sentence.
+- **Comment prose leaks wholesale when you keep it.** It is stripped by default because prose is
+  where a snippet's domain vocabulary actually lives. Keeping it for one snippet, from the
+  preview, hands over its text unmodified — renaming symbols does nothing to a sentence. A Java
+  comment whose text parses as code is not prose: it is kept by default, and every name and
+  string in it is replaced on the same terms as the code around it.
 - **The per-item preserve override can hand a secret back.** The preview lets you release a name and
   send it exactly as written. Unresolved names can be released directly; every other name in the
   table becomes releasable once you unlock the column, which asks you to confirm first and says what

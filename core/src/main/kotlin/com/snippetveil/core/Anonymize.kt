@@ -16,7 +16,9 @@ fun anonymize(
 
     // **Comments and javadoc go, unless this invocation says otherwise.** The strip is the default
     // and the reduction is per-invocation, because prose is the largest single domain leak there is
-    // and a reduction that can be set once and forgotten leaks on every paste after it.
+    // and a reduction that can be set once and forgotten leaks on every paste after it. A Java
+    // comment whose body parsed as code is not among these: it arrived as its parts, and every rule
+    // below treats them as it treats live code.
     val stripped = if (settings.keepComments) emptyList() else occurrences.filterIsInstance<CommentOccurrence>()
 
     // Everything a stripped comment takes with it leaves every rule below, because none of them is

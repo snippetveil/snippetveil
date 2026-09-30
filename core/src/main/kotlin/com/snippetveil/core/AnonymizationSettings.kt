@@ -38,9 +38,14 @@ package com.snippetveil.core
  *   package rules, so `com.acme.billing.PaymentFilter` in a renamed package renders
  *   `pkg1.PaymentFilter`. Preservation reaches the symbol's own name, and the package-renaming
  *   spine rule is not a thing it touches.
- * @param keepComments whether comments and javadoc survive into the output. **Off by default, and
- *   per-invocation only** — a later ticket puts it in the preview as a tick that resets to *strip*
- *   on every invocation, and it is **never persisted**, by the rule above.
+ * @param keepComments whether comment **prose** survives into the output, verbatim. **Off by
+ *   default, and per-invocation only** — the preview's tick, which resets to *strip* on every
+ *   invocation, and it is **never persisted**, by the rule above.
+ *
+ *   **It keeps prose and never un-renames.** A Java comment whose body parses as code never reaches
+ *   the engine as a comment at all — it arrives as the names, literals and nested comments inside it,
+ *   and is anonymized and kept whether this is on or off. What this decides is only the fate of a
+ *   [CommentOccurrence]: a comment whose body did not parse.
  *
  *   Comments are the largest single domain leak in the product. Renaming symbols does essentially
  *   nothing to prose: an experiment measured **28/29/29 distinct domain words surviving** across
@@ -572,16 +577,19 @@ enum class MappedKind(val label: String) {
  * quietest failure the design has. The answer is disclosure at the point of use — the tool says what
  * it removed, and the human, who can still see the original, judges whether it mattered.
  *
- * Split rather than totalled, because the split is the part a user can act on: *`2 comments
- * stripped`* is a number, *`2 comments stripped, 1 of them commented-out code`* is a reason to open
- * the preview and tick the box.
+ * **What is said is the total**, *`2 comments stripped`* — see [fidelityNotices]. The split is kept
+ * because it is evidence the walks still report, and a count that threw half of it away would be one
+ * the next reader has to reconstruct.
  *
  * Both are zero when this invocation kept its comments. This counts what was **removed**, not what
  * was there — a count of comments in the snippet would be a fact about the input, and the thing a
- * user needs to know is what is missing from the output.
+ * user needs to know is what is missing from the output. **A Java comment whose body parsed is never
+ * in it**, because it was kept; a comment nested inside one and stripped is, although the user never
+ * saw it as a comment of its own, because what the count reports is what was stripped.
  *
  * @param prose comments whose body does not parse as code
- * @param code comments whose body does
+ * @param code comments whose body does — stripped anyway, which is only ever a Kotlin or a query
+ *   comment; see [CommentVerdict]
  */
 class CommentCounts(val prose: Int, val code: Int) {
 

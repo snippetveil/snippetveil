@@ -79,7 +79,7 @@ scanned in every release build, and public from the first commit.
 ### What it does not preserve
 
 - **The text inside your strings** — a string literal in your own code becomes `"str1"`.
-- **Your comments**, by default.
+- **Your comment prose**, by default.
 
 <!-- canonical end -->
 

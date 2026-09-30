@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+- **Commented-out Java code is kept, with its names replaced.** `Copy Anonymized` used to strip
+  every comment, so a line such as `// this.customer.setOrder(order);` was lost on every paste. In a
+  `.java` file a comment whose text parses as Java where it is written is now kept, and every name
+  in it is replaced with the placeholder that name gets in the code around it:
+  `// this.field2.method3(param4);`. A string in it becomes `"str1"`, as it does anywhere else. A
+  commented-out field, method, import or top-level class counts, not only a statement. A comment
+  that does not parse — a TODO, an explanation, a javadoc block with `@param` in it — is still
+  stripped, and so is prose written after the code on a kept line. A name in the kept line that no
+  longer resolves becomes an `Unknown`, and the line is kept. Kotlin files are unchanged.
+- **Keep comments and javadoc now keeps prose only.** Commented-out Java code is kept and anonymized
+  whether the preview's tick is on or off; the tick keeps the comments that are not code, exactly as
+  written, for that snippet.
+- **The comment count reads `2 comments stripped`**, in the preview and in the notification. It used
+  to add `, 1 of them commented-out code`, to point at the tick as the way to keep that code; in a
+  `.java` file the code is kept without it now. In a `.kt` file commented-out code is still
+  stripped, counted in the same sentence, and kept by the tick. The count includes only the
+  comments that were removed.
+
 ## [1.5.0] - 2026-09-29
 
 - **An execution plan can be anonymized from the clipboard.** `Anonymize Execution Plan…`, the

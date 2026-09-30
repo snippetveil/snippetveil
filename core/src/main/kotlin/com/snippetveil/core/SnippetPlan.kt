@@ -58,6 +58,38 @@ sealed class Occurrence {
      * anything about that list changing shape. See [SourceLanguage].
      */
     abstract val language: SourceLanguage
+
+    /**
+     * **Where this occurrence was read from**: live code, or a comment whose body parsed as code.
+     *
+     * A tag rather than a nesting, for the reason [language] is one: the plan stays a flat list of
+     * non-overlapping ranges. A comment whose body parsed never appears as one occurrence spanning
+     * its range — its names, literals and nested comments are occurrences of their own, each inside
+     * it and tagged [CodeContainer.PARSED_COMMENT], and every rule treats them as it treats the same
+     * token in live code. See [CodeContainer].
+     */
+    abstract val container: CodeContainer
+}
+
+/**
+ * **What an occurrence was read from** — a fact about where the token sat, reported like every other.
+ *
+ * **No rule reads it.** A name in a commented-out line takes the placeholder it takes in live code,
+ * a literal there is a literal, and a nested comment meets the same verdict as any other comment —
+ * which is the whole of *anonymized on the same terms as live code*. It is carried so that what came
+ * out of a comment can be said apart from what came out of live code, without any rule having to
+ * change for it to be said.
+ */
+enum class CodeContainer {
+
+    /** Code that is not inside a comment — which is nearly everything, and the default. */
+    LIVE_CODE,
+
+    /**
+     * **Inside a comment whose body parsed as code**, at the comment's own position: somebody's
+     * commented-out statement, member or import, kept and anonymized rather than stripped.
+     */
+    PARSED_COMMENT,
 }
 
 /**
@@ -120,6 +152,7 @@ enum class SourceLanguage {
  *   silently rewrite what the query means. The token as a whole is still [start]–[end], so ranges
  *   still never split a token and a word inside the delimiters is still the token's own.
  * @param nameEnd where the name ends — before the closing delimiter. See [nameStart].
+ * @param container where this identifier sat; see [Occurrence.container]
  */
 class SymbolOccurrence(
     override val start: Int,
@@ -129,6 +162,7 @@ class SymbolOccurrence(
     override val language: SourceLanguage,
     val nameStart: Int = start,
     val nameEnd: Int = end,
+    override val container: CodeContainer = CodeContainer.LIVE_CODE,
 ) : Occurrence() {
 
     init {
@@ -166,6 +200,7 @@ class SymbolOccurrence(
  *   therefore always replaced whole — the names a template carries are its interpolations, and each
  *   of those is ordinary code outside every chunk.
  * @param language the language this literal is written in; see [Occurrence.language]
+ * @param container where this literal sat; see [Occurrence.container]
  */
 class LiteralOccurrence(
     override val start: Int,
@@ -175,6 +210,7 @@ class LiteralOccurrence(
     val contentEnd: Int,
     val references: List<LiteralReference> = emptyList(),
     override val language: SourceLanguage,
+    override val container: CodeContainer = CodeContainer.LIVE_CODE,
 ) : Occurrence()
 
 /**
@@ -228,45 +264,51 @@ enum class LiteralKind {
 class LiteralReference(val start: Int, val end: Int, val symbol: SymbolEvidence)
 
 /**
- * A comment or javadoc block, whole — together with what a Java parser made of the text inside it.
+ * A comment or javadoc block, whole — **one whose body did not parse as code** where the walk reads
+ * its language, together with what the parser made of it.
  *
  * The whole block, delimiters included, because a comment is stripped by removing it: half a comment
  * left behind is not a comment removed, it is a file that no longer parses.
  *
+ * **A Java comment whose body parses never arrives as one of these.** It is decomposed instead — its
+ * names, its literals and the comments nested in it each reported as occurrences of their own,
+ * tagged [CodeContainer.PARSED_COMMENT] — so that it is anonymized and kept on exactly the terms
+ * live code is, and there is nothing whole left for a strip to remove. A nested comment is one of
+ * these again whenever its own body does not parse, which is how the prose inside a kept line still
+ * goes.
+ *
  * @param verdict what the body parses as. **A parse verdict, not a guess** — see [CommentVerdict].
  * @param language the language this comment is written in; see [Occurrence.language]
+ * @param container where this comment sat; see [Occurrence.container]
  */
 class CommentOccurrence(
     override val start: Int,
     override val end: Int,
     val verdict: CommentVerdict,
     override val language: SourceLanguage,
+    override val container: CodeContainer = CodeContainer.LIVE_CODE,
 ) : Occurrence()
 
 /**
- * **What one comment's body is, as Java's own parser reads it.**
+ * **What one comment's body is, as its language's own parser reads it.**
  *
- * Commented-out code is not prose, and it separates exactly: try to parse the body as a Java code
- * block. `// this.customer.setOrder(order);` parses; `// TODO: fix this` does not. That is a fact
- * about the text produced by the parser, in the same way [LiteralKind] is a fact about a literal's
- * type — so it crosses this seam like any other evidence, and what becomes of a comment is decided
- * in [anonymize] and nowhere near the builder.
+ * Commented-out code is not prose, and it separates exactly: `// this.customer.setOrder(order);`
+ * parses, `// TODO: fix this` does not. That is a fact about the text produced by the parser, in
+ * the same way [LiteralKind] is a fact about a literal's type — so it crosses this seam like any
+ * other evidence.
  *
- * It is here because the split is what makes the strip count actionable. *`2 comments stripped`* is
- * not something a user can act on; *`2 comments stripped, 1 of them commented-out code`* is, and the
- * keep-comments tick is the thing they act with.
- *
- * That distinction matters more than it looks. The one question every variant of the naming
- * experiment answered at a full 9/9 was *"find the commented-out assignment"* — the ground-truth bug
- * **was** a comment, and a reviewer called that line *"the single most useful surviving clue."* The
- * default deletes it on every paste. The default does not flip; the loss is disclosed instead.
+ * **In Java the verdict decides what the plan holds rather than riding on a comment.** A body that
+ * parses is decomposed into occurrences of its own and kept, so every Java [CommentOccurrence] is
+ * [PROSE]. [CODE] is still reported by the walks whose verdict has not moved to that rule — Kotlin's,
+ * and the query languages' — and there it is evidence only: those comments are stripped whatever it
+ * says, and the strip counts them with the rest.
  */
 enum class CommentVerdict {
 
-    /** The body does not parse as a code block: it is prose, which is where the domain leak is. */
+    /** The body does not parse as code: it is prose, which is where the domain leak is. */
     PROSE,
 
-    /** The body parses as a code block: it is code somebody commented out. */
+    /** The body parses as code: it is code somebody commented out. */
     CODE,
 }
 
@@ -616,6 +658,9 @@ class PlanOccurrence(
 
     /** Always [SourceLanguage.PLAN], and not a parameter: a plan token is written in one language. */
     override val language: SourceLanguage = SourceLanguage.PLAN
+
+    /** Always [CodeContainer.LIVE_CODE]: a plan is printed text with no comments in it to parse. */
+    override val container: CodeContainer = CodeContainer.LIVE_CODE
 
     init {
         require(start <= nameStart && nameStart <= nameEnd && nameEnd <= end) {

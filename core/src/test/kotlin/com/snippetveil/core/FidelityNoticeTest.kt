@@ -315,26 +315,21 @@ class FidelityNoticeTest {
     }
 
     /**
-     * The strip count already exists, split by parse verdict. This is the sentence that surfaces it:
-     * *`2 comments stripped`* is not actionable, and the split is — the keep-comments tick is
-     * already sitting in the preview, so disclosure plus that tick closes the loop with no new leak
-     * surface and no reopened decision.
+     * **The notice is the strip count and nothing else.** It used to add *`1 of them commented-out
+     * code`*, to point at the keep-comments tick as the way to get that code back. That recourse is
+     * automatic in Java now — commented-out Java code that parses is anonymized and kept on the fast path —
+     * so the clause has nothing left to point at, and it is gone.
      */
     @Test
-    fun `the comment notice splits the strip count by parse verdict`() {
+    fun `the comment notice is the strip count with no clause`() {
         val result = anonymize(twoComments(), AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals(listOf("2 comments stripped, 1 of them commented-out code"), result.fidelityNotices())
+        assertEquals(listOf("2 comments stripped"), result.fidelityNotices())
     }
 
-    /**
-     * **Prose alone is the commonest strip there is, and it still states the split.** A zero there
-     * is the case where the user does *not* need to open the preview, and a clause that vanished on
-     * zero would leave them to work that out from its absence — and would land the commonest strip
-     * of all back on the bare `2 comments stripped` the split exists to replace.
-     */
+    /** One comment is one comment, and the sentence says so. */
     @Test
-    fun `a strip of prose alone still states the split`() {
+    fun `a single stripped comment is counted in the singular`() {
         val plan = planOf(
             """
             void settle() {
@@ -348,54 +343,7 @@ class FidelityNoticeTest {
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
-        assertEquals(listOf("1 comment stripped, 0 of them commented-out code"), result.fidelityNotices())
-    }
-
-    /**
-     * The case the ticket is written for: a single stripped comment that *was* the commented-out
-     * assignment. The one question every variant of the naming experiment answered at a full 9/9 was
-     * *"find the commented-out assignment"*, and a reviewer called that line the most useful
-     * surviving clue. The default deletes it on every paste; the default does not flip, and the loss
-     * is disclosed instead.
-     */
-    @Test
-    fun `a single stripped comment that was code says so`() {
-        val plan = planOf(
-            """
-            void settle() {
-                // this.customer.setOrder(order);
-                audit();
-            }
-            """.trimIndent(),
-            symbol("settle", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT),
-            symbol("audit", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT),
-        ).withComment("// this.customer.setOrder(order);", CommentVerdict.CODE)
-
-        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
-
-        assertEquals(listOf("1 comment stripped, 1 of them commented-out code"), result.fidelityNotices())
-    }
-
-    /** The other end of the same number: a strip that is entirely commented-out code. */
-    @Test
-    fun `a strip that is all code counts every one of them`() {
-        val plan = planOf(
-            """
-            void settle() {
-                // this.customer.setOrder(order);
-                // total = 1;
-                audit();
-            }
-            """.trimIndent(),
-            symbol("settle", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT),
-            symbol("audit", SymbolRole.METHOD, SymbolOrigin.IN_CONTENT),
-        )
-            .withComment("// this.customer.setOrder(order);", CommentVerdict.CODE)
-            .withComment("// total = 1;", CommentVerdict.CODE)
-
-        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
-
-        assertEquals(listOf("2 comments stripped, 2 of them commented-out code"), result.fidelityNotices())
+        assertEquals(listOf("1 comment stripped"), result.fidelityNotices())
     }
 
     /**
@@ -455,7 +403,7 @@ class FidelityNoticeTest {
         assertEquals(
             listOf(
                 "field2 and method3 were the same name",
-                "1 comment stripped, 1 of them commented-out code",
+                "1 comment stripped",
             ),
             result.fidelityNotices(),
         )

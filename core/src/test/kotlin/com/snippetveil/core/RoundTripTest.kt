@@ -24,10 +24,12 @@ import java.time.Instant
  *
  * ## The identity has to be stated precisely, because it does not hold in the default configuration
  *
- * Comments are stripped by default. Information is **destroyed**, and no reversal restores destroyed
- * information — so the identity holds **with comment retention on, within one invocation**, and the
- * default path is lossy. That the default is deliberately lossy is asserted here too, so that nobody
- * later "fixes" the round-trip test by making comment-stripping reversible.
+ * Comment prose is stripped by default. Information is **destroyed**, and no reversal restores
+ * destroyed information — so the identity holds **with comment retention on, within one invocation**,
+ * and the default path is lossy. (Commented-out Java code that parses is kept and renamed like live
+ * code, so it round-trips on either path; the loss is the prose.) That the default is deliberately
+ * lossy is asserted here too, so that nobody later "fixes" the round-trip test by making
+ * comment-stripping reversible.
  */
 class RoundTripTest {
 
