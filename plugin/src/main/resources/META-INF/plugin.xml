@@ -193,6 +193,21 @@
                 text="Anonymize Execution Plan&#8230;"
                 description="Replace the names in an execution plan on the clipboard, keeping its costs and timings"/>
 
+        <!-- **The fourth input: a Java exception trace off the clipboard**, with every name the project
+             owns replaced by the placeholder the user's snippets already carry. Ungated and read on
+             invoke, for the plan action's reasons: enablement is a question about the context, never
+             about the content.
+
+             **Unlike the plan action it is not `DumbAware`**: it resolves every class name through
+             the index, so while indexing runs the platform greys it out with its own tooltip rather
+             than letting it answer quietly wrong.
+
+             The ellipsis is load-bearing here too: it is preview-first with no fast path. -->
+        <action id="SnippetVeil.AnonymizeStackTrace"
+                class="com.snippetveil.plugin.AnonymizeStackTraceAction"
+                text="Anonymize Stack Trace&#8230;"
+                description="Replace the project's names in a stack trace on the clipboard, keeping its shape and line numbers"/>
+
         <!-- **One group, two homes.** The same submenu is added to the Tools menu and to the editor
              popup, so the two placements cannot drift into two different menus: an action added
              here appears in both, in the same order, with the same gating, because it is the same
@@ -232,6 +247,10 @@
                  that reading for an input most users never paste. It is its own entry point over its
                  own kind of text, so it sits after the workflow rather than inside it. -->
             <reference ref="SnippetVeil.AnonymizeExecutionPlan"/>
+
+            <!-- **Sixth, appended after the plan and never interleaved**: users have already learned
+                 the first five positions. -->
+            <reference ref="SnippetVeil.AnonymizeStackTrace"/>
         </group>
     </actions>
 </idea-plugin>

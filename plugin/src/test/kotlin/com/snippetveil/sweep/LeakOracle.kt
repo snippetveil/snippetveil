@@ -45,7 +45,10 @@ import com.snippetveil.sweep.Declaration.Written
  * @param universe every spelling the oracle tests against, each mapped to what the closure derived it
  *   from — or to `null` where the source writes it
  */
-internal class LeakOracle private constructor(private val universe: Map<String, String?>) {
+internal class LeakOracle private constructor(
+    private val universe: Map<String, String?>,
+    private val readsBinaryNames: Boolean,
+) {
 
     /**
      * How many spellings the oracle actually tests against — reported rather than recomputed by the
@@ -84,7 +87,16 @@ internal class LeakOracle private constructor(private val universe: Map<String, 
      * `INSTANCE` is a word the language fixes, and `Type1.INSTANCE` names nothing the project owns.
      */
     private fun spellingsIn(line: String): Sequence<String> {
-        val identifiers = IDENTIFIER.findAll(line).map { it.range.first to it.value }
+        val identifiers = IDENTIFIER.findAll(line).flatMap { match ->
+            val whole = sequenceOf(match.range.first to match.value)
+            // A binary name writes an inner class after a `$`, so `Ledger$Batch` is two spellings
+            // as well as one — read that way only where the input is one that prints binary names.
+            if (!readsBinaryNames || '$' !in match.value) {
+                whole
+            } else {
+                whole + match.value.split('$').filter { it.isNotEmpty() }.map { match.range.first to it }
+            }
+        }
         if (!anyQualified) return identifiers.map { it.second }
 
         val qualified = QUALIFIED.findAll(line).flatMap { chain ->
@@ -153,8 +165,38 @@ internal class LeakOracle private constructor(private val universe: Map<String, 
                     "${spellings.names.size} spelling(s) were read or derived, and " +
                     "${declaredByLibraries.size} are also declared by the JDK or a library."
             }
-            return LeakOracle(universe)
+            return LeakOracle(universe, readsBinaryNames = false)
         }
+
+        /**
+         * **The construction for a stack trace**, which has no source under analysis to declare
+         * anything: the universe is **the trace's own sub-tokens**, split on `.`, `$` and `/` — and
+         * on everything else that is not part of a name — minus the spellings the JDK and the
+         * libraries declare. **Never the fixture project's declarations**: a universe built from
+         * what the project declares would ask only about names the resolver could have found, and
+         * the frame that did not resolve is exactly the one worth asking about.
+         *
+         * A factory of its own over an input of its own, as this class's header requires, rather
+         * than a widening of [over]. It reads the output's binary names apart as well — `Type1$Batch`
+         * is a survivor — because a trace prints them and source does not.
+         *
+         * @param declaredByLibraries the sub-tokens the JDK or a library declares, the trace
+         *   printer's own words among them: `at`, `Caused by`, `more`. The same single subtraction
+         *   [over] makes, with the same blind spot stated rather than hidden.
+         */
+        fun overTrace(trace: String, declaredByLibraries: Set<String>): LeakOracle {
+            val universe = trace.split(NOT_A_NAME)
+                .filter { it.isNotEmpty() && (it[0].isLetter() || it[0] == '_') && it !in declaredByLibraries }
+                .associateWithTo(LinkedHashMap()) { null as String? }
+
+            check(universe.isNotEmpty()) {
+                "The trace's name universe came out empty, so every output would report clean."
+            }
+            return LeakOracle(universe, readsBinaryNames = true)
+        }
+
+        /** Everything that separates one sub-token of a trace from the next: `.`, `$`, `/` and the rest. */
+        private val NOT_A_NAME = Regex("""[^\p{L}\p{N}_]+""")
 
         /**
          * **The rules prove they can fail before they report that nothing failed.**

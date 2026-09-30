@@ -53,9 +53,9 @@ class ActionRegistrationTest : BasePlatformTestCase() {
     }
 
     /**
-     * **All five items, in the order the workflow runs in**: anonymize, anonymize with a look first,
-     * and the two ways back — the reversal, then the reversal that also lands it — and then the one
-     * input that never came out of an editor.
+     * **All six items, in the order the workflow runs in**: anonymize, anonymize with a look first,
+     * and the two ways back — the reversal, then the reversal that also lands it — and then the two
+     * inputs that never came out of an editor.
      *
      * The pasting variant sits directly after the reversal rather than at the end for a reason the
      * order carries on its own: they are one operation with two destinations, and a row between them
@@ -65,10 +65,13 @@ class ActionRegistrationTest : BasePlatformTestCase() {
      * reasoning read the other way: the four above are one workflow over source that a user reads top
      * to bottom, and a third anonymizing item wedged into the top half would break that reading for
      * an input most users never paste.
+     *
+     * **The trace is appended sixth, after the plan, and never interleaved**: users have already
+     * learned the first five positions.
      */
-    fun `test the submenu holds the five actions in workflow order`() {
+    fun `test the submenu holds the six actions in workflow order`() {
         assertEquals(
-            listOf(COPY_ANONYMIZED, ANONYMIZE_WITH_PREVIEW, DEANONYMIZE, DEANONYMIZE_AND_PASTE, ANONYMIZE_PLAN),
+            listOf(COPY_ANONYMIZED, ANONYMIZE_WITH_PREVIEW, DEANONYMIZE, DEANONYMIZE_AND_PASTE, ANONYMIZE_PLAN, ANONYMIZE_TRACE),
             childIdsOf(MENU),
         )
 
@@ -78,6 +81,14 @@ class ActionRegistrationTest : BasePlatformTestCase() {
         assertEquals("De-anonymize Clipboard", manager.getAction(DEANONYMIZE).templatePresentation.text)
         assertEquals("De-anonymize Clipboard and Paste", manager.getAction(DEANONYMIZE_AND_PASTE).templatePresentation.text)
         assertEquals("Anonymize Execution Plan\u2026", manager.getAction(ANONYMIZE_PLAN).templatePresentation.text)
+        assertEquals("Anonymize Stack Trace\u2026", manager.getAction(ANONYMIZE_TRACE).templatePresentation.text)
+    }
+
+    fun `test the stack trace item is reachable under the SnippetVeil submenu`() {
+        assertEquals(
+            listOf("SnippetVeil", "Anonymize Stack Trace\u2026"),
+            menuAncestryOf(ANONYMIZE_TRACE),
+        )
     }
 
     /**
@@ -138,7 +149,7 @@ class ActionRegistrationTest : BasePlatformTestCase() {
      */
     fun `test the plugin registers these actions and no others`() {
         assertEquals(
-            listOf(ANONYMIZE_PLAN, ANONYMIZE_WITH_PREVIEW, COPY_ANONYMIZED, DEANONYMIZE, DEANONYMIZE_AND_PASTE, MENU),
+            listOf(ANONYMIZE_PLAN, ANONYMIZE_TRACE, ANONYMIZE_WITH_PREVIEW, COPY_ANONYMIZED, DEANONYMIZE, DEANONYMIZE_AND_PASTE, MENU),
             ActionManager.getInstance().getActionIdList("SnippetVeil").sorted(),
         )
     }
@@ -155,6 +166,7 @@ class ActionRegistrationTest : BasePlatformTestCase() {
         assertEmpty(manager.getAction(DEANONYMIZE_AND_PASTE).shortcutSet.shortcuts)
 
         assertEmpty(manager.getAction(ANONYMIZE_PLAN).shortcutSet.shortcuts)
+        assertEmpty(manager.getAction(ANONYMIZE_TRACE).shortcutSet.shortcuts)
     }
 
     private fun childIdsOf(groupId: String): List<String> {
@@ -180,3 +192,5 @@ private const val DEANONYMIZE = "SnippetVeil.DeanonymizeClipboard"
 private const val DEANONYMIZE_AND_PASTE = "SnippetVeil.DeanonymizeClipboardAndPaste"
 
 private const val ANONYMIZE_PLAN = "SnippetVeil.AnonymizeExecutionPlan"
+
+private const val ANONYMIZE_TRACE = "SnippetVeil.AnonymizeStackTrace"

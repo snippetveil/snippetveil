@@ -230,6 +230,8 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
         assertFalse("Copy Anonymized was offered on a Markdown file", "SnippetVeil.CopyAnonymized" in offered)
         assertFalse("the preview was offered on a Markdown file", "SnippetVeil.AnonymizeWithPreview" in offered)
         assertTrue("the plan item is not offered outside Java", "SnippetVeil.AnonymizeExecutionPlan" in offered)
+        assertTrue("the trace item is not offered outside Java", "SnippetVeil.AnonymizeStackTrace" in offered)
+        assertEquals("an unsupported file does not offer exactly the four ungated items: $offered", 4, offered.size)
     }
 
     /**
@@ -244,16 +246,18 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
         assertTheHarnessResolves()
         myFixture.configureByText(REVERSAL_LEDGER, REVERSAL_SNIPPET)
 
-        assertEquals(
-            listOf(
-                "SnippetVeil.CopyAnonymized",
-                "SnippetVeil.AnonymizeWithPreview",
-                "SnippetVeil.DeanonymizeClipboard",
-                "SnippetVeil.DeanonymizeClipboardAndPaste",
-                "SnippetVeil.AnonymizeExecutionPlan",
-            ),
-            offeredInSubmenu(),
-        )
+        assertEquals(EVERY_ITEM, offeredInSubmenu())
+    }
+
+    /**
+     * **A Kotlin editor offers every item too** — whether SnippetVeil's Kotlin path loaded or not,
+     * because a Kotlin file this IDE cannot anonymize still shows the anonymizing items, which refuse
+     * when used rather than vanish.
+     */
+    fun `test the submenu in a Kotlin editor offers every item`() {
+        myFixture.configureByText("Ledger.kt", "class Ledger")
+
+        assertEquals(EVERY_ITEM, offeredInSubmenu())
     }
 
     /**
@@ -295,3 +299,13 @@ class DeanonymizeClipboardActionTest : JavaSnippetTestCase() {
         PlaceholderLedger.getInstance().snapshotOf(project),
     )
 }
+
+/** The whole submenu, in its order — six items, which is what a supported source file offers. */
+private val EVERY_ITEM = listOf(
+    "SnippetVeil.CopyAnonymized",
+    "SnippetVeil.AnonymizeWithPreview",
+    "SnippetVeil.DeanonymizeClipboard",
+    "SnippetVeil.DeanonymizeClipboardAndPaste",
+    "SnippetVeil.AnonymizeExecutionPlan",
+    "SnippetVeil.AnonymizeStackTrace",
+)
