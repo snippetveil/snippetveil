@@ -1,8 +1,13 @@
 package com.snippetveil.plugin.kotlin
 
+import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiFile
+import com.intellij.psi.impl.compiled.ClsFileImpl
+import com.intellij.psi.impl.java.stubs.PsiClassStub
 import com.snippetveil.plugin.LanguageSupport
 import com.snippetveil.plugin.PlanBuilder
+import com.snippetveil.plugin.TraceFile
+import org.jetbrains.kotlin.asJava.findFacadeClass
 import org.jetbrains.kotlin.psi.KtFile
 
 /**
@@ -40,4 +45,46 @@ internal class KotlinSupport : LanguageSupport {
     override fun claims(file: PsiFile): Boolean = file is KtFile && !file.isScript() && !file.isCompiled
 
     override fun planBuilder(): PlanBuilder = KotlinPlanBuilder
+
+    /**
+     * **The file facade**, with the resolved file's real extension — because Kotlin does not tie a
+     * file's name to a class.
+     *
+     * `Billing.kt` holding `fun settle` and `class Payment` renders `BillingKt`'s placeholder beside a
+     * frame of either: rendering the frame's own class instead would give one real file two rendered
+     * names, and would make a `Utils.kt` holding `class Payment` look as if it were named after the
+     * class. The facade is an ordinary project class with a `Type` placeholder, so this adds no new
+     * symbol kind. **A `.kt` with no top-level callable has no facade light class**, and its frames
+     * render a bare `Unknown` file name beside a correctly resolved class — truthful, and visibly
+     * degraded. `KotlinSnippetTestCase.assertTheFacadeBehaviourIsPinned` holds the platform to that.
+     *
+     * **A compiled Kotlin class names the source its bytecode records**, since a library `.class`
+     * carries no file facade to find — `kotlinx.coroutines.intrinsics.CancellableKt` was compiled from
+     * `Cancellable.kt`, and a class and its file's facade are two `.class` files that nothing links.
+     * It is fixed to the frame's own class there, which a library owns and which is therefore kept
+     * as printed. **That is a narrower rule than the facade's, taken knowingly**: were a compiled
+     * Kotlin class ever renamed — an internal-library prefix covering a jar with no sources — a
+     * class other than its file's facade would name the file. Visible as a second placeholder for
+     * one file, never as a leak.
+     */
+    override fun traceFileOf(outer: PsiClass): TraceFile? {
+        val file = outer.navigationElement.containingFile as? KtFile ?: return null
+        if (!file.isCompiled) {
+            val virtualFile = file.virtualFile ?: return null
+            return TraceFile(file.findFacadeClass(), virtualFile.nameWithoutExtension, virtualFile.extension)
+        }
+        val recorded = recordedSourceOf(outer) ?: return null
+        return TraceFile.named(recorded, fixedTo = outer)
+    }
+
+    /**
+     * The source file name [compiled]'s bytecode records — its `SourceFile` attribute, read the way
+     * the platform reads it for a Java `.class` — or `null` where it records none.
+     */
+    private fun recordedSourceOf(compiled: PsiClass): String? {
+        val classFile = compiled.containingFile?.virtualFile ?: return null
+        val stub = ClsFileImpl.buildFileStub(classFile, classFile.contentsToByteArray()) ?: return null
+        val classStub = stub.childrenStubs.filterIsInstance<PsiClassStub<*>>().firstOrNull() ?: return null
+        return classStub.sourceFileName
+    }
 }

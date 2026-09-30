@@ -36,6 +36,21 @@
   each one stood for. **The `unknown` count falls for the same trace**: the frame above used to
   count three unknowns, its class, its method and its file name, and now counts one, because more
   of it resolved.
+- **A Kotlin coroutine trace can be anonymized, and a coroutine dump is refused by name.** A failing
+  coroutine's trace carries marker lines that `kotlinx.coroutines` writes into it, and these used to
+  refuse the whole trace as not a stack trace. They are now kept as printed and count as nothing:
+  `at _COROUTINE._BOUNDARY._(CoroutineDebugging.kt:42)` and `at _COROUTINE._CREATION._(…)` whatever
+  line number your version of the library puts there, and the older markers from before its 1.7.0
+  release, `(Coroutine boundary)` and `(Coroutine creation stacktrace)`, in both the form a terminal
+  shows and the form a copy holds, with its backspace characters. The frames under a creation marker
+  are anonymized like the rest of the trace. `kotlinx.*` frames are library frames and are kept as
+  printed, so a coroutine trace comes out mostly as it went in. In a Kotlin frame, the file name is
+  replaced with the placeholder of the file's facade class, so `Billing.kt` reads `Type1.kt` beside a
+  frame of any class in that file. A `.kt` file with no top-level function or property has no
+  facade, and its file name becomes a bare `Unknown`. The output of `DebugProbes.dumpCoroutines` and
+  a `printJob` tree are refused with a message that says the clipboard holds a coroutine dump rather
+  than a stack trace; the clipboard is left as it was. A trace containing
+  `[CIRCULAR REFERENCE: …]` is still refused as not a stack trace.
 - **Commented-out Java code is kept, with its names replaced.** `Copy Anonymized` used to strip
   every comment, so a line such as `// this.customer.setOrder(order);` was lost on every paste. In a
   `.java` file a comment whose text parses as Java where it is written is now kept, and every name

@@ -3,8 +3,6 @@ package com.snippetveil.plugin
 import com.intellij.openapi.project.Project
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
-import com.intellij.psi.PsiJavaFile
-import com.intellij.psi.PsiModifier
 import com.intellij.psi.search.GlobalSearchScope
 import com.snippetveil.core.LiteralKind
 import com.snippetveil.core.LiteralOccurrence
@@ -70,10 +68,13 @@ import com.snippetveil.core.TraceName
  * ### The file name
  *
  * It renders the placeholder of **the symbol the file's name is fixed to**, which in Java is the
- * public top-level class, with the **real extension of the resolved file** read off its
- * `VirtualFile` — never a constant. `com.acme.Foo$Bar.baz(Foo.java:12)` is named after the *outer*
- * class, so rendering the frame class's own placeholder there would print a false file name. Where
- * there is no such symbol — a package-private class, a class that did not resolve — the file name is
+ * public top-level class and in Kotlin is the **file facade** (`BillingKt`), with the **real
+ * extension of the resolved file** read off its `VirtualFile` — never a constant. Which symbol that
+ * is, is the language's rule: see [LanguageSupport.traceFileOf]. `com.acme.Foo$Bar.baz(Foo.java:12)`
+ * is named after the *outer* class, so rendering the frame class's own placeholder there would print
+ * a false file name; a Kotlin file's name is tied to no class at all, so a frame of `class Payment`
+ * in `Billing.kt` renders `BillingKt`'s. Where there is no such symbol — a package-private class, a
+ * `.kt` with no top-level callable and so no facade, a class that did not resolve — the file name is
  * a bare `Unknown`, with no extension at all.
  *
  * ### Texts are literals
@@ -215,10 +216,8 @@ internal object TracePlanBuilder {
 
         /**
          * The file name, rendered as **the placeholder of the class the file's name is fixed to** with
-         * the resolved file's real extension — or a bare `Unknown` where no class fixes it.
-         *
-         * The class's navigation element rather than the class, so that a library class with sources
-         * attached names its `.java` rather than the `.class` it was compiled to.
+         * the resolved file's real extension — or a bare `Unknown` where no class fixes it. Which class
+         * that is, is the language's rule, and [traceFileOf] asks the language.
          *
          * **The printed name has to be that file's name**, extension aside: a trace that says
          * `Other.java` where the class resolved into `Foo.java` is naming a file this index does not
@@ -228,23 +227,16 @@ internal object TracePlanBuilder {
          */
         fun file(owner: PsiClass?, name: TraceName): Occurrence {
             val outer = owner?.let { generateSequence(it) { nested -> nested.containingClass }.last() }
-            val source = (outer?.navigationElement as? PsiClass) ?: outer
-            val file = source?.containingFile as? PsiJavaFile
-            val virtualFile = file?.virtualFile
-            val stem = virtualFile?.nameWithoutExtension
-            val fixedTo = file?.classes?.firstOrNull { it.hasModifierProperty(PsiModifier.PUBLIC) && it.name == stem }
-                ?.takeIf { name.text.substringBefore('.') == stem }
-            if (fixedTo == null || virtualFile == null) {
-                return symbol(name.start, name.text, SymbolFacts.unresolvedEvidence(name.text))
-            }
-            val extension = virtualFile.extension?.let { ".$it" }.orEmpty()
+            val traceFile = outer?.let(::traceFileOf)
+            val fixedTo = traceFile?.fixedTo?.takeIf { traceFile.isNamedBy(name.text) }
+                ?: return symbol(name.start, name.text, SymbolFacts.unresolvedEvidence(name.text))
             return SymbolOccurrence(
                 start = name.start,
                 end = name.end,
                 text = name.text,
                 symbol = SymbolFacts.evidenceOf(project, fixedTo, fixedTo.name.orEmpty()),
                 language = LANGUAGE,
-                suffix = extension,
+                suffix = traceFile.suffix,
             )
         }
 

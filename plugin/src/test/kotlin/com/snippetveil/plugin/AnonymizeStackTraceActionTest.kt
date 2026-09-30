@@ -400,6 +400,42 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **Both refusals leave the clipboard byte-identical**, each in its own words: a `DebugProbes`
+     * dump — `dumpCoroutines` output and a `printJob` tree — is named as a dump, and a paste that is
+     * no trace at all, `[CIRCULAR REFERENCE: …]` among them, gets the generic message. Byte-identical
+     * is asserted on the clipboard the action read, which is never written, and on the system one.
+     * Both are warnings with no report link: the product is working, and describing its input.
+     */
+    fun `test both refusals leave the clipboard byte-identical, each in its own words`() {
+        addPayoutsProject()
+        val refusals = listOf(
+            COROUTINE_DUMP to DUMP_MESSAGE,
+            JOB_TREE to DUMP_MESSAGE,
+            CIRCULAR_TRACE to "Clipboard is not a stack trace \u2014 select the trace only. Your clipboard was not changed.",
+        )
+
+        for ((paste, message) in refusals) {
+            setClipboard(paste)
+            val read = FakeClipboard(paste)
+
+            var opened = false
+            invoke(read) { _, analysis -> analysis.also { opened = true } }
+            awaitBackgroundWork()
+
+            assertFalse("a refused paste opened the preview:\n$paste", opened)
+            assertFalse("a refusal wrote the clipboard it read:\n$paste", read.written)
+            assertEquals("a refusal changed the clipboard it read", paste, read.text)
+            assertEquals("a refusal changed the system clipboard", paste, clipboard())
+
+            val balloon = notifications.single()
+            assertEquals(NotificationType.WARNING, balloon.type)
+            assertEmpty(balloon.actions)
+            assertEquals(message, balloon.content)
+            assertFalse("the refusal quotes the paste: ${balloon.content}", "Ledger" in balloon.content)
+        }
+    }
+
+    /**
      * **A cancelled preview reaches nothing** — no clipboard write, so no commit, so no number burnt
      * and no symbol named. The preview is the only path there is, so this is the only way out of it.
      */
@@ -615,6 +651,36 @@ private val TRACE = listOf(
  * printer writes itself: `Exception in thread`, `at`, `Caused by`, `... more`.
  */
 private val KNOWN_SURVIVORS = setOf("com", "init", "Exception", "in", "thread", "at", "Caused", "by", "more")
+
+/** The dump's refusal, in the words the ticket fixes. */
+private const val DUMP_MESSAGE = "That is a DebugProbes coroutine dump, not a stack trace. SnippetVeil can anonymize the " +
+    "exception trace a coroutine produces, but not a dump. Your clipboard was not changed."
+
+/** `DebugProbes.dumpCoroutines` output, a `_CREATION` block and all — every frame in it a frame. */
+private val COROUTINE_DUMP = listOf(
+    "Coroutines dump 2026/09/30 12:00:01",
+    "",
+    "Coroutine \"coroutine#2\":DeferredCoroutine{Active}@1b68b9a4, state: SUSPENDED",
+    "\tat kotlinx.coroutines.DelayKt.delay(Delay.kt:170)",
+    "\tat com.acme.payouts.PayoutLedger.settle(PayoutLedger.java:42)",
+    "\tat _COROUTINE._CREATION._(CoroutineDebugging.kt:69)",
+    "\tat com.acme.payouts.PayoutRelay.forward(PayoutRelay.java:5)",
+).joinToString("\n")
+
+/** A `DebugProbes.printJob` tree, whose indentation is its parent/child structure. */
+private val JOB_TREE = listOf(
+    "\"coroutine#1\":BlockingCoroutine{Active}@3a4afd8d, continuation is RUNNING at line com.acme.payouts.PayoutLedger.settle(PayoutLedger.java:42)",
+    "\t\"coroutine#2\":DeferredCoroutine{Active}@1b68b9a4, continuation is SUSPENDED at line kotlinx.coroutines.DelayKt.delay(Delay.kt:170)",
+).joinToString("\n")
+
+/** A trace carrying `[CIRCULAR REFERENCE: …]`, which stays refused under the generic message. */
+private val CIRCULAR_TRACE = listOf(
+    "com.acme.payouts.PayoutRejected: x",
+    "\tat com.acme.payouts.PayoutLedger.settle(PayoutLedger.java:42)",
+    "Caused by: java.sql.SQLException: y",
+    "\tat com.acme.payouts.PayoutLedger.settle(PayoutLedger.java:40)",
+    "\t[CIRCULAR REFERENCE: com.acme.payouts.PayoutRejected: x]",
+).joinToString("\n")
 
 /** What a user's clipboard held before an invocation that must not touch it. */
 private const val PREVIOUS_CLIPBOARD = "the trace the user copied a minute ago"

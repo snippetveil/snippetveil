@@ -90,16 +90,21 @@ internal fun anonymizeTraceOnClipboard(project: Project, clipboard: Clipboard, p
 
     object : Task.Backgroundable(project, "Anonymizing stack trace…", true) {
         override fun run(indicator: ProgressIndicator) {
-            val analysis = try {
+            // What happens on the EDT: one of the two refusals, each in its own words, or the preview.
+            val next = try {
                 when (val reading = parseTrace(pasted)) {
-                    TraceReading.NotATrace -> null
-                    // In smart mode, because resolution is index-dependent; cancellable and
-                    // restartable like the snippet's analysis, and for the same reasons.
-                    is TraceReading.Read -> ReadAction.nonBlocking(Callable { analyseTrace(project, reading.trace) })
-                        .inSmartMode(project)
-                        .expireWith(project)
-                        .wrapProgress(indicator)
-                        .executeSynchronously()
+                    TraceReading.NotATrace -> Runnable { SnippetVeilNotifications.traceUnreadable(project) }
+                    TraceReading.CoroutineDump -> Runnable { SnippetVeilNotifications.traceIsCoroutineDump(project) }
+                    is TraceReading.Read -> {
+                        // In smart mode, because resolution is index-dependent; cancellable and
+                        // restartable like the snippet's analysis, and for the same reasons.
+                        val analysis = ReadAction.nonBlocking(Callable { analyseTrace(project, reading.trace) })
+                            .inSmartMode(project)
+                            .expireWith(project)
+                            .wrapProgress(indicator)
+                            .executeSynchronously()
+                        Runnable { previews.confirm(project, analysis)?.let { deliver(project, it, Subject.TRACE) } }
+                    }
                 }
             } catch (cancelled: ProcessCanceledException) {
                 throw cancelled
@@ -109,13 +114,7 @@ internal fun anonymizeTraceOnClipboard(project: Project, clipboard: Clipboard, p
             }
 
             ApplicationManager.getApplication().invokeLater(
-                {
-                    if (analysis == null) {
-                        SnippetVeilNotifications.traceUnreadable(project)
-                    } else {
-                        previews.confirm(project, analysis)?.let { deliver(project, it, Subject.TRACE) }
-                    }
-                },
+                next,
                 ModalityState.defaultModalityState(),
                 project.disposed,
             )

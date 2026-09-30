@@ -2237,6 +2237,40 @@ tasks.test {
 }
 
 /**
+ * **The coroutines library a Kotlin trace fixture resolves `kotlinx.*` frames against, as a real jar.**
+ *
+ * A failing coroutine's trace is mostly `kotlinx.coroutines` frames, and *they are preserved because
+ * they resolve and classify as library* is the claim under test — so, as for the stdlib, the library
+ * is a declared, resolved artifact attached exactly as a user's build would attach it, and not a stub
+ * in project content that would make every `kotlinx.*` frame the project's own.
+ *
+ * Non-transitive, and old for the stdlib's reason: 1.8.0 was compiled by Kotlin 1.9.21, which is
+ * older than every compiler in the matrix, so its metadata is readable wherever the Kotlin fixtures
+ * run. **The rule is held by an outcome, not by this comment**: `KotlinTraceTest` asserts every
+ * `kotlinx.*` class its traces name resolves to a library before it believes any output, and a jar
+ * too new for the compiler fails there by name. Nothing loads a class out of it.
+ */
+val kotlinFixtureCoroutines: Configuration = configurations.create("kotlinFixtureCoroutines") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+
+dependencies {
+    // Test-scope by construction, like the stdlib above.
+    kotlinFixtureCoroutines("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0")
+}
+
+tasks.test {
+    val coroutines = kotlinFixtureCoroutines.elements.map { elements ->
+        val jars = elements.map { it.asFile }
+        check(jars.size == 1) { "kotlinFixtureCoroutines resolved to $jars; the trace fixtures attach exactly one jar." }
+        jars.single().absolutePath
+    }
+    inputs.files(kotlinFixtureCoroutines).withPropertyName("kotlinFixtureCoroutines")
+    doFirst { systemProperty("snippetveil.kotlin.coroutinesJar", coroutines.get()) }
+}
+
+/**
  * **The fixture stdlib's version, and the line that pins it**, read off the declaration rather than
  * spelled a second time — so the assertion below compares the version the fixtures actually attach,
  * and its failure can point at the line to change without anyone finding the comment first.

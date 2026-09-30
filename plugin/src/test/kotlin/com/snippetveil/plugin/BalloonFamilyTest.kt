@@ -154,6 +154,10 @@ class BalloonFamilyTest : JavaSnippetTestCase() {
             // The trace's refusal, on the same footing: a warning with the clipboard clause and no
             // report link, because a paste that is not a trace is not a defect.
             Row("traceUnreadable", Footprint.CLIPBOARD_NOT_WRITTEN) { notify.traceUnreadable(project) },
+
+            // The dump's refusal, which names the artifact instead: the same footing, for the same
+            // reason — a dump on the clipboard is not a defect either.
+            Row("traceIsCoroutineDump", Footprint.CLIPBOARD_NOT_WRITTEN) { notify.traceIsCoroutineDump(project) },
             Row("copied", Footprint.WROTE_CLIPBOARD) {
                 notify.copied(project, analysisOf(REVERSAL_SNIPPET), Subject.TRACE)
             },

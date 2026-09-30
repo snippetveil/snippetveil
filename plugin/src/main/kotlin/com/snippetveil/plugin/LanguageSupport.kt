@@ -1,6 +1,7 @@
 package com.snippetveil.plugin
 
 import com.intellij.openapi.extensions.CustomLoadingExtensionPointBean
+import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiFile
 import com.snippetveil.core.SnippetPlan
 import com.intellij.util.xmlb.annotations.Attribute
@@ -45,7 +46,62 @@ internal interface LanguageSupport {
 
     /** The walk that turns a file of this language into the pure description the engine works from. */
     fun planBuilder(): PlanBuilder
+
+    /**
+     * **The file a stack-trace frame names, as this language ties a file's name to a symbol** — for
+     * [outer], the top-level class a frame resolved to — or `null` where [outer] is not this
+     * language's to answer for.
+     *
+     * Asked of every class a trace resolves, a library's and the JDK's included, and not only of
+     * the source files [claims] would take: a frame's file name is printed whoever compiled it.
+     * Which symbol the name is fixed to is the language's rule and not the trace's — a public class
+     * named after the file in Java, the file facade in Kotlin — so it is answered here, beside the
+     * rest of what the language decides.
+     */
+    fun traceFileOf(outer: PsiClass): TraceFile?
 }
+
+/**
+ * **The file a frame was compiled from, and the symbol its name is fixed to.**
+ *
+ * @param fixedTo the class whose placeholder the file name renders, or `null` where the language
+ *   ties the file's name to none — which renders a bare `Unknown`
+ * @param stem the file's name without its extension: what the trace has to have printed for this to
+ *   be the file it names
+ * @param extension the extension the rendered name carries, read off the file rather than assumed —
+ *   or `null` for none
+ */
+internal class TraceFile(val fixedTo: PsiClass?, val stem: String, val extension: String?) {
+
+    /**
+     * Whether [printed] — a file name as a frame printed it — names this file, **extension aside**:
+     * a compiled library class resolves to its `.class`, and the trace prints the source it was
+     * compiled from. Cut at the last `.`, so `Builders.common.kt` is the file `Builders.common`.
+     */
+    fun isNamedBy(printed: String): Boolean = printed.substringBeforeLast('.') == stem
+
+    /** What the rendered name ends in: the extension with its `.`, or nothing. */
+    val suffix: String get() = extension?.let { ".$it" }.orEmpty()
+
+    companion object {
+
+        /** The file called [name] — a stem and whatever follows its last `.` — fixed to [fixedTo]. */
+        fun named(name: String, fixedTo: PsiClass?): TraceFile =
+            TraceFile(fixedTo, name.substringBeforeLast('.'), name.substringAfterLast('.', "").ifEmpty { null })
+    }
+}
+
+/**
+ * **The file a frame of [outer] names**, answered by whichever registered language [outer] is — or
+ * `null` where none is, which renders a bare `Unknown`.
+ *
+ * A Kotlin light class is Kotlin's to answer for, and where SnippetVeil's Kotlin path is not
+ * registered nothing answers for it: that fails closed, into the bare `Unknown`.
+ */
+internal fun traceFileOf(outer: PsiClass): TraceFile? =
+    LANGUAGE_SUPPORT.extensionList.asSequence()
+        .map { it.instance }
+        .firstNotNullOfOrNull { it.traceFileOf(outer) }
 
 /**
  * **The registration, which is a fact the gate can read without loading the class it names.**
