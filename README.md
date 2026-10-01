@@ -17,7 +17,7 @@
 
 <!-- listing copy -->
 
-**Anonymize a Java or Kotlin snippet, or a database execution plan, before you paste it into an AI chat.**
+**Anonymize a Java or Kotlin snippet, a stack trace, or a database execution plan, before you paste it into an AI chat.**
 
 Every name your project owns — classes, methods, fields, packages, string literals — is
 replaced with a placeholder before the snippet leaves the editor. The structure, the
@@ -58,6 +58,13 @@ control flow, and the libraries you call go as-is.
   first. A plan SnippetVeil cannot read safely is refused, your clipboard is left as it was, and
   the message names the output option that works where there is one. A plan's names are not added
   to the project's mapping, so the same plan pasted twice comes back under different numbers.
+- **Anonymize Stack Trace…** reads a Java or Kotlin exception trace from the clipboard and gives
+  back the same trace with the package, class, method and file names your project owns replaced by
+  the placeholders your snippets already use, so its frames line up with the code you sent beside
+  it. JDK and library frames and every line number stay as printed, every exception message becomes
+  a `str` placeholder, and a name the IDE cannot find becomes `Unknown`. Copy the trace, then
+  right-click → **SnippetVeil** → **Anonymize Stack Trace…**; it always opens the preview first. A
+  clipboard holding anything besides the trace is refused, and your clipboard is left as it was.
 
 <!-- canonical -->
 
@@ -74,20 +81,20 @@ scanned in every release build, and public from the first commit.
   proprietary value *is* the algorithm, SnippetVeil does nothing for you.
 - **The prompt you type around the snippet.** SnippetVeil anonymizes the code, not the
   sentence above it.
-- **Your stack trace** — it is not anonymized at all.
 
 ### What it does not preserve
 
 - **The text inside your strings** — a string literal in your own code becomes `"str1"`.
 - **Your comment prose**, by default.
+- **Your exception messages** → retype the message that matters into your prompt.
 
 <!-- canonical end -->
 
 ### Non-goals
 
 Not a secret scanner. Anonymizing code is unavailable outside supported source files; an
-execution plan is read from the clipboard, wherever you are. The reversal actions are not gated by
-language.
+execution plan or a stack trace is read from the clipboard, wherever you are. The reversal actions
+are not gated by language.
 
 ### Source
 

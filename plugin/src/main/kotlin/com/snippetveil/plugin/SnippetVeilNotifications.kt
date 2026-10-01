@@ -119,7 +119,7 @@ internal object SnippetVeilNotifications {
      * design (see [FirstRunNotice]), so this one balloon is carrying the discoverability of the entire
      * product and cannot afford to spend its second line on a description.
      *
-     * **The submenu is named, because the item is not where the user right-clicks.** The four
+     * **The submenu is named, because the item is not where the user right-clicks.** The
      * actions live in a `SnippetVeil` submenu, and a sentence that goes straight from the gesture to
      * `Copy Anonymized` sends the user to a context menu that does not contain it — which this one
      * did, once, on the only occasion the product speaks first.
@@ -137,15 +137,18 @@ internal object SnippetVeilNotifications {
      * post-install page: at install time, *we* chose the moment. A link the user clicks later is a
      * different thing, and the settings page carries one to the threat model for that reason.
      *
-     * **The plan action gets the second sentence, and nothing else does.** It is the one anonymizing
-     * item that does not start from a selection — it reads the clipboard — so the first sentence
-     * never leads to it. `FirstRunNoticeTest` holds its path to the menu as it holds the first one's.
+     * **The plan and trace actions get a sentence each, and nothing else does.** They are the two
+     * anonymizing items that do not start from a selection — they read the clipboard — so the first
+     * sentence never leads to them. The trace's sentence is phrased as the plan's is, because the
+     * gesture is the same: copy, then the menu. `FirstRunNoticeTest` holds both paths to the menu as
+     * it holds the first one's.
      */
     fun installed(project: Project) {
         group().createNotification(
             "SnippetVeil is installed",
             "Select Java or Kotlin code, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Copy Anonymized</b>. " +
-                "For an execution plan, copy it, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Anonymize Execution Plan\u2026</b>",
+                "For an execution plan, copy it, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Anonymize Execution Plan\u2026</b>. " +
+                "For a stack trace, copy it, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Anonymize Stack Trace\u2026</b>",
             NotificationType.INFORMATION,
         ).addAction(openSettings(project)).notify(project)
     }

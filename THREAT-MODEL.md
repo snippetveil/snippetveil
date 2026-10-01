@@ -140,20 +140,41 @@ intact, with only its vocabulary changed.
 
 ### The stack trace
 
-**A stack trace pasted alongside a snippet is not anonymized at all.**
+**`Anonymize Stack Trace…` anonymizes a trace you hand it, and only that one.** It is opt-in and
+cold: it reads the clipboard when you invoke it and at no other time. A trace copied from the run
+console, a log file or a ticket straight into a chat is exactly as exposed as it ever was, and
+nothing detects it. That residual is permanent: the action narrows what a trace you chose to
+anonymize gives away, and it does nothing about one you did not.
 
-This is called out on its own rather than folded into general advice, because it is the single
-likeliest way a careful user leaks. The action reads the Java code you selected in the editor. A
-stack trace is not Java code and is usually not in the editor — it is in the run console, or in a log
-file, or in a ticket — and it is dense with exactly what the snippet no longer contains:
+It is still the single likeliest way a careful user leaks, which is why it is called out on its own.
+A raw trace is dense with exactly what the snippet no longer contains:
 
 ```
 at com.acme.billing.CustomerCreditRiskAssessment.evaluate(CustomerCreditRiskAssessment.java:214)
 at com.acme.billing.internal.MerchantLedgerRepository.load(MerchantLedgerRepository.java:88)
 ```
 
-Package names, class names, method names, file names. Pasting the anonymized snippet and the raw
-trace together undoes the anonymization for the reader and for the corpus in one step.
+Package names, class names, method names, file names. Pasting the anonymized snippet beside a raw
+trace undoes the anonymization for the reader and for the corpus in one step. Passed through the
+action first, the same frames come back under the placeholders the snippet already uses, and every
+exception message comes back as a `str` placeholder.
+
+What the anonymized copy costs, and what it still carries:
+
+- **It cannot diagnose a module-layer bug.** The module and classloader prefix on a frame —
+  `java.base/`, `app//` — is dropped. A bug that lives at that layer, such as a split package or a
+  class loaded by the wrong loader, cannot be diagnosed from the anonymized copy; that question
+  needs the original trace, asked somewhere else.
+- **Its line numbers are your line numbers.** They are kept as printed, because they are what makes
+  a trace answerable. A line number together with the shape of the trace — how deep it is, which
+  library frames sit between yours — is a fingerprint, and it can be matched against a *public*
+  codebase. If the code is open source, the anonymized trace can name it.
+- **It writes to the mapping.** Every class in the trace that resolves to your project gets a
+  placeholder and is remembered, as it would be from a snippet — including classes you never
+  selected and never sent as code. A trace can therefore add many rows to the mapping at once, and
+  `Reset Mappings…` clears them with the rest. A trace from another project, or from an old build,
+  resolves to almost nothing in yours and comes back mostly `Unknown`; the preview shows that before
+  anything is copied.
 
 ### Residual gaps
 

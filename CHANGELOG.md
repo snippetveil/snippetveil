@@ -108,6 +108,18 @@
   live code and in a comment is counted once, as live code. The bracket is absent when none came from
   comments. `Show mapping` shows the same numbers as the notification it was opened from. An
   execution plan's counts are unchanged.
+- **The listing, the README and the threat model stop saying a stack trace is not anonymized.**
+  *What SnippetVeil does not hide* no longer lists your stack trace, and nothing takes its place.
+  *What it does not preserve* gains your exception messages, which `Anonymize Stack Trace…` always
+  replaces: retype the message that matters into your prompt. `How it works` describes the action,
+  and the first-run notice gives its path beside the execution plan's: copy the trace, then
+  right-click → **SnippetVeil** → **Anonymize Stack Trace…**. The threat model's section on the
+  stack trace now says what is true: the action is opt-in and reads the clipboard only when you
+  invoke it, so a trace pasted straight from the run console is as exposed as before; the module and
+  classloader prefix it drops makes a module-layer bug undiagnosable from the anonymized copy; the
+  line numbers it keeps, with the shape of the trace, can identify a public codebase; and every
+  class in the trace that resolves to your project is added to the mapping, including classes you
+  never selected.
 
 ## [1.5.0] - 2026-09-29
 

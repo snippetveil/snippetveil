@@ -21,9 +21,9 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
      * The balloon, and what it says: an instruction, not a description.
      *
      * **The sentence is asserted whole**, character for character. It is the only thing this plugin
-     * ever says unprompted and it names two languages, a gesture and two steps of a menu — each of
-     * which is a claim that can quietly stop being true — so a check for a word it happens to contain
-     * is not a check on the sentence. The one that shipped matched `"Copy Anonymized"`, which the half
+     * ever says unprompted and it names two languages, two kinds of clipboard text, and three gestures
+     * with two steps of a menu each — every one of which is a claim that can quietly stop being true —
+     * so a check for a word it happens to contain is not a check on the sentence. The one that shipped matched `"Copy Anonymized"`, which the half
      * that never changes satisfies on its own.
      */
     fun `test the first run says what to do and offers the settings page`() {
@@ -33,7 +33,8 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
         assertEquals("SnippetVeil is installed", balloon.title)
         assertEquals(
             "Select Java or Kotlin code, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Copy Anonymized</b>. " +
-                "For an execution plan, copy it, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Anonymize Execution Plan\u2026</b>",
+                "For an execution plan, copy it, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Anonymize Execution Plan\u2026</b>. " +
+                "For a stack trace, copy it, then right-click \u2192 <b>SnippetVeil</b> \u2192 <b>Anonymize Stack Trace\u2026</b>",
             balloon.content,
         )
         assertEquals(NotificationType.INFORMATION, balloon.type)
@@ -72,6 +73,21 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
             "The balloon's plan sentence",
             sentenceNaming(notifications.single().content, "Anonymize Execution Plan"),
             ANONYMIZE_EXECUTION_PLAN,
+        )
+    }
+
+    /**
+     * **The balloon's third path, to the trace action**, under the same check as the other two. Like
+     * the plan, a trace is read off the clipboard rather than a selection, so the first sentence
+     * never leads to it.
+     */
+    fun `test the balloon's trace path is a real path to the trace action`() {
+        announceInstallation(project)
+
+        assertMenuPathIsReal(
+            "The balloon's trace sentence",
+            sentenceNaming(notifications.single().content, "Anonymize Stack Trace"),
+            ANONYMIZE_STACK_TRACE,
         )
     }
 
@@ -189,3 +205,6 @@ private const val COPY_ANONYMIZED = "SnippetVeil.CopyAnonymized"
 
 /** The plan action, which reads the clipboard and so has a sentence of its own. */
 private const val ANONYMIZE_EXECUTION_PLAN = "SnippetVeil.AnonymizeExecutionPlan"
+
+/** The trace action, which reads the clipboard too and so has a sentence of its own as well. */
+private const val ANONYMIZE_STACK_TRACE = "SnippetVeil.AnonymizeStackTrace"
