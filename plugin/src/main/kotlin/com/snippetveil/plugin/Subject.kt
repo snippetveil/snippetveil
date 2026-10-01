@@ -45,7 +45,7 @@ internal enum class Subject(
     val balloonTitle: String,
     val fileType: FileType,
     val offersComments: Boolean,
-    val notesKotlinCause: Boolean = false,
+    val notesKotlinCause: Boolean,
 ) {
 
     SNIPPET(
@@ -55,6 +55,7 @@ internal enum class Subject(
         balloonTitle = "Anonymized snippet copied",
         fileType = JavaFileType.INSTANCE,
         offersComments = true,
+        notesKotlinCause = false,
     ),
 
     PLAN(
@@ -64,6 +65,7 @@ internal enum class Subject(
         balloonTitle = "Anonymized execution plan copied",
         fileType = PlainTextFileType.INSTANCE,
         offersComments = false,
+        notesKotlinCause = false,
     ),
 
     /**

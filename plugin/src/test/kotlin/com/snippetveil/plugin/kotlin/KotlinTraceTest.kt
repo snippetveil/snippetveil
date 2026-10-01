@@ -9,12 +9,9 @@ import com.snippetveil.core.SymbolOrigin
 import com.snippetveil.core.TraceReading
 import com.snippetveil.core.parseTrace
 import com.snippetveil.plugin.Analysis
-import com.snippetveil.plugin.AnonymizeStackTraceAction
-import com.snippetveil.plugin.FakeClipboard
 import com.snippetveil.plugin.KOTLIN_EXTENSION
 import com.snippetveil.plugin.PlaceholderLedger
 import com.snippetveil.plugin.PreviewDialog
-import com.snippetveil.plugin.Previews
 import com.snippetveil.plugin.SymbolFacts
 import com.snippetveil.plugin.attachJar
 import com.snippetveil.plugin.kotlinNoteIn
@@ -169,11 +166,7 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
     /** Invokes over [trace], lets the preview through unchanged, and returns what it was shown. */
     private fun invokeAndCapture(trace: String): Analysis {
         assertTheCoroutinesLibraryIsALibrary(trace)
-        var shown: Analysis? = null
-        dropEarlierBalloons()
-        myFixture.testAction(AnonymizeStackTraceAction(FakeClipboard(trace), Previews { _, analysis -> analysis.also { shown = it } }))
-        awaitBackgroundWork()
-        return checkNotNull(shown) { "the trace was refused: ${notifications.map { it.content }}" }
+        return captureTrace(trace)
     }
 
     /**

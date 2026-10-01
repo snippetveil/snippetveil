@@ -1,17 +1,17 @@
 package com.snippetveil.plugin
 
 /**
- * **The trace preview's Kotlin note, in the configuration a K1 user is in** — the Kotlin plugin
+ * **The trace preview's Kotlin note, in the configuration a K1 user is in** \u2014 the Kotlin plugin
  * running and SnippetVeil's Kotlin path not activated.
  *
  * `Anonymize Stack Trace…` reads the clipboard, so the source-file gate never reaches it and its
  * refusal cannot fire. What a K1 user gets instead is a trace that anonymizes and Kotlin frames that
- * quietly fail to resolve — honest about *what* failed, in the `unknown` count, and silent about
+ * quietly fail to resolve \u2014 honest about *what* failed, in the `unknown` count, and silent about
  * *why*. The note is that why, said as a possible cause beside the number.
  *
  * **The predicate is a configuration fact and a count, and nothing read off the trace.** There is no
  * *"is this a Kotlin trace?"*: a `.kt` in a file position deciding what the preview says would be a
- * text-keyed judgment. So every trace here is pure Java, and the note fires on one anyway — which is
+ * text-keyed judgment. So every trace here is pure Java, and the note fires on one anyway \u2014 which is
  * the decision, not a gap.
  *
  * The plugin-not-running half is `KotlinDisabledBootTest`'s, because only an IDE without the Kotlin
@@ -22,7 +22,7 @@ class TraceKotlinNoteTest : KotlinUnregisteredTestCase() {
 
     /**
      * **One unresolved frame in a pure-Java trace, and the note names K1 with the Kotlin settings
-     * link** — the same page the editor refusal opens for the same cause, under the same words.
+     * link** \u2014 the same page the editor refusal opens for the same cause, under the same words.
      */
     fun `test a trace with an unknown names K1 and links Kotlin settings`() {
         addLedgerProject()
@@ -54,7 +54,7 @@ class TraceKotlinNoteTest : KotlinUnregisteredTestCase() {
         }
     }
 
-    /** **Zero unknown, no note** — the configuration alone is not something this trace has to hear about. */
+    /** **Zero unknown, no note** \u2014 the configuration alone is not something this trace has to hear about. */
     fun `test a trace with no unknown carries no note`() {
         addLedgerProject()
 
@@ -76,7 +76,7 @@ class TraceKotlinNoteTest : KotlinUnregisteredTestCase() {
 
 /** The note for an IDE whose Kotlin plugin runs and whose SnippetVeil Kotlin path did not activate. */
 private const val K1_NOTE = "SnippetVeil's Kotlin support is not active, which usually means the Kotlin plugin is in " +
-    "K1 mode. Kotlin frames cannot resolve without it — one possible reason a name here is unknown."
+    "K1 mode. Kotlin frames cannot resolve without it \u2014 one possible reason a name here is unknown."
 
 /** A pure-Java trace with one frame whose class the project does not declare. */
 private val ONE_UNRESOLVED_FRAME = listOf(
