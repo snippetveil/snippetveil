@@ -42,13 +42,7 @@ class TraceOrgRootTest {
      */
     @Test
     fun `a foreign trace with nothing project-owned preserves the org's library, and that is intended`() {
-        val plan = planOf(
-            "BillingService then HttpClient.send",
-            symbol("BillingService", SymbolRole.TYPE, SymbolOrigin.UNRESOLVED),
-            HTTP_CLIENT,
-            SEND,
-            rootFromOwnedTypes = true,
-        )
+        val plan = FOREIGN_TRACE
 
         val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
 
@@ -57,13 +51,7 @@ class TraceOrgRootTest {
 
     @Test
     fun `with nothing project-owned, only the editable prefix list applies`() {
-        val plan = planOf(
-            "BillingService then HttpClient.send",
-            symbol("BillingService", SymbolRole.TYPE, SymbolOrigin.UNRESOLVED),
-            HTTP_CLIENT,
-            SEND,
-            rootFromOwnedTypes = true,
-        )
+        val plan = FOREIGN_TRACE
         val listed = AnonymizationSettings(internalLibraries = InternalLibraries(internalPrefixes = setOf("com.acme.platform")))
 
         val result = anonymize(plan, listed, LedgerSnapshot.EMPTY)
@@ -154,3 +142,12 @@ class TraceOrgRootTest {
 private val BILLING_SERVICE = symbol("BillingService", SymbolRole.TYPE, SymbolOrigin.IN_CONTENT, packageName = "com.acme.billing")
 private val HTTP_CLIENT = symbol("HttpClient", SymbolRole.TYPE, SymbolOrigin.LIBRARY, packageName = "com.acme.platform")
 private val SEND = symbol("send", SymbolRole.METHOD, SymbolOrigin.LIBRARY, packageName = "com.acme.platform")
+
+/** The same frames with `BillingService` unresolved: a trace from a project this IDE does not have. */
+private val FOREIGN_TRACE = planOf(
+    "BillingService then HttpClient.send",
+    symbol("BillingService", SymbolRole.TYPE, SymbolOrigin.UNRESOLVED),
+    HTTP_CLIENT,
+    SEND,
+    rootFromOwnedTypes = true,
+)

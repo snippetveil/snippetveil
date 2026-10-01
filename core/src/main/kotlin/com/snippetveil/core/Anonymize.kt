@@ -1077,13 +1077,6 @@ private fun rootPackagesOf(plan: SnippetPlan, symbols: List<SymbolOccurrence>): 
         .mapTo(HashSet(), ::rootPackageOf)
 }
 
-/**
- * **The root of [packageName]: its first two segments** — `com.acme` out of `com.acme.web`. The cut
- * the reverse-domain convention makes right far more often than not, and the one place it is made:
- * a snippet's file root and a trace's type roots are both this.
- */
-fun rootPackageOf(packageName: String): String = packageName.split('.').take(2).joinToString(".")
-
 /** The usable prefixes out of a settings list: blank rows are not prefixes of anything. */
 private fun prefixesOf(prefixes: Set<String>): List<String> =
     prefixes.map { it.trim() }.filter { it.isNotEmpty() }

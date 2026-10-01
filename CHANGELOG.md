@@ -51,10 +51,10 @@
   a `printJob` tree are refused with a message that says the clipboard holds a coroutine dump rather
   than a stack trace; the clipboard is left as it was. A trace containing
   `[CIRCULAR REFERENCE: …]` is still refused as not a stack trace.
-- **A stack trace's own frames decide which libraries are your organisation's.** For a snippet,
+- **A stack trace's own frames decide which libraries are your organization's.** For a snippet,
   a library class under your file's root package, such as `com.acme`, is treated as your
-  organisation's code and anonymized. A trace has no file, so its library frames used to be kept as
-  printed, and `com.acme.platform.HttpClient` showed your organisation's package names. Now the
+  organization's code and anonymized. A trace has no file, so its library frames used to be kept as
+  printed, and `com.acme.platform.HttpClient` showed your organization's package names. Now the
   root packages come from the trace's frames that resolve to your project:
   `com.acme.billing.BillingService` in your project makes `com.acme` a root, and a
   `com.acme.platform.HttpClient` frame is anonymized. Frames under a coroutine creation marker count
