@@ -86,7 +86,8 @@ scanned in every release build, and public from the first commit.
 
 ### What it does not preserve
 
-- **The text inside your strings** — a string literal in your own code becomes `"str1"`.
+- **The text inside your strings** — a string literal in your own code becomes `"str1"` → retype
+  the value that matters into your prompt.
 - **Your comment prose**, by default.
 - **Your exception messages** → retype the message that matters into your prompt.
 
