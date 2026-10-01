@@ -9,12 +9,14 @@ import com.snippetveil.core.SymbolOrigin
 import com.snippetveil.core.TraceReading
 import com.snippetveil.core.parseTrace
 import com.snippetveil.plugin.Analysis
-import com.snippetveil.plugin.AnonymizeStackTraceAction
-import com.snippetveil.plugin.FakeClipboard
+import com.snippetveil.plugin.KOTLIN_EXTENSION
 import com.snippetveil.plugin.PlaceholderLedger
-import com.snippetveil.plugin.Previews
+import com.snippetveil.plugin.PreviewDialog
 import com.snippetveil.plugin.SymbolFacts
 import com.snippetveil.plugin.attachJar
+import com.snippetveil.plugin.kotlinNoteIn
+import com.snippetveil.plugin.supportIsRegisteredFor
+import com.snippetveil.plugin.withDialog
 import java.io.File
 
 /**
@@ -114,6 +116,27 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
     }
 
     /**
+     * **With SnippetVeil's Kotlin path loaded, no Kotlin note, whatever the `unknown` count.** The note
+     * names a configuration as a possible cause, and here there is no such configuration to name —
+     * so a trace with unknowns in it gets the count and nothing beside it.
+     */
+    fun `test with Kotlin available a trace with unknowns carries no Kotlin note`() {
+        assertTrue(
+            "No support is registered for kt, so this cell is not the Kotlin-available configuration and " +
+                "the absence below would be measuring the wrong IDE.",
+            supportIsRegisteredFor(KOTLIN_EXTENSION),
+        )
+        addBillingProject()
+
+        val analysis = invokeAndCapture(COROUTINE_TRACE)
+
+        assertTrue("the trace resolved every name, so the absence proves nothing", analysis.result.counts.unknown > 0)
+        withDialog(PreviewDialog.forTrace(project, analysis)) { dialog ->
+            assertEmpty(kotlinNoteIn(dialog))
+        }
+    }
+
+    /**
      * **The harness's precondition, shown red**: the complaint fires on a `kotlinx.*` class that did
      * not resolve and on one that resolved into project content — the two ways a broken attachment
      * would make the output look cleaner than a correct one — and is silent on a library's.
@@ -143,11 +166,7 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
     /** Invokes over [trace], lets the preview through unchanged, and returns what it was shown. */
     private fun invokeAndCapture(trace: String): Analysis {
         assertTheCoroutinesLibraryIsALibrary(trace)
-        var shown: Analysis? = null
-        dropEarlierBalloons()
-        myFixture.testAction(AnonymizeStackTraceAction(FakeClipboard(trace), Previews { _, analysis -> analysis.also { shown = it } }))
-        awaitBackgroundWork()
-        return checkNotNull(shown) { "the trace was refused: ${notifications.map { it.content }}" }
+        return captureTrace(trace)
     }
 
     /**

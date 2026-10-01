@@ -189,9 +189,19 @@ internal fun gate(file: PsiFile?): GateVerdict {
     if (extension == JAVA) return GateVerdict.Offer
 
     // Kotlin: supported, so the only question left is whether its support is here.
-    return if (supportIsRegisteredFor(KOTLIN)) GateVerdict.Offer
-    else GateVerdict.Refuse(whyKotlinIsMissing())
+    return kotlinUnavailability()?.let(GateVerdict::Refuse) ?: GateVerdict.Offer
 }
+
+/**
+ * **Why SnippetVeil's Kotlin support is unavailable in this IDE right now, or `null` where it is
+ * available** — the gate's availability half, asked without a file.
+ *
+ * The gate asks it of a `.kt`; the trace preview asks it of a trace, which never passes the gate
+ * because it came off the clipboard. One question with one answer, so the two surfaces cannot come
+ * to disagree about which page the user is sent to. Like everything here it touches no Kotlin class.
+ */
+internal fun kotlinUnavailability(): Unavailable? =
+    if (supportIsRegisteredFor(KOTLIN)) null else whyKotlinIsMissing()
 
 /**
  * Whether a language support is registered **for this extension** — the availability half of the

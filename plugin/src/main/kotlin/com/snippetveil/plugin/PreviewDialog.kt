@@ -32,6 +32,7 @@ import java.util.EventObject
 import javax.swing.AbstractAction
 import javax.swing.AbstractCellEditor
 import javax.swing.Action
+import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -374,6 +375,7 @@ internal class PreviewDialog private constructor(
         footer.layout = BoxLayout(footer, BoxLayout.Y_AXIS)
         footer.border = JBUI.Borders.emptyTop(8)
         footer.add(strip)
+        kotlinNote()?.let(footer::add)
         footer.add(notices)
 
         // **The tick is absent where it has no population, rather than greyed out.** A plan holds no
@@ -382,6 +384,41 @@ internal class PreviewDialog private constructor(
         if (reducible && subject.offersComments) footer.add(commentsBox)
         showNotices()
         return footer
+    }
+
+    /**
+     * **Why a frame may have come back `Unknown`, where this IDE has a reason** — on its own line
+     * under the counts, with the fix the editor refusal offers for the same cause, or `null`.
+     *
+     * The trace action reads the clipboard, so the source-file gate's refusal never reaches it: on an
+     * IDE where SnippetVeil's Kotlin support is unavailable, the trace anonymizes and Kotlin frames
+     * quietly fail to resolve. The count is honest about *what* failed; this says *why it may have*.
+     *
+     * **The predicate is a configuration fact and a count, and contains no text test.** Nothing asks
+     * whether the trace *is* Kotlin — a `.kt` in a file position deciding what the preview says would
+     * be a text-keyed judgment — so a pure-Java trace with one unresolved frame carries it too. That
+     * is why the sentence names a possible cause and never asserts one: the count is evidence, not
+     * proof.
+     *
+     * **A note, not a refusal and not a balloon**, and no report link: the output is correct as far as
+     * it goes, and the plugin is describing its configuration rather than a defect. No clipboard
+     * clause either — the clipboard is about to be written, by the button below it.
+     *
+     * Built once rather than on every re-render: `unknown` counts what the IDE could not resolve, not
+     * what became of it, so no reduction in this dialog moves it.
+     */
+    private fun kotlinNote(): JComponent? {
+        if (!subject.notesKotlinCause || analysis.result.counts.unknown == 0) return null
+        val cause = kotlinUnavailability() ?: return null
+
+        val note = JPanel()
+        note.layout = BoxLayout(note, BoxLayout.X_AXIS)
+        note.alignmentX = Component.LEFT_ALIGNMENT
+        note.border = JBUI.Borders.emptyTop(4)
+        note.add(JBLabel(kotlinNoteFor(cause)))
+        note.add(Box.createHorizontalStrut(JBUI.scale(8)))
+        note.add(ActionLink(KotlinFix.linkFor(cause)) { KotlinFix.open(project, cause) })
+        return note
     }
 
     /**
@@ -950,6 +987,20 @@ private const val UNLOCKED_TOOLTIP = "Ticked names are emitted exactly as writte
  * recognise its own tip whichever state it was written in. See [PreserveHeaderRenderer].
  */
 private val PRESERVE_TOOLTIPS = setOf(LOCKED_TOOLTIP, UNLOCKED_TOOLTIP)
+
+/**
+ * **The Kotlin note's sentence, one per cause** — the two causes the editor refusal tells apart, told
+ * apart the same way.
+ *
+ * Each names the cause and then says what it does to a trace, and stops at *possible*: the note fires
+ * on any trace with an `unknown`, Kotlin or not, so a sentence claiming *these* frames failed because
+ * of Kotlin would be false on exactly the traces it cannot tell apart.
+ */
+private fun kotlinNoteFor(cause: Unavailable): String = when (cause) {
+    Unavailable.PLUGIN_NOT_RUNNING -> "The Kotlin plugin is not running in this IDE."
+    Unavailable.PATH_NOT_ACTIVATED ->
+        "SnippetVeil's Kotlin support is not active, which usually means the Kotlin plugin is in K1 mode."
+} + " Kotlin frames cannot resolve without it \u2014 one possible reason a name here is unknown."
 
 /** The unlock, before and after. See [PreviewDialog.unlock]. */
 internal const val UNLOCK_LINK = "Unlock Preserve for resolved names\u2026"

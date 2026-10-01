@@ -6,11 +6,14 @@ import com.snippetveil.plugin.GateVerdict
 import com.snippetveil.plugin.JAVA_EXTENSION
 import com.snippetveil.plugin.JavaSnippetTestCase
 import com.snippetveil.plugin.KOTLIN_EXTENSION
+import com.snippetveil.plugin.PreviewDialog
 import com.snippetveil.plugin.Unavailable
 import com.snippetveil.plugin.clipboard
 import com.snippetveil.plugin.gate
+import com.snippetveil.plugin.kotlinNoteIn
 import com.snippetveil.plugin.setClipboard
 import com.snippetveil.plugin.supportIsRegisteredFor
+import com.snippetveil.plugin.withDialog
 
 /**
  * **SnippetVeil on an IDE that does not have the Kotlin plugin — the half of the isolation guarantee
@@ -148,6 +151,41 @@ class KotlinDisabledBootTest : JavaSnippetTestCase() {
             listOf("Open Plugins"),
             notifications.single().actions.map { it.templatePresentation.text },
         )
+    }
+
+    /**
+     * **The trace preview's note, in the configuration only this cell has** — a pure-Java trace with
+     * one unresolved frame, on an IDE without the Kotlin plugin.
+     *
+     * The trace action reads the clipboard, so the gate's refusal never reaches it: the trace is
+     * anonymized and copied, and the preview names the missing plugin as **a possible cause** of the
+     * unknown count, with the same Plugins link the refusal offers. Pure Java on purpose — the note
+     * keys on the configuration and the count, never on anything read off the trace.
+     */
+    fun `test a pure-Java trace with an unknown frame names the missing plugin in its preview`() {
+        myFixture.addFileToProject(
+            "com/acme/payouts/PayoutLedger.java",
+            "package com.acme.payouts;\n\npublic class PayoutLedger {\n    public void settle() {}\n}",
+        )
+
+        val analysis = captureTrace(
+            "java.lang.IllegalStateException: refused\n" +
+                "\tat com.acme.payouts.PayoutLedger.settle(PayoutLedger.java:42)\n" +
+                "\tat com.acme.payouts.PayoutGhost.haunt(PayoutGhost.java:9)",
+        )
+
+        assertTrue("the trace resolved every name, so the note has nothing to stand beside", analysis.result.counts.unknown > 0)
+        assertEquals("Anonymized stack trace copied", notifications.single().title)
+        withDialog(PreviewDialog.forTrace(project, analysis)) { dialog ->
+            assertEquals(
+                listOf(
+                    "The Kotlin plugin is not running in this IDE. Kotlin frames cannot resolve without it " +
+                        "\u2014 one possible reason a name here is unknown.",
+                    "Open Plugins",
+                ),
+                kotlinNoteIn(dialog),
+            )
+        }
     }
 
     private companion object {

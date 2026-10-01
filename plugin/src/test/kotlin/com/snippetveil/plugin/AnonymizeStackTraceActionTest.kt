@@ -671,12 +671,7 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
     }
 
     /** Invokes over [trace], lets the preview through unchanged, and returns what it was shown. */
-    private fun invokeAndCapture(trace: String): Analysis {
-        var shown: Analysis? = null
-        invoke(FakeClipboard(trace)) { _, analysis -> analysis.also { shown = it } }
-        awaitBackgroundWork()
-        return checkNotNull(shown) { "the trace was refused: ${notifications.map { it.content }}" }.also(::assertTheTraceResolved)
-    }
+    private fun invokeAndCapture(trace: String): Analysis = captureTrace(trace).also(::assertTheTraceResolved)
 
     /**
      * Invokes over a trace from somebody else's project, lets the preview through unchanged, and
@@ -684,10 +679,7 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
      * project-owned is the point. The library half of that check still holds where a frame names one.
      */
     private fun captureForeign(trace: String): Analysis {
-        var shown: Analysis? = null
-        invoke(FakeClipboard(trace)) { _, analysis -> analysis.also { shown = it } }
-        awaitBackgroundWork()
-        val analysis = checkNotNull(shown) { "the trace was refused: ${notifications.map { it.content }}" }
+        val analysis = captureTrace(trace)
         assertFalse(
             "a frame resolved as project-owned, so this trace is not foreign",
             analysis.plan.occurrences.filterIsInstance<SymbolOccurrence>().any { it.symbol.origin == SymbolOrigin.IN_CONTENT && it.symbol.role == SymbolRole.TYPE },
