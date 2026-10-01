@@ -45,7 +45,7 @@ package com.snippetveil.core
  *   default, and per-invocation only** — the preview's tick, which resets to *strip* on every
  *   invocation, and it is **never persisted**, by the rule above.
  *
- *   **It keeps prose and never un-renames.** A Java comment whose body parses as code never reaches
+ *   **It keeps prose and never un-renames.** A Java or Kotlin comment whose body parses as code never reaches
  *   the engine as a comment at all — it arrives as the names, literals and nested comments inside it,
  *   and is anonymized and kept whether this is on or off. What this decides is only the fate of a
  *   [CommentOccurrence]: a comment whose body did not parse.
@@ -622,8 +622,8 @@ enum class MappedKind(val label: String) {
  *
  * [prose] and [code] are both zero when this invocation kept its comments. This counts what was **removed**, not what
  * was there — a count of comments in the snippet would be a fact about the input, and the thing a
- * user needs to know is what is missing from the output. **A Java comment whose body parsed is never
- * in it**, because it was kept; a comment nested inside one and stripped is, although the user never
+ * user needs to know is what is missing from the output. **A Java or Kotlin comment whose body
+ * parsed is never in it**, because it was kept; a comment nested inside one and stripped is, although the user never
  * saw it as a comment of its own, because what the count reports is what was stripped.
  *
  * **[anonymized] is the other side of the same line**: the comments that were not stripped because
@@ -632,8 +632,8 @@ enum class MappedKind(val label: String) {
  * [stripped] and nothing else, and says nothing about a kept comment.
  *
  * @param prose comments whose body does not parse as code
- * @param code comments whose body does — stripped anyway, which is only ever a Kotlin or a query
- *   comment; see [CommentVerdict]
+ * @param code comments whose body does — stripped anyway, which is only ever a query comment; see
+ *   [CommentVerdict]
  * @param anonymized comments whose body parsed as code and that were kept, anonymized, counted from
  *   the [CodeContainer.ParsedComment] tag their parts carry. **A count, not a notice**: a kept comment
  *   is loudly visible in the output, so it is inventory the pane shows rather than a loss the output

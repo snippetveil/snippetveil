@@ -164,7 +164,7 @@ reverses.
 reductions:
 
 - **Keep comments and javadoc**, for this snippet only. It keeps comment prose as written;
-  commented-out Java code is kept, with its names replaced, whether it is ticked or not.
+  commented-out Java and Kotlin code is kept, with its names replaced, whether it is ticked or not.
 - **Preserve**, on an individual row.
 
 **By default the Preserve column only has checkboxes on `Unknown` rows.** That is the override for a

@@ -78,27 +78,33 @@
   running in K1 mode. The line says this is one possible reason a name is unknown, not that it is
   the reason: it appears on a Java-only trace too, because SnippetVeil does not guess a trace's
   language from its text. The trace is anonymized and copied as before.
-- **Commented-out Java code is kept, with its names replaced.** `Copy Anonymized` used to strip
-  every comment, so a line such as `// this.customer.setOrder(order);` was lost on every paste. In a
-  `.java` file a comment whose text parses as Java where it is written is now kept, and every name
-  in it is replaced with the placeholder that name gets in the code around it:
-  `// this.field2.method3(param4);`. A string in it becomes `"str1"`, as it does anywhere else. A
-  commented-out field, method, import or top-level class counts, not only a statement. A comment
-  that does not parse — a TODO, an explanation, a javadoc block with `@param` in it — is still
-  stripped, and so is prose written after the code on a kept line. A name in the kept line that no
-  longer resolves becomes an `Unknown`, and the line is kept. Kotlin files are unchanged.
-- **Keep comments and javadoc now keeps prose only.** Commented-out Java code is kept and anonymized
-  whether the preview's tick is on or off; the tick keeps the comments that are not code, exactly as
-  written, for that snippet.
+- **Commented-out Java and Kotlin code is kept, with its names replaced.** `Copy Anonymized` used to
+  strip every comment, so a line such as `// this.customer.setOrder(order);` was lost on every
+  paste. In a `.java` or `.kt` file a comment whose text parses as code of that language where it is
+  written is now kept, and every name in it is replaced with the placeholder that name gets in the
+  code around it: `// this.field2.method3(param4);`. A string in it becomes `"str1"`, as it does
+  anywhere else. A commented-out field or property, method or function, import or top-level class
+  counts, not only a statement. A comment that does not parse — a TODO, an explanation, a javadoc or
+  KDoc block with `@param` in it — is still stripped, and so is prose written after the code on a
+  kept line, or inside a kept block comment. A name in the kept line that no longer resolves becomes
+  an `Unknown`, and the line is kept. **A comment that only names things is prose in both
+  languages**: Kotlin reads `// retry on timeout` or `// TODO` as code, a call of three names or a
+  name on its own, and such a comment is stripped in a `.kt` file exactly as it is in a `.java`
+  file. A comment that does more than name things, such as `// retry(onTimeout)` or `// x = 1`, is
+  kept. So is Kotlin prose that happens to read as a keyword construct, such as `// value in range`:
+  it is kept as code, with every word in it except the keyword replaced. A commented-out Kotlin enum
+  entry or function argument does not parse where it is written and is stripped.
+- **Keep comments and javadoc now keeps prose only.** Commented-out Java and Kotlin code is kept and
+  anonymized whether the preview's tick is on or off; the tick keeps the comments that are not code,
+  exactly as written, for that snippet.
 - **The comment count reads `2 comments stripped`**, in the preview and in the notification. It used
   to add `, 1 of them commented-out code`, to point at the tick as the way to keep that code; in a
-  `.java` file the code is kept without it now. In a `.kt` file commented-out code is still
-  stripped, counted in the same sentence, and kept by the tick. The count includes only the
-  comments that were removed.
+  `.java` or `.kt` file the code is kept without it now. The count includes only the comments that
+  were removed.
 - **A kept comment is counted: `1 comment anonymized`.** The preview's counts and the `Copy
-  Anonymized` notification now say how many commented-out Java lines were kept with their names
-  replaced. It appears only when there is at least one; a snippet with no commented-out code shows
-  no such entry, not a zero. It is a count, beside the others, and not part of `2 comments
+  Anonymized` notification now say how many commented-out Java or Kotlin lines were kept with their
+  names replaced. It appears only when there is at least one; a snippet with no commented-out code
+  shows no such entry, not a zero. It is a count, beside the others, and not part of `2 comments
   stripped`, which still counts only the comments that were removed. A commented-out line with no
   name or string in it, such as `// return;`, has nothing to anonymize and is not counted.
 - **The `unknown` count now says how many came from comments**: `3 unknown (1 from comments)`.

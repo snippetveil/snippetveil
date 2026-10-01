@@ -44,6 +44,22 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **The same bare-name prose is prose in both languages.** Kotlin parses `retry on timeout` as an
+     * infix call of three names and Java does not parse it at all, and the comment is stripped in
+     * both: the guard that calls a parse of nothing but names prose sits beside the vacuous-parse
+     * guard and is stated for every language. Java's grammar rejects these bodies on its own, which is
+     * what makes the guard a no-op here — and a Java body that does more than name things is kept.
+     */
+    fun `test a body of bare names is prose in Java as in Kotlin`() {
+        assertFalse(isKept("// retry on timeout"))
+        assertFalse(isKept("// TODO"))
+        assertFalse(isKept("// fix later"))
+
+        assertTrue(isKept("// retry(onTimeout);"))
+        assertTrue(isKept("// amount = 1;"))
+    }
+
+    /**
      * **The parse self-check, both arms, at every position.** A known-unparseable body yields at
      * least one error element and no throw; a known-good body yields none.
      *
