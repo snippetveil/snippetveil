@@ -88,7 +88,7 @@ internal object PlatformKotlinCommentParser : KotlinCommentParser {
  * when the body is not code there.**
  *
  * Not code means one of two things. The first is the rule for every language — an error element in
- * the body, no code at all, or nothing but names: see [isCodeIn]. The second is what parsing in place
+ * the body, no code at all, or no code signal: see [isCodeIn]. The second is what parsing in place
  * adds, and it is the same question asked of the edges: **the body parsed as something of its own.**
  *
  *  - **Nothing outside the body parses differently.** A body that opens a brace it never closes is
