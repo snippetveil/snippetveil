@@ -111,8 +111,9 @@
 - **The listing, the README and the threat model stop saying a stack trace is not anonymized.**
   *What SnippetVeil does not hide* no longer lists your stack trace, and nothing takes its place.
   *What it does not preserve* gains your exception messages, which `Anonymize Stack Trace…` always
-  replaces: retype the message that matters into your prompt. `How it works` describes the action,
-  and the first-run notice gives its path beside the execution plan's: copy the trace, then
+  replaces: retype the message that matters into your prompt. The strings line above it gains the
+  same kind of recourse: retype the value that matters into your prompt. `How it works` describes
+  the action, and the first-run notice gives its path beside the execution plan's: copy the trace, then
   right-click → **SnippetVeil** → **Anonymize Stack Trace…**. The threat model's section on the
   stack trace now says what is true: the action is opt-in and reads the clipboard only when you
   invoke it, so a trace pasted straight from the run console is as exposed as before; the module and
