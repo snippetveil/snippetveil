@@ -69,6 +69,15 @@
   leaves your placeholders and their numbering as they were. **Confirming a foreign trace advances
   the placeholder numbers**: each `Unknown` uses up a number that is not remembered, so after a few
   such traces your next snippet's placeholders can jump, from `Type4` to `Type340` for example.
+- **The stack trace preview says when Kotlin support is unavailable.** `Anonymize Stack Trace…`
+  reads the clipboard rather than a file, so it never showed the *Kotlin support is not available*
+  message, and on an IDE where SnippetVeil's Kotlin support was missing a Kotlin frame simply came
+  back `Unknown`. Now, when Kotlin support is unavailable and the trace has at least one `Unknown`,
+  the preview adds a line under the counts naming the cause, with the same link the message offers:
+  `Open Plugins` when the Kotlin plugin is not running, and `Open Kotlin settings` when it is
+  running in K1 mode. The line says this is one possible reason a name is unknown, not that it is
+  the reason: it appears on a Java-only trace too, because SnippetVeil does not guess a trace's
+  language from its text. The trace is anonymized and copied as before.
 - **Commented-out Java code is kept, with its names replaced.** `Copy Anonymized` used to strip
   every comment, so a line such as `// this.customer.setOrder(order);` was lost on every paste. In a
   `.java` file a comment whose text parses as Java where it is written is now kept, and every name

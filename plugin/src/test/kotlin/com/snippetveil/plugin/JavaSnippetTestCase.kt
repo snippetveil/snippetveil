@@ -160,6 +160,21 @@ abstract class JavaSnippetTestCase : LightJavaCodeInsightFixtureTestCase() {
     }
 
     /**
+     * **The stack-trace action over [trace]**, with the preview let through unchanged — and what the
+     * preview was handed, which is the analysis the dialog opens over.
+     *
+     * Here rather than in each class that wants one, because the trace's preview is asserted from
+     * configurations as different as an IDE without the Kotlin plugin and one with it.
+     */
+    internal fun captureTrace(trace: String): Analysis {
+        var shown: Analysis? = null
+        raised.clear()
+        myFixture.testAction(AnonymizeStackTraceAction(FakeClipboard(trace), Previews { _, analysis -> analysis.also { shown = it } }))
+        awaitBackgroundWork()
+        return checkNotNull(shown) { "the trace was refused: ${notifications.map { it.content }}" }
+    }
+
+    /**
      * Drains the pooled thread the analysis runs on and the event queue its result comes back
      * through. The action returns before either has happened, so an assertion made without this
      * would be racing a thread it cannot see.

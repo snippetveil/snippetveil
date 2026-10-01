@@ -33,6 +33,10 @@ import com.intellij.openapi.fileTypes.PlainTextFileType
  *   one would decorate the pane with claims about a grammar nothing here parsed.
  * @param offersComments whether the keep-comments tick is offered. **Absent, never greyed out**, for
  *   the invocation that has no comments to keep — a greyed box suggests a state that is reachable.
+ * @param notesKotlinCause whether the preview names Kotlin being unavailable as a possible cause of
+ *   its `unknown` count. Only for the invocation **the source-file gate never sees**: a snippet from
+ *   a `.kt` whose support did not load is refused before it is read, so its preview cannot exist, and
+ *   a plan resolves nothing and has no `unknown` to stand beside.
  */
 internal enum class Subject(
     val previewTitle: String,
@@ -41,6 +45,7 @@ internal enum class Subject(
     val balloonTitle: String,
     val fileType: FileType,
     val offersComments: Boolean,
+    val notesKotlinCause: Boolean = false,
 ) {
 
     SNIPPET(
@@ -73,6 +78,7 @@ internal enum class Subject(
         balloonTitle = "Anonymized stack trace copied",
         fileType = PlainTextFileType.INSTANCE,
         offersComments = false,
+        notesKotlinCause = true,
     ),
     ;
 

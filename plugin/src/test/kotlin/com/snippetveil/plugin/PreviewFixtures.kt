@@ -8,6 +8,7 @@ import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.snippetveil.core.MappedName
+import com.snippetveil.core.fidelityNotices
 import junit.framework.TestCase.assertTrue
 import java.awt.Component
 import java.awt.Container
@@ -50,6 +51,22 @@ internal fun withDialog(dialog: PreviewDialog, assertions: (PreviewDialog) -> Un
     } finally {
         Disposer.dispose(dialog.disposable)
     }
+}
+
+/**
+ * **The trace preview's Kotlin note, as a reader sees it** — its sentence, then its links — or an
+ * empty list where the dialog carries none.
+ *
+ * Read off the rendered footer rather than off anything the dialog exposes: every label that is
+ * neither the counts strip nor a fidelity notice, and every link that is not the unlock. So a note
+ * that moved, or a second one that appeared, shows up here instead of hiding behind a getter.
+ */
+internal fun kotlinNoteIn(dialog: PreviewDialog): List<String> {
+    val shown = descendantsOf(dialog.createCenterPanel())
+    val accounted = setOf(Subject.TRACE.strip(dialog.analysis)) + dialog.analysis.result.fidelityNotices()
+    val sentences = shown.filterIsInstance<JBLabel>().map { it.text }.filterNot { it in accounted }
+    val links = shown.filterIsInstance<ActionLink>().map { it.text }.filterNot { it == UNLOCK_LINK }
+    return sentences + links
 }
 
 /**

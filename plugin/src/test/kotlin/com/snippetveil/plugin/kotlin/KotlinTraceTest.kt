@@ -11,10 +11,15 @@ import com.snippetveil.core.parseTrace
 import com.snippetveil.plugin.Analysis
 import com.snippetveil.plugin.AnonymizeStackTraceAction
 import com.snippetveil.plugin.FakeClipboard
+import com.snippetveil.plugin.KOTLIN_EXTENSION
 import com.snippetveil.plugin.PlaceholderLedger
+import com.snippetveil.plugin.PreviewDialog
 import com.snippetveil.plugin.Previews
 import com.snippetveil.plugin.SymbolFacts
 import com.snippetveil.plugin.attachJar
+import com.snippetveil.plugin.kotlinNoteIn
+import com.snippetveil.plugin.supportIsRegisteredFor
+import com.snippetveil.plugin.withDialog
 import java.io.File
 
 /**
@@ -111,6 +116,27 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
             result.unknowns.all { it.name == REMAINDER_ORIGINAL },
         )
         assertTrue("the anonymized trace is not a trace the action reads:\n$output", parseTrace(output) is TraceReading.Read)
+    }
+
+    /**
+     * **With SnippetVeil's Kotlin path loaded, no Kotlin note, whatever the `unknown` count.** The note
+     * names a configuration as a possible cause, and here there is no such configuration to name —
+     * so a trace with unknowns in it gets the count and nothing beside it.
+     */
+    fun `test with Kotlin available a trace with unknowns carries no Kotlin note`() {
+        assertTrue(
+            "No support is registered for kt, so this cell is not the Kotlin-available configuration and " +
+                "the absence below would be measuring the wrong IDE.",
+            supportIsRegisteredFor(KOTLIN_EXTENSION),
+        )
+        addBillingProject()
+
+        val analysis = invokeAndCapture(COROUTINE_TRACE)
+
+        assertTrue("the trace resolved every name, so the absence proves nothing", analysis.result.counts.unknown > 0)
+        withDialog(PreviewDialog.forTrace(project, analysis)) { dialog ->
+            assertEmpty(kotlinNoteIn(dialog))
+        }
     }
 
     /**
