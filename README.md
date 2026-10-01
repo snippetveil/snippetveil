@@ -61,10 +61,12 @@ control flow, and the libraries you call go as-is.
 - **Anonymize Stack Trace…** reads a Java or Kotlin exception trace from the clipboard and gives
   back the same trace with the package, class, method and file names your project owns replaced by
   the placeholders your snippets already use, so its frames line up with the code you sent beside
-  it. JDK and library frames and every line number stay as printed, every exception message becomes
-  a `str` placeholder, and a name the IDE cannot find becomes `Unknown`. Copy the trace, then
-  right-click → **SnippetVeil** → **Anonymize Stack Trace…**; it always opens the preview first. A
-  clipboard holding anything besides the trace is refused, and your clipboard is left as it was.
+  it. Every line number stays as printed, and JDK and library frames keep their names unless the
+  library is your organization's; the module or classloader prefix on a frame, such as `java.base/`,
+  is removed. Every exception message and the thread name become `str` placeholders, and a name the
+  IDE cannot find becomes `Unknown`. Copy the trace, then right-click → **SnippetVeil** →
+  **Anonymize Stack Trace…**; it always opens the preview first. A clipboard holding anything
+  besides the trace is refused, and your clipboard is left as it was.
 
 <!-- canonical -->
 

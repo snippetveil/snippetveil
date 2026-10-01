@@ -169,9 +169,10 @@ What the anonymized copy costs, and what it still carries:
   a trace answerable. A line number together with the shape of the trace — how deep it is, which
   library frames sit between yours — is a fingerprint, and it can be matched against a *public*
   codebase. If the code is open source, the anonymized trace can name it.
-- **It writes to the mapping.** Every class in the trace that resolves to your project gets a
-  placeholder and is remembered, as it would be from a snippet — including classes you never
-  selected and never sent as code. A trace can therefore add many rows to the mapping at once, and
+- **It writes to the mapping.** When you confirm the preview, every name in the trace that resolves
+  to your project — its classes, methods and packages — gets a placeholder and is remembered, as it
+  would be from a snippet, including classes you never selected and never sent as code. A trace can
+  therefore add many rows to the mapping at once; a cancelled preview adds none, and
   `Reset Mappings…` clears them with the rest. A trace from another project, or from an old build,
   resolves to almost nothing in yours and comes back mostly `Unknown`; the preview shows that before
   anything is copied.

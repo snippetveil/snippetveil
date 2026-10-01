@@ -117,9 +117,9 @@
   stack trace now says what is true: the action is opt-in and reads the clipboard only when you
   invoke it, so a trace pasted straight from the run console is as exposed as before; the module and
   classloader prefix it drops makes a module-layer bug undiagnosable from the anonymized copy; the
-  line numbers it keeps, with the shape of the trace, can identify a public codebase; and every
-  class in the trace that resolves to your project is added to the mapping, including classes you
-  never selected.
+  line numbers it keeps, with the shape of the trace, can identify a public codebase; and once you
+  confirm the preview, every name in the trace that resolves to your project is added to the
+  mapping, including classes you never selected.
 
 ## [1.5.0] - 2026-09-29
 

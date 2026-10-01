@@ -21,10 +21,10 @@ class FirstRunNoticeTest : JavaSnippetTestCase() {
      * The balloon, and what it says: an instruction, not a description.
      *
      * **The sentence is asserted whole**, character for character. It is the only thing this plugin
-     * ever says unprompted and it names two languages, two kinds of clipboard text, and three gestures
-     * with two steps of a menu each — every one of which is a claim that can quietly stop being true —
-     * so a check for a word it happens to contain is not a check on the sentence. The one that shipped matched `"Copy Anonymized"`, which the half
-     * that never changes satisfies on its own.
+     * ever says unprompted and it names two languages, two kinds of clipboard text and three paths
+     * through a menu — each of which is a claim that can quietly stop being true — so a check for a
+     * word it happens to contain is not a check on the sentence. The one that shipped matched
+     * `"Copy Anonymized"`, which the half that never changes satisfies on its own.
      */
     fun `test the first run says what to do and offers the settings page`() {
         announceInstallation(project)
