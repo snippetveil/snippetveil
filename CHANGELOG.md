@@ -91,7 +91,9 @@
   languages**: Kotlin reads `// retry on timeout` or `// TODO` as code, a call of three names or a
   name on its own, and such a comment is stripped in a `.kt` file exactly as it is in a `.java`
   file. A comment that does more than name things, such as `// retry(onTimeout)` or `// x = 1`, is
-  kept.
+  kept. So is Kotlin prose that happens to read as a keyword construct, such as `// value in range`:
+  it is kept as code, with every word in it except the keyword replaced. A commented-out Kotlin enum
+  entry or function argument does not parse where it is written and is stripped.
 - **Keep comments and javadoc now keeps prose only.** Commented-out Java and Kotlin code is kept and
   anonymized whether the preview's tick is on or off; the tick keeps the comments that are not code,
   exactly as written, for that snippet.

@@ -1,5 +1,6 @@
 package com.snippetveil.plugin.kotlin
 
+import com.intellij.psi.PsiFileFactory
 import com.snippetveil.core.AnonymizationResult
 import com.snippetveil.core.AnonymizationSettings
 import com.snippetveil.core.CodeContainer
@@ -9,6 +10,8 @@ import com.snippetveil.core.Sidecar
 import com.snippetveil.core.anonymize
 import com.snippetveil.core.deanonymize
 import com.snippetveil.core.plus
+import com.snippetveil.plugin.SnippetRequest
+import org.jetbrains.kotlin.idea.KotlinLanguage
 import java.time.Instant
 
 /**
@@ -497,6 +500,37 @@ internal class KotlinCommentedOutCodeTest : KotlinSnippetTestCase() {
             source.lines().filterNot { "TODO" in it }.joinToString("\n"),
             reversalOf(copyOf(source)),
         )
+    }
+
+    /**
+     * **A name declared in the copy a body was parsed in is the user's own, whatever file the copy
+     * reports.** The copy is nowhere in the project, so a copy that reported its own throwaway file
+     * would classify every declaration it holds as nobody's — and keep its name. Shown with a parse
+     * whose copy does exactly that: nothing the comment names may survive it verbatim.
+     */
+    fun `test a declaration in the copy is project content even when the copy reports its own file`() {
+        assertTheHarnessResolves()
+        val file = myFixture.configureByText(
+            "Customer.kt",
+            """
+            class Customer {
+                fun charge(customer: Customer) {
+                    // val vipDiscount = customer.hashCode()
+                }
+            }
+            """.trimIndent(),
+        )
+        val ownFile = KotlinCommentParser { comment, text ->
+            PsiFileFactory.getInstance(project).createFileFromText(comment.containingFile.name, KotlinLanguage.INSTANCE, text)
+        }
+
+        val plan = KotlinPlanBuilder.build(SnippetRequest(project, file, emptyList()), ownFile)
+        val result = anonymize(plan, AnonymizationSettings.DEFAULTS, LedgerSnapshot.EMPTY)
+
+        assertTrue("the fragment was not kept: ${result.text}", "// val " in result.text)
+        for (name in listOf("vipDiscount", "customer", "Customer", "charge")) {
+            assertFalse("`$name` survived: ${result.text}", Regex("\\b$name\\b") in result.text)
+        }
     }
 
     /**

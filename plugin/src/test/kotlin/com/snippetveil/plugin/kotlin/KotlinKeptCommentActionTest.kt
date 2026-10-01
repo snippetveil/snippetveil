@@ -1,8 +1,12 @@
 package com.snippetveil.plugin.kotlin
 
 import com.intellij.notification.NotificationType
+import com.snippetveil.core.AnonymizationSettings
+import com.snippetveil.core.LedgerSnapshot
+import com.snippetveil.plugin.Analysis
 import com.snippetveil.plugin.CopyAnonymizedAction
 import com.snippetveil.plugin.PlaceholderLedger
+import com.snippetveil.plugin.Subject
 import com.snippetveil.plugin.clipboard
 import com.snippetveil.plugin.setClipboard
 
@@ -46,6 +50,34 @@ internal class KotlinKeptCommentActionTest : KotlinSnippetTestCase() {
         assertEquals(
             "2 names replaced · 2 unknown (1 from comments) · 1 preserved · 1 comment anonymized<br>1 comment stripped",
             notifications.single().content,
+        )
+    }
+
+    /**
+     * **The preview's counts strip says the same of a Kotlin snippet** — a kept comment counted, and
+     * the unknown it alone brings split out in place.
+     */
+    fun `test the counts strip counts a kept Kotlin comment as the balloon does`() {
+        assertTheHarnessResolves()
+        val analysis = Analysis.of(
+            kotlinPlanFor(
+                "Ledger.kt",
+                """
+                class Ledger {
+                    <selection>fun audit(amount: Long) {
+                        // legacyAudit(amount)
+                        missingHelper(amount)
+                    }</selection>
+                }
+                """.trimIndent(),
+            ),
+            AnonymizationSettings.DEFAULTS,
+            LedgerSnapshot.EMPTY,
+        )
+
+        assertEquals(
+            "2 renamed · 2 unknown (1 from comments) · 1 preserved · 1 comment anonymized",
+            Subject.SNIPPET.strip(analysis),
         )
     }
 

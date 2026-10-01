@@ -1005,8 +1005,12 @@ private class Chunk(val range: TextRange, val contentStart: Int)
  * **Where the file declaring [symbol] lives** — the spine rule's evidence, asked the way Kotlin
  * requires it to be asked.
  *
- * Two of the three branches are Kotlin-specific and neither is an optimisation:
+ * Three of the four branches are Kotlin-specific and none is an optimisation:
  *
+ *  - **A declaration written in a commented-out body is the user's own code**, because it is
+ *    written in their file. It lives in the copy the body was parsed in — see [parsedBodyOf] — and
+ *    that copy is nowhere in the project, so its own file would classify it as nobody's and keep
+ *    its name. The Java walk reports a fragment's declarations the same way, for the same reason.
  *  - **A light element's ownership comes from its origin.** A light element is synthesized rather
  *    than declared, so the file to classify is the Kotlin file it was synthesized *from* —
  *    `kotlinOrigin`, or [KtLightClassForFacade.files]`.first()` for a file facade, which has no
@@ -1025,6 +1029,12 @@ private class Chunk(val range: TextRange, val contentStart: Int)
  * names its own facade — so it is asserted directly. See `KotlinPlanBuilderTest`.
  */
 internal fun ownershipOf(project: Project, symbol: PsiElement): SymbolOrigin = when {
+    // Declared in a copy a commented-out body was parsed in, rather than anywhere the project can
+    // place it: the user's own code by construction, because it is written in their file. Asked
+    // first, because the copy's own file is nowhere in the project, and *not project content* would
+    // keep the name. See [isCommentCopy].
+    isCommentCopy(symbol.containingFile) || isCommentCopy(kotlinOriginOf(symbol)?.containingFile) -> SymbolOrigin.IN_CONTENT
+
     symbol is KtLightElement<*, *> || symbol is KtLightClassForFacade ->
         SymbolFacts.originOfFile(project, PsiUtilCore.getVirtualFile(kotlinOriginOf(symbol)))
 

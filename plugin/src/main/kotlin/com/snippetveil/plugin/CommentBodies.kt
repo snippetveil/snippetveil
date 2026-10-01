@@ -6,6 +6,7 @@ import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiRecursiveElementWalkingVisitor
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.PsiTreeUtil
 
@@ -42,10 +43,32 @@ import com.intellij.psi.util.PsiTreeUtil
  * language-neutral: the same Kotlin and Java comment, `// retry on timeout`, is prose in both.
  */
 internal fun isCodeIn(parsed: PsiFile, body: TextRange): Boolean {
-    if (PsiTreeUtil.findChildrenOfType(parsed, PsiErrorElement::class.java).any { body.contains(it.textRange) }) return false
+    if (hasErrorIn(parsed, body)) return false
 
     val tokens = codeTokensIn(parsed, body)
     return tokens.isNotEmpty() && !tokens.all(::isBareName)
+}
+
+/**
+ * Whether [parsed] carries an error element inside [body] — looked for only where the body is, so
+ * that a body parsed in place in a whole file costs the body and not the file.
+ */
+private fun hasErrorIn(parsed: PsiFile, body: TextRange): Boolean {
+    var found = false
+    parsed.accept(
+        object : PsiRecursiveElementWalkingVisitor() {
+            override fun visitElement(element: PsiElement) {
+                if (!element.textRange.intersects(body)) return
+                if (element is PsiErrorElement && body.contains(element.textRange)) {
+                    found = true
+                    stopWalking()
+                    return
+                }
+                super.visitElement(element)
+            }
+        },
+    )
+    return found
 }
 
 /**

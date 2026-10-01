@@ -1,5 +1,6 @@
 package com.snippetveil.plugin.kotlin
 
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.ElementManipulators
 import com.intellij.psi.PsiComment
@@ -7,7 +8,9 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiFileFactory
+import com.intellij.psi.PsiRecursiveElementWalkingVisitor
 import com.intellij.psi.impl.source.PsiFileImpl
+import com.intellij.psi.tree.ILazyParseableElementType
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.snippetveil.plugin.codeTokensIn
@@ -88,9 +91,11 @@ internal object PlatformKotlinCommentParser : KotlinCommentParser {
  * the body, no code at all, or nothing but names: see [isCodeIn]. The second is what parsing in place
  * adds, and it is the same question asked of the edges: **the body parsed as something of its own.**
  *
- *  - **Nothing outside the comment parses differently.** A body that opens a brace it never closes
- *    is not an error where it is written; it is an error at the end of the file. So the copy's errors
- *    outside the comment are the file's, exactly.
+ *  - **Nothing outside the body parses differently.** A body that opens a brace it never closes is
+ *    not an error where it is written; it is an error at the end of the file. And a body that only
+ *    continues what the line before it started is an error at the `;` its opening delimiter became —
+ *    `val total = amount + // 2` — which is in the comment and not in its body. So the copy's errors
+ *    outside the body are the file's, exactly.
  *  - **Nothing crosses the comment's edge.** `// val total =` above a live `compute()` parses cleanly
  *    — as one property, half of it commented out. A body is code only where everything in it is
  *    whole inside the comment, under something that holds the whole comment.
@@ -102,27 +107,29 @@ internal fun parsedBodyOf(comment: PsiComment, parser: KotlinCommentParser): Psi
     val body = bodyRangeOf(comment)
 
     if (!isCodeIn(parsed, body)) return null
-    if (errorsOutside(parsed, range) != errorsOutside(file, range)) return null
+    if (errorsOutside(parsed, body, range) != errorsOutside(file, body, range)) return null
     if (codeTokensIn(parsed, body).any { crossesTheEdge(it, range) }) return null
-    return parsed
+    return parsed.also { it.putUserData(COMMENT_COPY, true) }
 }
 
 /**
+ * **Whether [file] is a copy a comment's body was parsed in** — whose declarations are the user's own
+ * code by construction, because they are written in the user's file. See [ownershipOf].
+ */
+internal fun isCommentCopy(file: PsiFile?): Boolean = file?.getUserData(COMMENT_COPY) == true
+
+private val COMMENT_COPY = Key.create<Boolean>("snippetveil.kotlinCommentCopy")
+
+/**
  * **The range of the file [comment]'s body occupies**: the comment, less its opening and closing
- * delimiters.
- *
- * Read off PSI rather than off the text: a line or block comment is one token, and its body is what
- * its manipulator exposes as its value; a KDoc block is a tree, and its opening and closing are tokens
- * of their own. A block comment in red code has no closing delimiter, and its body then runs to the
- * end of it.
+ * delimiters. A block comment in red code has no closing delimiter, and its body then runs to the end
+ * of it.
  */
 internal fun bodyRangeOf(comment: PsiComment): TextRange {
-    val start = comment.textRange.startOffset
-    if (comment !is KDoc) return ElementManipulators.getValueTextRange(comment).shiftRight(start)
-
-    val opening = delimitersOf(comment).firstOrNull { it.type == Delimiter.OPENING }?.range?.endOffset ?: start
-    val closing = delimitersOf(comment).firstOrNull { it.type == Delimiter.CLOSING }?.range?.startOffset ?: comment.textRange.endOffset
-    return TextRange(opening, maxOf(opening, closing))
+    val delimiters = delimitersOf(comment)
+    val start = delimiters.firstOrNull { it.type == Delimiter.OPENING }?.range?.endOffset ?: comment.textRange.startOffset
+    val end = delimiters.firstOrNull { it.type == Delimiter.CLOSING }?.range?.startOffset ?: comment.textRange.endOffset
+    return TextRange(start, maxOf(start, end))
 }
 
 /**
@@ -135,6 +142,10 @@ internal fun bodyRangeOf(comment: PsiComment): TextRange {
  * total = 1 // + 2` is not one expression. The closing becomes a line break, so that the body runs on
  * into nothing written after it. A KDoc block's leading asterisks are blanked, because to a reader of
  * KDoc they are margin.
+ *
+ * **The `;` is a stated limit as well as a separator.** Where Kotlin takes no `;` — between two
+ * arguments, before an `else`, among enum entries — the body cannot parse, and a comment there is
+ * stripped whatever it holds. That is the direction a doubt about a comment has to go.
  */
 internal fun uncommentedTextOf(comment: PsiComment): String {
     val copy = StringBuilder(comment.containingFile.text)
@@ -153,33 +164,34 @@ internal fun uncommentedTextOf(comment: PsiComment): String {
 /**
  * **[comment]'s delimiter tokens**, at their offsets in the file — every one non-empty.
  *
- * A KDoc block names its own: its opening, its closing and each line's leading asterisk are tokens of
- * the tree. A line or block comment is a single token, and its delimiters are what lies outside its
- * value range — an asterisk at the front of a line inside one is text somebody wrote, and stays.
+ * Read off PSI rather than off the text. A KDoc block names its own: its opening, its closing and
+ * each line's leading asterisk are tokens of the tree. A line or block comment is a single token, and
+ * its delimiters are what lies outside the value its manipulator exposes — so an asterisk at the
+ * front of a line inside one is text somebody wrote, and stays.
  */
 private fun delimitersOf(comment: PsiComment): List<CommentDelimiter> {
-    if (comment is KDoc) {
-        val found = mutableListOf<CommentDelimiter>()
-        var leaf: PsiElement? = PsiTreeUtil.firstChild(comment)
-        while (leaf != null && comment.textRange.contains(leaf.textRange)) {
-            val type = when (PsiUtilCore.getElementType(leaf)) {
-                KDocTokens.START -> Delimiter.OPENING
-                KDocTokens.END -> Delimiter.CLOSING
-                KDocTokens.LEADING_ASTERISK -> Delimiter.MARGIN
-                else -> null
-            }
-            if (type != null && leaf.textLength > 0) found += CommentDelimiter(leaf.textRange, type)
-            leaf = PsiTreeUtil.nextLeaf(leaf)
-        }
-        return found
+    if (comment !is KDoc) {
+        val range = comment.textRange
+        val value = ElementManipulators.getValueTextRange(comment).shiftRight(range.startOffset)
+        return listOfNotNull(
+            TextRange(range.startOffset, value.startOffset).takeUnless { it.isEmpty }?.let { CommentDelimiter(it, Delimiter.OPENING) },
+            TextRange(value.endOffset, range.endOffset).takeUnless { it.isEmpty }?.let { CommentDelimiter(it, Delimiter.CLOSING) },
+        )
     }
 
-    val range = comment.textRange
-    val body = bodyRangeOf(comment)
-    return listOfNotNull(
-        TextRange(range.startOffset, body.startOffset).takeUnless { it.isEmpty }?.let { CommentDelimiter(it, Delimiter.OPENING) },
-        TextRange(body.endOffset, range.endOffset).takeUnless { it.isEmpty }?.let { CommentDelimiter(it, Delimiter.CLOSING) },
-    )
+    val found = mutableListOf<CommentDelimiter>()
+    var leaf: PsiElement? = PsiTreeUtil.firstChild(comment)
+    while (leaf != null && comment.textRange.contains(leaf.textRange)) {
+        val type = when (PsiUtilCore.getElementType(leaf)) {
+            KDocTokens.START -> Delimiter.OPENING
+            KDocTokens.END -> Delimiter.CLOSING
+            KDocTokens.LEADING_ASTERISK -> Delimiter.MARGIN
+            else -> null
+        }
+        if (type != null && leaf.textLength > 0) found += CommentDelimiter(leaf.textRange, type)
+        leaf = PsiTreeUtil.nextLeaf(leaf)
+    }
+    return found
 }
 
 /** One delimiter token of a comment, and which of the three it is. */
@@ -188,14 +200,30 @@ private class CommentDelimiter(val range: TextRange, val type: Delimiter)
 private enum class Delimiter { OPENING, CLOSING, MARGIN }
 
 /**
- * The error elements of [file] that lie outside [comment], by where they are and what they say — the
+ * The error elements of [file] that lie outside [body], by where they are and what they say — the
  * same in a copy whose body parsed as something of its own as in the file it was copied from, because
  * every offset in the one is an offset in the other.
+ *
+ * **A lazily parsed block away from the comment is not opened**, in either file. Its text is the
+ * same in both, and it is parsed from its text alone, so what it holds is the same too — and opening
+ * every function body in the file for every comment in it is the cost that would make a file full of
+ * comments slow to copy.
  */
-private fun errorsOutside(file: PsiFile, comment: TextRange): List<Pair<Int, String>> =
-    PsiTreeUtil.findChildrenOfType(file, PsiErrorElement::class.java)
-        .filterNot { comment.contains(it.textRange) }
-        .map { it.textRange.startOffset to it.errorDescription }
+private fun errorsOutside(file: PsiFile, body: TextRange, comment: TextRange): List<Pair<Int, String>> {
+    val errors = mutableListOf<Pair<Int, String>>()
+    file.accept(
+        object : PsiRecursiveElementWalkingVisitor() {
+            override fun visitElement(element: PsiElement) {
+                if (element is PsiErrorElement && !body.contains(element.textRange)) {
+                    errors += element.textRange.startOffset to element.errorDescription
+                }
+                if (element.node.elementType is ILazyParseableElementType && !element.textRange.intersects(comment)) return
+                super.visitElement(element)
+            }
+        },
+    )
+    return errors
+}
 
 /**
  * Whether [token] belongs to something that runs across [comment]'s edge — whose nearest ancestor

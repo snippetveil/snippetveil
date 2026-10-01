@@ -114,15 +114,58 @@ internal class KotlinCommentTest : KotlinSnippetTestCase() {
     }
 
     /**
+     * **The stated limit, pinned rather than left to be discovered.** The decision draws the line at
+     * names: a body that is nothing but names is prose, and a keyword construct is code. So prose
+     * that happens to spell one — `value in range`, `done as planned`, `it is fine` — is kept as
+     * code. It is kept **anonymized**: every word in it that is not a keyword is a name, and every
+     * name is replaced, so what survives verbatim is the keyword and nothing of the domain.
+     */
+    fun `test prose that spells a keyword construct is kept as code with every name in it replaced`() {
+        for (prose in listOf("// value in range", "// done as planned", "// it is fine")) {
+            assertTrue("`$prose` is no longer kept as code; the limit this pins has moved", isKept(prose))
+        }
+
+        val result = kotlinResultFor(
+            "com/acme/ledger/Ledger.kt",
+            """
+            class Ledger {
+                fun settle() {
+                    // merchant in arrears
+                }
+            }
+            """.trimIndent(),
+        )
+        assertTrue("the comment was not kept: ${result.text}", "// " in result.text)
+        for (word in listOf("merchant", "arrears")) {
+            assertFalse("`$word` survived: ${result.text}", word in result.text)
+        }
+    }
+
+    /**
      * **A body that parses only by running into the code around it is not code.** Parsed in place, a
      * body could borrow from its neighbours: a dangling `=` takes the next line as its value, a brace
-     * opened and never closed takes the rest of the file. What is kept is what parses as something of
-     * its own, where it is written.
+     * opened and never closed takes the rest of the file, and a body after a dangling `+` or between
+     * two arguments is only the rest of an expression the line before it started. What is kept is
+     * what parses as something of its own, where it is written.
      */
     fun `test a body that only parses by running into its neighbours is prose`() {
         assertFalse("a body ran across the comment's edge", isKept("// val total =\n        audit(amount)"))
         assertFalse("a body broke the parse of the file after it", isKept("// fun nested() {"))
         assertFalse("a body ran on from the line before it", isKept("// .toString()"))
+        assertFalse("a body parsed only by finishing the line before it", isKept("val total = amount + // 2\n        amount"))
+        assertFalse("a body parsed only as an argument", isKept("audit(amount, // x,\n        x, foo)"))
+
+        val enumEntry = kotlinResultFor(
+            "com/acme/ledger/Tier.kt",
+            """
+            enum class Tier {
+                GOLD,
+                // PLATINUM,
+                SILVER,
+            }
+            """.trimIndent(),
+        )
+        assertEquals("a commented-out enum entry was kept: ${enumEntry.text}", 1, enumEntry.comments.stripped)
     }
 
     /**
