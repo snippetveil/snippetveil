@@ -209,24 +209,38 @@ internal class UniverseSize(
  * @param reportDirectory where the caller wants the report
  * @param fileName the report's own name
  * @param forbidden the trees it may not land in, each under the name the failure should call it
+ * @param property the Gradle property that moves the report, which the refusal names
  * @return the absolute, normalized path to write
  */
-internal fun sweepReportPath(reportDirectory: Path, fileName: String, forbidden: Map<String, Path>): Path {
+internal fun sweepReportPath(
+    reportDirectory: Path,
+    fileName: String,
+    forbidden: Map<String, Path>,
+    property: String = "sweepReportDir",
+): Path {
     val report = reportDirectory.toAbsolutePath().normalize().resolve(fileName)
 
     // Asked twice, of the path as written and of the path as the filesystem resolves it. Neither
     // alone is enough: `/tmp` is a symlink to `/private/tmp` on macOS, so a link is a way past the
     // first, and a directory that does not exist yet cannot be resolved at all.
     forbidden.forEach { (name, tree) ->
-        check(!report.startsWith(tree.toAbsolutePath().normalize()) && !settled(report).startsWith(settled(tree))) {
+        check(!resolvesInside(report, tree)) {
             "The sweep report would be written inside $name ($tree), and it is a list of real " +
                 "identifiers from a real codebase. .gitignore stops `git add`; it does not stop a " +
                 "paste or a screenshot, and a file being inside a repository is what makes those " +
-                "feel safe. Point -PsweepReportDir somewhere outside every tree the sweep touches."
+                "feel safe. Point -P$property somewhere outside every tree the sweep touches."
         }
     }
     return report
 }
+
+/**
+ * **Whether [path] is inside [tree]**, asked of the path as written and of the path as the filesystem
+ * resolves it. Neither alone is enough: a link is a way past the first, and a path that does not exist
+ * yet cannot be resolved at all.
+ */
+internal fun resolvesInside(path: Path, tree: Path): Boolean =
+    path.toAbsolutePath().normalize().startsWith(tree.toAbsolutePath().normalize()) || settled(path).startsWith(settled(tree))
 
 /**
  * [path] as the filesystem actually sees it — symlinks resolved where they can be, absolute and

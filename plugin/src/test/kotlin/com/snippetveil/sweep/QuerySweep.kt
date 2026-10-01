@@ -108,6 +108,7 @@ class QuerySweep : BareTestFixtureTestCase() {
                 put("the SnippetVeil repository", repository)
                 corpora.forEach { put("the swept corpus at ${it.parent}", it.parent) }
             },
+            property = "querySweepReportDir",
         )
 
         // **Asserted before a line is read, not after.** Without the plugins that inject, every host

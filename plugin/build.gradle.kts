@@ -2099,6 +2099,100 @@ tasks.test {
     filter { excludeTestsMatching(querySweepClass) }
 }
 
+// ---------------------------------------------------------------------------------------------
+// The corpus sweep's trace half
+//
+// The same instrument pointed at `Anonymize Stack Trace…`: it runs the action's core path over a
+// file of real traces, resolved against the project they came from, and writes a triage list of the
+// tokens the trace leak oracle found surviving. A local instrument like the halves above — never a
+// merge gate, never in CI — and the one whose input is a file somebody assembles, so the input is
+// refused inside this repository as surely as the report is.
+//
+// See `com.snippetveil.sweep.TraceSweep` and CONTRIBUTING.md.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * **The trace half's test class, spelled once**, for the reason `corpusSweepClass` is: `traceSweep`
+ * includes it and `test` excludes it, and `assertTheSweepIsExcludedFromTheMergeGate` below keeps the
+ * name agreeing with the source tree.
+ */
+val traceSweepClass = "com.snippetveil.sweep.TraceSweep"
+
+/** The file of traces. **Absent means skipped**, so public CI cannot demand it. */
+val traceSweepFile = providers.gradleProperty("traceSweepFile")
+
+/** The project the traces came from, which they are resolved against. */
+val traceSweepProject = providers.gradleProperty("traceSweepProject")
+
+/** Where the report goes. Defaulted by the sweep itself, and refused inside this repository or the project. */
+val traceSweepReportDirectory = providers.gradleProperty("traceSweepReportDir")
+
+intellijPlatformTesting {
+    // The name comes from the root build, where `assertTheSweepIsNeverRunInCi` guards it — one
+    // spelling, so that a rename cannot leave that check guarding a task nobody registers.
+    testIde.register(rootProject.extra["traceSweepTask"] as String) {
+        // Declared again rather than inherited, exactly as the halves above declare them.
+        testFramework(TestFrameworkType.Platform)
+        testFramework(TestFrameworkType.Plugin.Java)
+
+        task {
+            // Read out of the script here, so that the specs below close over plain values rather
+            // than a reference to the build script, which the configuration cache cannot serialize.
+            val file = traceSweepFile.orNull
+            val target = traceSweepProject.orNull
+            val reportDirectory = traceSweepReportDirectory.orNull
+            val repository = rootProject.projectDir.absolutePath
+
+            group = LifecycleBasePlugin.VERIFICATION_GROUP
+            description = "Runs Anonymize Stack Trace's core path over the traces in -PtraceSweepFile and writes a triage list."
+
+            testClassesDirs += sourceSets["test"].output.classesDirs
+            classpath += sourceSets["test"].runtimeClasspath
+            useJUnitPlatform()
+            filter { includeTestsMatching(traceSweepClass) }
+
+            // Where neither the trace file nor the report may be, handed in rather than guessed at by
+            // the process. The input is checked against it too: what goes in stays outside this tree as
+            // surely as what comes out.
+            systemProperty("snippetveil.sweep.repository", repository)
+            file?.let { systemProperty("snippetveil.trace.sweep.file", it) }
+            target?.let { systemProperty("snippetveil.trace.sweep.project", it) }
+            reportDirectory?.let { systemProperty("snippetveil.trace.sweep.reportDirectory", it) }
+
+            // **Skipped, not failed**, when there are no traces to point it at — so a contributor
+            // without any is never blocked and public CI cannot demand it.
+            onlyIf("-PtraceSweepFile names the traces to sweep; without it there is nothing to run") {
+                file != null
+            }
+
+            // **The second layer of "never in CI"**, as on the halves above. Real traces are production
+            // output and colleagues' pastes, and they carry real identifiers: the source half's
+            // argument, not the plan half's.
+            doFirst {
+                val ci = listOf("CI", "GITHUB_ACTIONS", "BUILD_NUMBER").filter { System.getenv(it) != null }
+                check(ci.isEmpty()) {
+                    "The trace sweep reads real stack traces and writes the real identifiers it found " +
+                        "surviving in them. It is run by a human, deliberately, on a machine that already " +
+                        "holds them — and $ci says this is CI."
+                }
+            }
+
+            // An instrument is run to be read. A cached "up-to-date" would print a path to yesterday's
+            // report and look like it had just swept.
+            outputs.upToDateWhen(Specs.satisfyNone())
+            testLogging { showStandardStreams = true }
+
+            // The project the traces are resolved against is a real codebase's worth of index.
+            maxHeapSize = "4g"
+        }
+    }
+}
+
+tasks.test {
+    // **The trace half is not part of the merge gate either**, for the reason the halves above are not.
+    filter { excludeTestsMatching(traceSweepClass) }
+}
+
 /**
  * Fails if the class both filters above name is not the class that is actually there.
  *
@@ -2118,9 +2212,9 @@ val assertTheSweepIsExcludedFromTheMergeGate = tasks.register("assertTheSweepIsE
     // that reached back to a script-level property would carry a reference to the build script
     // itself, which the configuration cache cannot serialize.
     //
-    // **Both halves, by one rule.** Each is excluded from `test` by a filter of its own, and each
+    // **Every half here, by one rule.** Each is excluded from `test` by a filter of its own, and each
     // would rejoin `check` silently if its class were renamed or moved.
-    val named = listOf(corpusSweepClass, querySweepClass)
+    val named = listOf(corpusSweepClass, querySweepClass, traceSweepClass)
     val sources = named.associateWith { layout.projectDirectory.file("src/test/kotlin/${it.replace('.', '/')}.kt") }
 
     sources.values.forEachIndexed { index, source -> inputs.file(source).withPropertyName("source$index") }

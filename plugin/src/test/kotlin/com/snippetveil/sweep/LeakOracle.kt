@@ -185,8 +185,8 @@ internal class LeakOracle private constructor(
          *   [over] makes, with the same blind spot stated rather than hidden.
          */
         fun overTrace(trace: String, declaredByLibraries: Set<String>): LeakOracle {
-            val universe = trace.split(NOT_A_NAME)
-                .filter { it.isNotEmpty() && (it[0].isLetter() || it[0] == '_') && it !in declaredByLibraries }
+            val universe = subTokensOf(trace)
+                .filter { it !in declaredByLibraries }
                 .associateWithTo(LinkedHashMap()) { null as String? }
 
             check(universe.isNotEmpty()) {
@@ -194,6 +194,15 @@ internal class LeakOracle private constructor(
             }
             return LeakOracle(universe, readsBinaryNames = true)
         }
+
+        /**
+         * **Every name-shaped sub-token of [trace]**, in the order it writes them: the trace split on
+         * `.`, `$`, `/` and everything else that is not part of a name. The universe [overTrace] is
+         * built from, before its one subtraction — offered apart so that a caller can tell a trace
+         * with nothing left to look for from one the oracle would refuse to be built over.
+         */
+        fun subTokensOf(trace: String): Set<String> =
+            trace.split(NOT_A_NAME).filterTo(LinkedHashSet()) { it.isNotEmpty() && (it[0].isLetter() || it[0] == '_') }
 
         /** Everything that separates one sub-token of a trace from the next: `.`, `$`, `/` and the rest. */
         private val NOT_A_NAME = Regex("""[^\p{L}\p{N}_]+""")

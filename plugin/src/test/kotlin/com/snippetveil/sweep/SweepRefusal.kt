@@ -32,6 +32,7 @@ internal fun refuseKotlinThatCannotBeSwept(project: Project, files: List<Virtual
             "Where SnippetVeil's Kotlin support is not registered, the Kotlin plugin is running in K1 — " +
             "its default on the floor platform — or is switched off. Sweeping the Java half alone " +
             "would report on a Kotlin half nobody anonymised, so nothing is swept. Run it where the " +
-            "Kotlin plugin runs K2: ./gradlew corpusSweep -PplatformProfile=k2 -PsweepProject=…"
+            "Kotlin plugin runs K2: ./gradlew corpusSweep -PplatformProfile=k2 -PsweepProject=…, or " +
+            "traceSweep with the same -PplatformProfile=k2."
     }
 }
