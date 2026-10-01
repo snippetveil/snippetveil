@@ -628,8 +628,8 @@ Two layers, because they cover different routes:
   section below states. This is readable only because of the thin-CI-over-thick-Gradle rule:
   *what CI runs* is a list, so it is a list that can be tested. Like the other workflow check it
   proves it can fail over fixtures first, and fails outright if it read no `./gradlew` line at all.
-- **The task refuses.** `corpusSweep` — and `querySweep` below — fails if `CI`, `GITHUB_ACTIONS` or
-  `BUILD_NUMBER` is set, which covers the routes the first layer cannot see: a `dependsOn` somebody
+- **The task refuses.** `corpusSweep` — and `querySweep` and `traceSweep` below — fails if `CI`,
+  `GITHUB_ACTIONS` or `BUILD_NUMBER` is set, which covers the routes the first layer cannot see: a `dependsOn` somebody
   adds to `check`, or a shell script on a runner that is not GitHub's. **`planSweep` has no such
   layer, deliberately**: this one is argued from a real codebase reaching a machine nobody chose, and
   that hazard does not exist for a corpus of generated captures. See the plan section below.
@@ -870,6 +870,68 @@ removed, the relaxation goes with it.**
   would flag `Seq` and `Scan` in every structured capture. The generator names its own
   keyword-collision relations — `Sort`, `Hash`, `Filter` — so the case the named assertion is about
   is carried by the schema half instead.
+
+## The trace sweep: the same instrument, pointed at stack traces
+
+```
+./gradlew traceSweep -PtraceSweepFile=/path/to/traces.txt -PtraceSweepProject=/path/to/the/checkout
+```
+
+The population `Anonymize Stack Trace…` exists for cannot be enumerated into fixtures: a colleague's
+paste, production output, Spring proxies, version skew. So this half runs the action's core path —
+the grammar, the resolution against the project, the engine under the project's own settings — over
+a file of **real traces**, and reads every output with the trace leak oracle: **that trace's own
+sub-tokens, split on `.`, `$` and `/`, minus the names the JDK and the libraries declare**. With no
+`-PtraceSweepFile` the task is **skipped, not failed**, exactly as the other halves are.
+
+**The project is the one the traces came from.** A trace resolved against nothing is the rule applied
+to a foreign trace — every frame `Unknown`, and nothing for the oracle to find — so the run refuses
+without `-PtraceSweepProject` rather than write a report that looks clean and says nothing. A project
+with Kotlin in it needs `-PplatformProfile=k2`, and on the floor it is **refused rather than swept
+around**, by the same check the source half runs: a Kotlin frame the IDE cannot read would otherwise
+come back `Unknown`, and a report of `Unknown`s reads exactly like a report of foreign traces.
+
+**Traces in the file are separated by a line of three or more hyphens** (`---`), with blank lines
+around a trace dropped. Not by a blank line: a `DebugProbes` dump has one inside it, and it has to
+arrive whole to be refused *as a dump*.
+
+### Committed trace fixtures stay 100% synthetic
+
+This needs restating for traces in particular. *"Grab a real trace, it's just a stack trace"* is a far
+easier mistake than committing an anonymized corpus, and a stack trace is the artifact people drop
+into an issue without thinking. **A hit this instrument finds earns a synthetic fixture reproducing
+its shape, never the trace that revealed it.** There is no check that a committed trace is synthetic,
+as there is none for the other fixtures; the rule is this paragraph and the review that reads it.
+
+### Its inputs live outside the tree, alongside its outputs
+
+That is new to this half. The other halves point at a codebase, whereas here the input is a file
+somebody assembles — and a file somebody assembles will otherwise get assembled *in* the repository.
+So **the task fails if `-PtraceSweepFile` resolves inside this repository**, through a link as well as
+by its path as written, and the report is refused inside this repository and inside the project the
+traces are resolved against. Keep the file beside the report, in `~/snippetveil-sweep` or anywhere
+else outside every checkout.
+
+### It reports its own denominator, and the hits gate nothing
+
+The report states **traces read**, **traces refused by reason** — *not a trace* and *`DebugProbes`
+dump*, each with the file line every refused trace starts on, since a real trace refused is a grammar
+gap worth triage in itself — and **frames by classification**: project-owned, library-owned, `Unknown`,
+and the partial `Unknown` of a class whose longest prefix resolved, counted apart. Every line is
+printed at zero.
+
+**Oracle hits are listed per trace**, under the line of the file the trace starts on, with the token
+and the output line it survived on. **They never fail the task on their own**: the instrument is read,
+not gated, for the reason every other half's triage list is. The top-level package segment is a known
+recurring hit, reported rather than subtracted for the reason the source half reports `com`. The words
+the JVM's trace printer and the coroutine markers write themselves — `at`, `Caused by`, `more`,
+`<init>` — are subtracted as the JDK's own, which is what `LeakOracle.overTrace` says its one
+subtraction includes.
+
+**Running it over real traces is the maintainer's job.** What runs in `check` is `TracePassTest`, the
+loop over a synthetic trace file with one project name deliberately left unanonymized — which the
+report lists — and `TraceSweepReportTest`, which holds the file format, the refusal of an input inside
+the tree, and every line of the denominator, without a trace to sweep.
 
 ## Continuous integration
 
