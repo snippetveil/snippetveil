@@ -13,6 +13,7 @@ import com.snippetveil.core.MappedKind
 import com.snippetveil.core.REMAINDER_ORIGINAL
 import com.snippetveil.core.SymbolOccurrence
 import com.snippetveil.core.SymbolOrigin
+import com.snippetveil.core.SymbolRole
 import com.snippetveil.core.TraceReading
 import com.snippetveil.core.deanonymize
 import com.snippetveil.core.parseTrace
@@ -458,6 +459,129 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
         assertEmpty(notifications)
     }
 
+    /**
+     * **The trace's own project frames decide the org root.** A trace has no file to take a root
+     * package from, so the root is the one its project-owned frames have. Here that is `org.junit`,
+     * which makes the real junit jar, for the length of this test, the org's own shared artifact. It
+     * stands in for `com.acme.platform.HttpClient` next to a project-owned
+     * `com.acme.billing.BillingService`: without the rule, the library frame would print the org's
+     * namespace as it is.
+     */
+    fun `test a library class under a project frame's root is anonymized`() {
+        addClassInPackage("org.junit.billing", "BillingService")
+
+        val output = invokeAndCapture(ORG_TRACE).result.text
+
+        assertFalse("the org's library class was printed:\n$output", "Assert" in output)
+        assertFalse("the org's library method was printed:\n$output", ".fail(" in output)
+        val assert = placeholderOf("class:org.junit.Assert")
+        assertTrue(
+            "the library frame does not render the library class's placeholder:\n$output",
+            Regex("""\tat org\.pkg\d+\.$assert\.method\d+\(""").containsMatchIn(output),
+        )
+    }
+
+    /**
+     * **Intended, and pinned so that nobody fixes it.** The same `Assert` frame as above, in a trace
+     * where nothing resolves as project-owned: a foreign trace, pasted from a colleague's project.
+     * With no project frame there is no root, so the org's library is preserved here and anonymized
+     * in a local trace. That looks exactly like a bug. It is the rule: the root is per invocation,
+     * and deriving it project-wide instead is a heuristic that comes out empty in a monorepo.
+     */
+    fun `test a foreign trace preserves the org's library class a local trace anonymizes, and that is intended`() {
+        val output = captureForeign(FOREIGN_ORG_TRACE).result.text
+
+        assertTrue("the library frame was not preserved:\n$output", "\tat org.junit.Assert.fail(Assert.java:89)\n" in output)
+    }
+
+    /** With nothing project-owned, the editable prefix list is all that applies, and it still does. */
+    fun `test a foreign trace still answers to the editable prefix list`() {
+        InternalLibrarySettings.of(project).loadState(
+            InternalLibrarySettings.State().apply { internalPrefixes = mutableListOf("org.junit") },
+        )
+
+        val output = captureForeign(FOREIGN_ORG_TRACE).result.text
+
+        assertFalse("a listed prefix did not anonymize the library:\n$output", "Assert" in output)
+    }
+
+    /**
+     * **A `_CREATION` block's frames are frames.** The only project frame here sits under the
+     * creation marker, and it still makes the root that claims the library frame above it.
+     */
+    fun `test a project frame in a creation block counts toward the org root`() {
+        addClassInPackage("org.junit.billing", "BillingService")
+
+        val output = invokeAndCapture(CREATION_ORG_TRACE).result.text
+
+        assertTrue("the creation marker was not kept:\n$output", "\tat _COROUTINE._CREATION._(CoroutineDebugging.kt:69)" in output)
+        assertFalse("the org's library class was printed:\n$output", "Assert" in output)
+    }
+
+    /**
+     * **An all-`Unknown` trace is the rule applied, not a failure, and it opens the preview.** It says
+     * something true: *this trace is not about code you have open*. Refusing it is the obvious later
+     * "safety" fix, and this test is there to stop it.
+     */
+    fun `test an all-Unknown foreign trace opens the preview and is not refused`() {
+        val analysis = captureForeign(ALL_UNKNOWN_TRACE)
+        val output = analysis.result.text
+
+        assertTrue(
+            "something in the foreign trace resolved, so it is not all Unknown: ${analysis.plan.occurrences}",
+            analysis.plan.occurrences.filterIsInstance<SymbolOccurrence>().all { it.symbol.origin == SymbolOrigin.UNRESOLVED },
+        )
+        for (name in listOf("globex", "billing", "LedgerClosed", "Ledger", "post", "Ghost", "haunt")) {
+            assertFalse("`$name` was printed:\n$output", Regex("""\b$name\b""").containsMatchIn(output))
+        }
+        assertEquals("the anonymized foreign trace was not copied", output, clipboard())
+        assertEquals(
+            "the foreign trace was refused or warned about: ${notifications.map { it.content }}",
+            listOf(NotificationType.INFORMATION),
+            notifications.map { it.type },
+        )
+    }
+
+    /**
+     * **Only a resolved name is written down.** A resolved frame's class is a persistable key and a
+     * confirmed trace mints it, so a trace seeds the ledger; an unresolved frame's class-shaped
+     * string is text, and nothing is written for it.
+     */
+    fun `test an unresolved frame writes no ledger entry and a resolved project frame mints one`() {
+        addPayoutsProject()
+
+        invokeAndCapture(TRACE)
+
+        val placeholders = PlaceholderLedger.getInstance().snapshotOf(project).placeholders
+        assertTrue("the resolved project frame was not written down: ${placeholders.keys}", "class:com.acme.payouts.PayoutLedger" in placeholders)
+        val ghostly = placeholders.filter { (key, minted) -> "PayoutGhost" in key || "haunt" in key || minted.original in setOf("PayoutGhost", "haunt", "PayoutGhost.java") }
+        assertEmpty("an unresolved frame was written down: $ghostly", ghostly.keys)
+    }
+
+    /**
+     * **Paste a foreign trace, see it is mostly `Unknown`, press Escape** — the expected interaction,
+     * and so the case where *a cancelled preview burns nothing* is actually exercised.
+     */
+    fun `test cancelling the preview of a foreign trace leaves the ledger and the counter unchanged`() {
+        addPayoutsProject()
+        invokeAndCapture(TRACE)
+        dropEarlierBalloons()
+        val before = PlaceholderLedger.getInstance().snapshotOf(project)
+
+        var cancelled = false
+        invoke(FakeClipboard(ALL_UNKNOWN_TRACE)) { _, analysis ->
+            assertFalse("the foreign trace minted nothing to burn, so this proves nothing", analysis.result.mapping.isEmpty())
+            cancelled = true
+            null
+        }
+        awaitEvents("the preview was never opened") { cancelled }
+
+        val after = PlaceholderLedger.getInstance().snapshotOf(project)
+        assertEquals("a cancelled foreign trace burnt a number", before.nextNumber, after.nextNumber)
+        assertEquals("a cancelled foreign trace named a symbol", before.placeholders, after.placeholders)
+        assertEmpty(notifications)
+    }
+
     /** The balloon reads the three numbers a trace has, `unknown` among them, and names what left. */
     fun `test the balloon and the strip carry renamed, unknown and preserved`() {
         addPayoutsProject()
@@ -552,6 +676,23 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
         invoke(FakeClipboard(trace)) { _, analysis -> analysis.also { shown = it } }
         awaitBackgroundWork()
         return checkNotNull(shown) { "the trace was refused: ${notifications.map { it.content }}" }.also(::assertTheTraceResolved)
+    }
+
+    /**
+     * Invokes over a trace from somebody else's project, lets the preview through unchanged, and
+     * returns what it was shown — **without** [assertTheTraceResolved], since resolving nothing as
+     * project-owned is the point. The library half of that check still holds where a frame names one.
+     */
+    private fun captureForeign(trace: String): Analysis {
+        var shown: Analysis? = null
+        invoke(FakeClipboard(trace)) { _, analysis -> analysis.also { shown = it } }
+        awaitBackgroundWork()
+        val analysis = checkNotNull(shown) { "the trace was refused: ${notifications.map { it.content }}" }
+        assertFalse(
+            "a frame resolved as project-owned, so this trace is not foreign",
+            analysis.plan.occurrences.filterIsInstance<SymbolOccurrence>().any { it.symbol.origin == SymbolOrigin.IN_CONTENT && it.symbol.role == SymbolRole.TYPE },
+        )
+        return analysis
     }
 
     private fun invoke(clipboard: Clipboard, previews: Previews): Presentation {
@@ -700,6 +841,39 @@ private val GENERATED_TRACE = listOf(
     "\tat com.acme.payouts.PayoutGhost.haunt(PayoutGhost.java:9)",
     "\tat org.junit.Assert.fail(Assert.java:89)",
     "\tat java.base/java.lang.Thread.run(Thread.java:840)",
+).joinToString("\n")
+
+/**
+ * A local trace through the org's own library: a project frame under `org.junit` — the fixture's
+ * stand-in for `com.acme` — and the junit jar's `Assert`, standing in for `com.acme.platform`.
+ */
+private val ORG_TRACE = listOf(
+    "java.lang.IllegalStateException: charge failed",
+    "\tat org.junit.Assert.fail(Assert.java:89)",
+    "\tat org.junit.billing.BillingService.charge(BillingService.java:12)",
+    "\tat java.base/java.lang.Thread.run(Thread.java:840)",
+).joinToString("\n")
+
+/** The same library frame, in a trace whose own frame is from a project this IDE does not have. */
+private val FOREIGN_ORG_TRACE = listOf(
+    "java.lang.IllegalStateException: charge failed",
+    "\tat org.junit.Assert.fail(Assert.java:89)",
+    "\tat com.globex.billing.Ledger.post(Ledger.java:12)",
+).joinToString("\n")
+
+/** [ORG_TRACE] with its only project frame under a creation marker, the way a coroutine prints it. */
+private val CREATION_ORG_TRACE = listOf(
+    "java.lang.IllegalStateException: charge failed",
+    "\tat org.junit.Assert.fail(Assert.java:89)",
+    "\tat _COROUTINE._CREATION._(CoroutineDebugging.kt:69)",
+    "\tat org.junit.billing.BillingService.charge(BillingService.java:12)",
+).joinToString("\n")
+
+/** A trace from somebody else's project in which nothing resolves at all, the exception included. */
+private val ALL_UNKNOWN_TRACE = listOf(
+    "com.globex.billing.LedgerClosed: closed",
+    "\tat com.globex.billing.Ledger.post(Ledger.java:12)",
+    "\tat com.globex.billing.Ghost.haunt(Ghost.java:9)",
 ).joinToString("\n")
 
 /** Every remainder in [GENERATED_TRACE]: what is left of each name after its longest resolved prefix. */

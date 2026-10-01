@@ -164,6 +164,13 @@ class InternalLibraries(
 )
 
 /**
+ * **The root of [packageName]: its first two segments** — `com.acme` out of `com.acme.web`. The cut
+ * the reverse-domain convention makes right far more often than not, and the one place it is made:
+ * a snippet's file root and a trace's type roots are both this.
+ */
+fun rootPackageOf(packageName: String): String = packageName.split('.').take(2).joinToString(".")
+
+/**
  * The placeholders already handed out, as they stood when this invocation started.
  *
  * **Placeholders are stable: `CustomerService` is `Type1` today, tomorrow, and after an IDE

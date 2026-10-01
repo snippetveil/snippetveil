@@ -21,6 +21,21 @@ package com.snippetveil.core
  *   or `null` for the default package. It is a fact about the file rather than a judgment, and it is
  *   the evidence the internal-library prefix rule reads: a library symbol under this prefix is the
  *   company's own code arriving as a jar. See [InternalLibraries].
+ * @param rootFromOwnedTypes whether this plan has **no file under analysis**, so that its internal-org
+ *   roots come from **the types it reports as project content** instead — `com.acme` out of a
+ *   `com.acme.billing.BillingService` the index found in the project. A stack trace is the case:
+ *   with no file, `com.acme.platform.HttpClient` would otherwise be preserved as a library and leak
+ *   the org's namespace. [rootPackage] is `null` on such a plan.
+ *
+ *   **Per invocation, and that is intended.** A trace from somebody else's project resolves nothing
+ *   as project content, so it derives no root, and only the editable prefix list applies to it. The
+ *   same `HttpClient` frame that a local trace anonymizes is then preserved. Deriving the roots
+ *   project-wide instead — from source roots or ledger keys — was rejected: it is a heuristic, and it
+ *   comes out empty in a monorepo rooted at both `com.acme` and `io.tools`.
+ *
+ *   **Types only, never package segments and never text.** A package is project content whenever any
+ *   directory behind it is, so `com` usually is; read as a root, it would claim every `com.*`
+ *   library there is.
  * @param selectionExpanded whether snapping the selection outward to whole tokens moved either end
  *   of it — a fact about how [text] was cut, and the one thing in this plan no rule here reads.
  *
@@ -38,7 +53,12 @@ class SnippetPlan(
     val occurrences: List<Occurrence>,
     val rootPackage: String? = null,
     val selectionExpanded: Boolean = false,
-)
+    val rootFromOwnedTypes: Boolean = false,
+) {
+    init {
+        require(!rootFromOwnedTypes || rootPackage == null) { "a plan with no file under analysis has no file root package" }
+    }
+}
 
 /**
  * Something in [SnippetPlan.text] the engine may act on, as a half-open range `[start, end)`.
