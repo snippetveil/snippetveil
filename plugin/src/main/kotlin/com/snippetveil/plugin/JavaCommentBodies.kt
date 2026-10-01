@@ -9,14 +9,12 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiCodeBlock
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiField
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNameIdentifierOwner
-import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.impl.source.resolve.FileContextUtil
 import com.intellij.psi.javadoc.PsiDocComment
@@ -103,17 +101,14 @@ internal object JavaCommentParser : CommentParser {
 /**
  * **[comment]'s body parsed as code at its own position, or `null` when it is not code.**
  *
- * Not code means one of two things, and both are read off the tree the parser returned:
- *  - **an error element anywhere in it** — the body does not parse where it is written;
- *  - **no code element at all** — an empty `//`, a body of whitespace, or a body that is nothing but
- *    a nested comment. A vacuous parse is not a parse, and an empty comment must never count as
- *    a comment anonymized.
+ * Not code is read off the tree the parser returned — an error element in it, no code at all, or
+ * nothing but names — by [isCodeIn], which is the one statement of that rule for every language. The
+ * fragment is the body and nothing else, so all of it is the body.
  */
 internal fun parsedBodyOf(comment: PsiComment, parser: CommentParser): PsiFile? {
     val position = positionOf(comment)
     val parsed = parser.parse(comment, bodyOf(comment), position)
-    if (PsiTreeUtil.findChildOfType(parsed, PsiErrorElement::class.java) != null) return null
-    if (parsed.children.none { it !is PsiWhiteSpace && it !is PsiComment && it.textLength > 0 }) return null
+    if (!isCodeIn(parsed, parsed.textRange)) return null
 
     // Where this fragment sits inside the comment the walk met in the file — the comment itself, or
     // the one it is nested in, however deep. Read by [commentDeclarationEvidence].

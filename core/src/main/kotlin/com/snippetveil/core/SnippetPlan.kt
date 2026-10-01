@@ -305,7 +305,7 @@ class LiteralReference(val start: Int, val end: Int, val symbol: SymbolEvidence)
  * The whole block, delimiters included, because a comment is stripped by removing it: half a comment
  * left behind is not a comment removed, it is a file that no longer parses.
  *
- * **A Java comment whose body parses never arrives as one of these.** It is decomposed instead — its
+ * **A Java or Kotlin comment whose body parses never arrives as one of these.** It is decomposed instead — its
  * names, its literals and the comments nested in it each reported as occurrences of their own,
  * tagged [CodeContainer.ParsedComment] — so that it is anonymized and kept on exactly the terms
  * live code is, and there is nothing whole left for a strip to remove. A nested comment is one of
@@ -332,11 +332,11 @@ class CommentOccurrence(
  * the same way [LiteralKind] is a fact about a literal's type — so it crosses this seam like any
  * other evidence.
  *
- * **In Java the verdict decides what the plan holds rather than riding on a comment.** A body that
- * parses is decomposed into occurrences of its own and kept, so every Java [CommentOccurrence] is
- * [PROSE]. [CODE] is still reported by the walks whose verdict has not moved to that rule — Kotlin's,
- * and the query languages' — and there it is evidence only: those comments are stripped whatever it
- * says, and the strip counts them with the rest.
+ * **In Java and Kotlin the verdict decides what the plan holds rather than riding on a comment.** A
+ * body that parses is decomposed into occurrences of its own and kept, so every Java and Kotlin
+ * [CommentOccurrence] is [PROSE]. [CODE] is still reported by the query languages' walk, whose
+ * verdict has not moved to that rule, and there it is evidence only: those comments are stripped
+ * whatever it says, and the strip counts them with the rest.
  */
 enum class CommentVerdict {
 

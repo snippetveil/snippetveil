@@ -4,18 +4,18 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.PsiMember
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiNameHelper
 import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.PsiQualifiedNamedElement
+import com.intellij.psi.PsiRecursiveElementWalkingVisitor
 import com.intellij.psi.PsiReference
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.snippetveil.core.AccessorEvidence
+import com.snippetveil.core.CodeContainer
 import com.snippetveil.core.CommentOccurrence
 import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.LiteralKind
@@ -34,7 +34,6 @@ import com.snippetveil.plugin.PlanBuilder
 import com.snippetveil.plugin.SnippetRequest
 import com.snippetveil.plugin.SymbolFacts
 import com.snippetveil.plugin.SymbolKeys
-import com.snippetveil.plugin.commentBodyOf
 import com.snippetveil.plugin.fragmentsOf
 import com.snippetveil.plugin.snappedRangesOf
 import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
@@ -43,7 +42,6 @@ import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
 import org.jetbrains.kotlin.idea.references.mainReference
-import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.kdoc.psi.api.KDoc
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtCallExpression
@@ -105,10 +103,13 @@ import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
  * is a container rather than a token: it snaps as a whole — see [tokenOf] — and it is then
  * decomposed into its parts, each of which meets a rule on its own. See [templateChunksIn].
  *
- * **A comment is reported whole, with what Kotlin's own parser made of its body** — see
- * [commentsIn]. Until it was, nothing on a `.kt` file stripped one: the engine strips the comments
- * it is told about, this walk told it about none, and every line comment, block comment and KDoc
- * block in a Kotlin selection went out verbatim under a balloon that had no comment count to show.
+ * **A comment is reported by what Kotlin's own parser makes of its body where it is written** — see
+ * [commentOccurrencesOf]. Commented-out code is decomposed and kept, anonymized on the terms live code
+ * is; prose is reported whole, and stripped. That is the Java walk's rule, and it is one rule: what
+ * counts as parsed is decided for both languages in one place. Until comments were reported at all,
+ * nothing on a `.kt` file stripped one: the engine strips the comments it is told about, this walk
+ * told it about none, and every line comment, block comment and KDoc block in a Kotlin selection went
+ * out verbatim under a balloon that had no comment count to show.
  *
  * **A `.kt` file reaches this walk through [KotlinSupport]**, which `com.snippetveil-withKotlin.xml`
  * registers for `kt` — so this runs exactly where that descriptor loaded, and nowhere else. On an IDE
@@ -135,15 +136,28 @@ import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
  */
 internal object KotlinPlanBuilder : PlanBuilder {
 
-    override fun build(request: SnippetRequest): SnippetPlan {
+    override fun build(request: SnippetRequest): SnippetPlan = build(request, PlatformKotlinCommentParser)
+
+    /**
+     * The walk, with [commentParser] parsing each comment's body where it is written.
+     *
+     * [commentParser] is the platform's parser everywhere but in the test that makes it throw — which
+     * is how *a parse that throws fails the invocation closed* is shown rather than asserted.
+     */
+    internal fun build(request: SnippetRequest, commentParser: KotlinCommentParser): SnippetPlan {
         val file = request.file
         val snapped = snappedRangesOf(file, request.selections, ::tokenOf)
         val fragments = fragmentsOf(file, snapped)
 
         val text = fragments.joinToString(FRAGMENT_SEPARATOR) { file.text.substring(it.range.startOffset, it.range.endOffset) }
-        val occurrences =
-            (symbolsIn(request.project, file, fragments) + templateChunksIn(file, fragments) + commentsIn(request.project, file, fragments))
-                .sortedBy { it.start }
+        val bodies = commentsIn(file, fragments).associateWith { parsedBodyOf(it, commentParser) }
+        val kept = bodies.filterValues { it != null }.keys.map { it.textRange }
+        val occurrences = (
+            symbolsIn(request.project, file, fragments, kept) +
+                templateChunksIn(file, fragments) +
+                commentOccurrencesIn(request.project, fragments, bodies, commentParser)
+            )
+            .sortedBy { it.start }
 
         return SnippetPlan(
             text,
@@ -158,35 +172,48 @@ internal object KotlinPlanBuilder : PlanBuilder {
 
     /**
      * Every Kotlin identifier inside the analysed ranges, with what is known about the symbol it
-     * names — **and the ranges are the token's own**, which is the whole reason this walk exists.
+     * names — **and the ranges are the token's own**, which is the whole reason this walk exists —
+     * except inside a comment in [kept], whose names are read out of its parsed body instead.
      *
      * A leaf walk rather than a visitor, for the reason the Java walk is one: the unit of interest is
      * the token, and the snapped ranges are token-aligned, so *inside the range* is a question with
-     * no partial answers.
+     * no partial answers. The one comment with identifiers of its own in the file's tree is KDoc — its
+     * `[links]` — and a KDoc block that parsed as code is decomposed from its body like any other, so
+     * reporting its identifiers here too would be two occurrences over one range.
      */
-    private fun symbolsIn(project: Project, file: PsiFile, fragments: List<Fragment>): List<Occurrence> {
+    private fun symbolsIn(project: Project, file: PsiFile, fragments: List<Fragment>, kept: List<TextRange>): List<Occurrence> {
         val occurrences = mutableListOf<Occurrence>()
         for (fragment in fragments) {
             var leaf: PsiElement? = file.findElementAt(fragment.range.startOffset)
             while (leaf != null && leaf.textRange.startOffset < fragment.range.endOffset) {
-                if (PsiUtilCore.getElementType(leaf) == KtTokens.IDENTIFIER && fragment.range.contains(leaf.textRange)) {
-                    // `null` is the silence rule and nothing else — a name the *language* fixed, which
-                    // there is nothing to splice over. See [evidenceFor].
-                    evidenceFor(project, leaf)?.let { evidence ->
-                        occurrences += SymbolOccurrence(
-                            start = fragment.translate(leaf.textRange.startOffset),
-                            end = fragment.translate(leaf.textRange.endOffset),
-                            text = leaf.text,
-                            symbol = evidence,
-                            language = LANGUAGE,
-                        )
-                    }
+                if (PsiUtilCore.getElementType(leaf) == KtTokens.IDENTIFIER &&
+                    fragment.range.contains(leaf.textRange) &&
+                    kept.none { it.contains(leaf.textRange) }
+                ) {
+                    symbolOccurrenceOf(project, leaf, fragment::translate, CodeContainer.LiveCode)?.let { occurrences += it }
                 }
                 leaf = PsiTreeUtil.nextLeaf(leaf)
             }
         }
         return occurrences
     }
+
+    /**
+     * One identifier as the plan reports it, at the plan offsets [at] maps its own offsets to — or
+     * `null` under the silence rule and nothing else: a name the *language* fixed, which there is
+     * nothing to splice over. See [evidenceFor].
+     */
+    private fun symbolOccurrenceOf(project: Project, identifier: PsiElement, at: (Int) -> Int, container: CodeContainer): Occurrence? =
+        evidenceFor(project, identifier)?.let { evidence ->
+            SymbolOccurrence(
+                start = at(identifier.textRange.startOffset),
+                end = at(identifier.textRange.endOffset),
+                text = identifier.text,
+                symbol = evidence,
+                language = LANGUAGE,
+                container = container,
+            )
+        }
 
     /**
      * **What one token is, in Kotlin: the string template or the KDoc block a leaf belongs to, or
@@ -218,65 +245,119 @@ internal object KotlinPlanBuilder : PlanBuilder {
             ?: leaf
 
     /**
-     * Every comment that falls whole inside the analysed ranges — line, block and KDoc alike — with
-     * the verdict Kotlin's parser reached about its body, and with nothing else said about it.
-     * Whether it is stripped is [com.snippetveil.core.anonymize]'s decision, exactly as it is for
-     * Java's.
+     * Every comment that falls whole inside the analysed ranges — line, block and KDoc alike.
      *
      * **Whole is every comment there is**, which [tokenOf] is what makes true: a line comment and a
      * block comment are single leaves, and KDoc snaps as a block, so no analysed range holds half of
-     * one.
-     *
-     * **KDoc's links are not reported a second time.** `[Ledger]` and an `@param` target are
-     * identifier leaves, so [symbolsIn] has already walked them: they rename with the symbol they
-     * name when comments are kept, and the engine drops them with everything else a stripped comment
-     * covers when they are not.
+     * one. A block comment nested in another is part of that one's single leaf, and meets the verdict
+     * when the outer body is parsed — see [partsOf].
      */
-    private fun commentsIn(project: Project, file: PsiFile, fragments: List<Fragment>): List<Occurrence> =
-        PsiTreeUtil.findChildrenOfType(file, PsiComment::class.java).mapNotNull { comment ->
-            val fragment = fragments.firstOrNull { it.range.contains(comment.textRange) } ?: return@mapNotNull null
-            CommentOccurrence(
-                start = fragment.translate(comment.textRange.startOffset),
-                end = fragment.translate(comment.textRange.endOffset),
-                verdict = verdictOf(project, comment),
-                language = LANGUAGE,
-            )
+    private fun commentsIn(file: PsiFile, fragments: List<Fragment>): List<PsiComment> =
+        PsiTreeUtil.findChildrenOfType(file, PsiComment::class.java)
+            .filter { comment -> fragments.any { it.range.contains(comment.textRange) } }
+
+    /**
+     * What every comment in [bodies] puts in the plan — see [commentOccurrencesOf] — at the offsets
+     * of the fragment it lies in.
+     */
+    private fun commentOccurrencesIn(
+        project: Project,
+        fragments: List<Fragment>,
+        bodies: Map<PsiComment, PsiFile?>,
+        commentParser: KotlinCommentParser,
+    ): List<Occurrence> =
+        bodies.flatMap { (comment, parsed) ->
+            val fragment = fragments.first { it.range.contains(comment.textRange) }
+            commentOccurrencesOf(project, comment, parsed, fragment::translate, CodeContainer.LiveCode, commentParser)
         }
 
     /**
-     * **What a Kotlin parser makes of one comment's body: the body of a function, or not.**
+     * **What one comment puts in the plan: its parts when its body parsed as code, itself when it did
+     * not** — the Java walk's rule, read with Kotlin's parser.
      *
-     * The same question [com.snippetveil.plugin.JavaPlanBuilder] asks, put to the parser of the
-     * language the comment was written in — commented-out Kotlin is not Java, and Java's parser
-     * would call `// val total = 3` prose. The body is wrapped in a function and the file is read
-     * back: it is code iff nothing in it is an error **and the function is still the only
-     * declaration**, because a body that closes the brace and opens another declaration parses
-     * cleanly as something that is not a block.
+     * A body that did not parse is reported whole, as prose; whether it is stripped is
+     * [com.snippetveil.core.anonymize]'s decision, exactly as it is for Java's. **KDoc's links are not
+     * reported here**: `[Ledger]` and an `@param` target are identifier leaves, so [symbolsIn] — or
+     * [partsOf], inside a parsed body — has already walked them: they rename with the symbol they name
+     * when comments are kept, and the engine drops them with everything else a stripped comment covers
+     * when they are not.
      *
-     * **The verdict feeds a count and gates nothing**: a comment is stripped whatever it says. That
-     * matters here more than in Java, because Kotlin's grammar reads more prose as code than Java's
-     * does — a bare word is an expression, and `retry on timeout` is an infix call. So the split
-     * this reports over-counts *commented-out code* on short prose comments, and it is a stated
-     * limit rather than something a heuristic here papers over: a rule that guessed which parses
-     * were accidents would be deciding from a comment's content, which is the one thing a verdict
-     * is not. `KotlinCommentTest` pins what it says about both.
+     * **A body that parsed is never reported whole.** It is decomposed structurally — each name, each
+     * template and each nested comment an occurrence of its own, at the offsets they have in the file —
+     * so that it meets every rule on the terms live code does, and there is no occurrence spanning the
+     * comment for a strip to remove.
      *
-     * An empty body is prose, for the reason it is in Java: an empty block parses, and *commented-out
-     * code* is the one verdict about an empty comment that is plainly false.
+     * @param parsed the file parsed with this comment's body in place, or `null` — see [parsedBodyOf]
+     * @param at maps an offset in the file to the plan; an offset in [parsed] is one in the file
      */
-    private fun verdictOf(project: Project, comment: PsiComment): CommentVerdict {
-        val body = commentBodyOf(comment)
-        if (body.isBlank()) return CommentVerdict.PROSE
+    private fun commentOccurrencesOf(
+        project: Project,
+        comment: PsiComment,
+        parsed: PsiFile?,
+        at: (Int) -> Int,
+        container: CodeContainer,
+        commentParser: KotlinCommentParser,
+    ): List<Occurrence> {
+        val range = comment.textRange
+        if (parsed == null) {
+            return listOf(CommentOccurrence(at(range.startOffset), at(range.endOffset), CommentVerdict.PROSE, LANGUAGE, container))
+        }
 
-        // The closing brace goes on a line of its own, because a body ending in a line comment
-        // would otherwise swallow it.
-        val parsed = PsiFileFactory.getInstance(project)
-            .createFileFromText("comment.kt", KotlinFileType.INSTANCE, "fun body() {\n$body\n}") as? KtFile
-            ?: return CommentVerdict.PROSE
+        // Everything a kept line holds is read from the comment the walk started at, so a comment
+        // nested in one keeps the tag it was handed rather than naming itself.
+        val keptComment = container as? CodeContainer.ParsedComment
+            ?: CodeContainer.ParsedComment(at(range.startOffset), at(range.endOffset))
+        return partsOf(project, parsed, bodyRangeOf(comment), at, keptComment, commentParser)
+    }
 
-        val isOneFunction = parsed.declarations.singleOrNull() is KtNamedFunction
-        val parsedCleanly = PsiTreeUtil.findChildOfType(parsed, PsiErrorElement::class.java) == null
-        return if (isOneFunction && parsedCleanly) CommentVerdict.CODE else CommentVerdict.PROSE
+    /**
+     * **Every part of a parsed comment body the plan says anything about**: its names, its string
+     * templates, and the comments nested inside it — **each nested comment meeting the verdict on its
+     * own terms**, recursively. A nested block comment is one of these exactly as a nested line
+     * comment is: Kotlin's block comments nest, so the outer one is a single token in the file, and
+     * the inner one becomes a comment of its own only once the outer body is parsed.
+     *
+     * Everything here is tagged [keptComment], nested comments included: the tag says where a token
+     * was read from, all of these were read from inside that comment, and it names the comment so
+     * that kept comments can be counted.
+     *
+     * A walk over the part of the copy the body occupies rather than a leaf walk over a selection,
+     * because nothing here is cut by a selection — the comment is whole, so every part of it is.
+     */
+    private fun partsOf(
+        project: Project,
+        parsed: PsiFile,
+        body: TextRange,
+        at: (Int) -> Int,
+        keptComment: CodeContainer.ParsedComment,
+        commentParser: KotlinCommentParser,
+    ): List<Occurrence> {
+        val parts = mutableListOf<Occurrence>()
+        parsed.accept(
+            object : PsiRecursiveElementWalkingVisitor() {
+                override fun visitElement(element: PsiElement) {
+                    if (!element.textRange.intersects(body)) return
+                    if (body.contains(element.textRange)) {
+                        when {
+                            PsiUtilCore.getElementType(element) == KtTokens.IDENTIFIER ->
+                                symbolOccurrenceOf(project, element, at, keptComment)?.let { parts += it }
+
+                            element is KtStringTemplateExpression -> parts += chunkOccurrencesOf(element, at, keptComment)
+
+                            element is PsiComment -> {
+                                val nested = parsedBodyOf(element, commentParser)
+                                parts += commentOccurrencesOf(project, element, nested, at, keptComment, commentParser)
+                                // A nested body that parsed was read from its own copy, so nothing
+                                // under it is read a second time here.
+                                if (nested != null) return
+                            }
+                        }
+                    }
+                    super.visitElement(element)
+                }
+            },
+        )
+        return parts
     }
 
     /**
@@ -324,22 +405,27 @@ internal object KotlinPlanBuilder : PlanBuilder {
             .flatMap { template ->
                 val fragment = fragments.firstOrNull { it.range.contains(template.textRange) }
                     ?: return@flatMap emptyList()
-                val kind = kindOf(template)
-
-                chunksOf(template).map { chunk ->
-                    val end = fragment.translate(chunk.range.endOffset)
-                    LiteralOccurrence(
-                        start = fragment.translate(chunk.range.startOffset),
-                        end = end,
-                        kind = kind,
-                        contentStart = fragment.translate(chunk.contentStart),
-                        // The chunk's own end: a chunk's content runs to the end of the run, because
-                        // what closes it is the next entry rather than a delimiter of its own.
-                        contentEnd = end,
-                        language = LANGUAGE,
-                    )
-                }
+                chunkOccurrencesOf(template, fragment::translate, CodeContainer.LiveCode)
             }
+
+    /** The chunks of one template as the plan reports them, at the plan offsets [at] maps its own to. */
+    private fun chunkOccurrencesOf(template: KtStringTemplateExpression, at: (Int) -> Int, container: CodeContainer): List<Occurrence> {
+        val kind = kindOf(template)
+        return chunksOf(template).map { chunk ->
+            val end = at(chunk.range.endOffset)
+            LiteralOccurrence(
+                start = at(chunk.range.startOffset),
+                end = end,
+                kind = kind,
+                contentStart = at(chunk.contentStart),
+                // The chunk's own end: a chunk's content runs to the end of the run, because what
+                // closes it is the next entry rather than a delimiter of its own.
+                contentEnd = end,
+                language = LANGUAGE,
+                container = container,
+            )
+        }
+    }
 
     /**
      * **The literal-entry runs of one template**, in order — which partition the template's entries

@@ -1,14 +1,22 @@
 package com.snippetveil.plugin.kotlin
 
+import com.intellij.psi.PsiComment
+import com.intellij.psi.PsiErrorElement
+import com.intellij.psi.util.PsiTreeUtil
 import com.snippetveil.core.AnonymizationSettings
+import com.snippetveil.core.CodeContainer
 import com.snippetveil.core.CommentOccurrence
-import com.snippetveil.core.CommentVerdict
 import com.snippetveil.core.LedgerSnapshot
 import com.snippetveil.core.anonymize
+import com.snippetveil.plugin.SnippetRequest
+import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 
 /**
- * **A Kotlin comment is stripped by default**, read off real Kotlin — every kind of one, and the
- * whole of one however the selection cut it.
+ * **Kotlin comment prose is stripped by default**, read off real Kotlin — every kind of comment, and
+ * the whole of one however the selection cut it — **and what decides that it is prose is Kotlin's own
+ * parse, at the comment's position.** What happens to commented-out code that parses is
+ * `KotlinCommentedOutCodeTest`'s.
  *
  * What the engine does with a reported comment is `:core`'s business and is tested there against
  * plan literals. What cannot be tested there is whether the Kotlin walk **reports** one, and for
@@ -78,28 +86,93 @@ internal class KotlinCommentTest : KotlinSnippetTestCase() {
 
     /**
      * **The verdict is Kotlin's parse, not Java's** — commented-out Kotlin is code, a local function
-     * included, which Java's block rule cannot say about a method. And a TODO is prose in both.
+     * included, and a TODO is prose in both.
      */
     fun `test commented-out Kotlin is code and a TODO is prose`() {
-        assertEquals(CommentVerdict.CODE, verdictOf("// val total = 3"))
-        assertEquals(CommentVerdict.CODE, verdictOf("/* if (amount > 0) audit(amount) */"))
-        assertEquals(CommentVerdict.CODE, verdictOf("// fun pay() {}"))
-        assertEquals(CommentVerdict.PROSE, verdictOf("// TODO: fix this"))
-        assertEquals(CommentVerdict.PROSE, verdictOf("// this is where the payout breaks"))
-        assertEquals(CommentVerdict.PROSE, verdictOf("//"))
+        assertTrue(isKept("// val total = 3"))
+        assertTrue(isKept("/* if (amount > 0) audit(amount) */"))
+        assertTrue(isKept("// fun pay() {}"))
+        assertFalse(isKept("// TODO: fix this"))
+        assertFalse(isKept("// this is where the payout breaks"))
+        assertFalse(isKept("//"))
     }
 
     /**
-     * **The stated limit, pinned rather than left to be discovered.** Kotlin reads a bare word as an
-     * expression and three of them as an infix call, so short prose parses — and the balloon's
-     * *commented-out code* count over-counts on it. The verdict gates nothing: all of these are
-     * stripped like any other comment. A body that closes the wrapper and opens a declaration of its
-     * own parses cleanly too, and is prose, because what it parsed as is not a block.
+     * **Prose that parses is prose.** Kotlin reads a bare word as an expression and three of them as
+     * an infix call, so short prose parses — as nothing but names. That is the vacuous parse's second
+     * way of saying nothing, and it is stripped exactly as the same comment is in Java. A body that
+     * does anything more than name things — a call with parentheses, an assignment, a member access
+     * — is code.
      */
-    fun `test short prose that happens to parse is counted as code, and a second declaration is not`() {
-        assertEquals(CommentVerdict.CODE, verdictOf("// Deprecated"))
-        assertEquals(CommentVerdict.CODE, verdictOf("// retry on timeout"))
-        assertEquals(CommentVerdict.PROSE, verdictOf("// } fun other() {"))
+    fun `test a body of bare names is prose and a body that does more is code`() {
+        for (prose in listOf("// retry on timeout", "// TODO", "// fix later", "// Deprecated", "/* settle the payout */")) {
+            assertFalse("`$prose` was kept as code", isKept(prose))
+        }
+        for (code in listOf("// retry(onTimeout)", "// x = 1", "// foo.bar()", "// TODO()", "// \"late\"")) {
+            assertTrue("`$code` was not kept as code", isKept(code))
+        }
+    }
+
+    /**
+     * **A body that parses only by running into the code around it is not code.** Parsed in place, a
+     * body could borrow from its neighbours: a dangling `=` takes the next line as its value, a brace
+     * opened and never closed takes the rest of the file. What is kept is what parses as something of
+     * its own, where it is written.
+     */
+    fun `test a body that only parses by running into its neighbours is prose`() {
+        assertFalse("a body ran across the comment's edge", isKept("// val total =\n        audit(amount)"))
+        assertFalse("a body broke the parse of the file after it", isKept("// fun nested() {"))
+        assertFalse("a body ran on from the line before it", isKept("// .toString()"))
+    }
+
+    /**
+     * **The parse self-check, both arms, at every position.** A known-unparseable body yields at least
+     * one error element and no throw; a known-good body yields none.
+     *
+     * The good bodies are chosen so that each parses **only** at its own position — a statement is
+     * not a member, and neither is a file's top level — so this fails if a comment is parsed anywhere
+     * but where it is written. And each good body names something that resolves only from where the
+     * comment sits — `Positions` in the file's package, `audit` in the class — so it fails too if the
+     * context is wrong: a parse with no context strips nothing it should not, keeps everything as
+     * `Unknown`, and passes every prose test there is.
+     */
+    fun `test the parse is observable at member, statement and file position`() {
+        val file = myFixture.addFileToProject(
+            "probe/Positions.kt",
+            """
+            package probe
+
+            // fun charge() = Positions().audit()
+            // TODO: fix this
+            open class Positions {
+                // fun charge() { audit() }
+                // audit()
+                fun audit() {
+                    // this.audit()
+                    // TODO: fix this
+                }
+            }
+            """.trimIndent(),
+        )
+        val comments = PsiTreeUtil.findChildrenOfType(file, PsiComment::class.java).toList()
+        val good = listOf(true, false, true, false, true, false)
+        assertEquals(good.size, comments.size)
+
+        for ((comment, isGood) in comments.zip(good)) {
+            val parsed = PlatformKotlinCommentParser.parse(comment, uncommentedTextOf(comment))
+            val errors = PsiTreeUtil.findChildrenOfType(parsed, PsiErrorElement::class.java)
+                .filter { comment.textRange.contains(it.textRange) }
+            if (isGood) {
+                assertEquals("`${comment.text}` did not parse where it is written: ${errors.map { it.errorDescription }}", 0, errors.size)
+                // And the names in it resolve, which they do only from the comment's own place.
+                val unresolved = PsiTreeUtil.findChildrenOfType(parsed, KtNameReferenceExpression::class.java)
+                    .filter { comment.textRange.contains(it.textRange) && it.mainReference.resolve() == null }
+                    .map { it.text }
+                assertEquals("`${comment.text}` was parsed without its context", emptyList<String>(), unresolved)
+            } else {
+                assertTrue("`${comment.text}` parsed where it is written", errors.isNotEmpty())
+            }
+        }
     }
 
     /**
@@ -125,8 +198,28 @@ internal class KotlinCommentTest : KotlinSnippetTestCase() {
         assertFalse("a link kept the name it links to: $kept", "merchantRef" in kept || "Ledger" in kept || "settle" in kept)
     }
 
-    /** The verdict the production walk reports for [comment], written above a declaration. */
-    private fun verdictOf(comment: String): CommentVerdict =
-        kotlinPlanFor("com/acme/ledger/Ledger.kt", "package com.acme.ledger\n\n$comment\nclass Ledger\n")
-            .occurrences.filterIsInstance<CommentOccurrence>().single().verdict
+    /**
+     * Whether [comment], written inside a function body where most of them are, is kept as code: a
+     * comment whose body parsed is decomposed into its parts, so the plan holds no occurrence of it
+     * in live code — only, at most, a comment nested in it.
+     */
+    private fun isKept(comment: String): Boolean {
+        val file = myFixture.addFileToProject(
+            "probe/Probe" + probe++ + ".kt",
+            """
+            package probe
+
+            class Ledger {
+                fun audit(amount: Int, x: Int, foo: Ledger) {
+                    $comment
+                }
+            }
+            """.trimIndent(),
+        )
+        val plan = KotlinPlanBuilder.build(SnippetRequest(project, file, emptyList()))
+        return plan.occurrences.none { it is CommentOccurrence && it.container == CodeContainer.LiveCode }
+    }
+
+    /** Each probe needs a file of its own; a fixture cannot hold two files under one path. */
+    private var probe = 0
 }
