@@ -37,6 +37,7 @@ import com.snippetveil.core.SnippetPlan
 import com.snippetveil.core.SourceLanguage
 import com.snippetveil.core.SymbolEvidence
 import com.snippetveil.core.SymbolOccurrence
+import com.snippetveil.core.rootPackageOf
 
 /**
  * Describes a Java snippet truthfully, and decides nothing about it.
@@ -93,7 +94,7 @@ internal object JavaPlanBuilder : PlanBuilder {
         return SnippetPlan(
             text,
             occurrences,
-            rootPackageOf(file),
+            rootPackageOfFile(file),
             // A range moved iff the two lists differ, which is the claim itself rather than a
             // proxy for it. Snapping is the only thing between them, and the whole-file case
             // reaches neither list: no selection was cut, so nothing was extended.
@@ -763,11 +764,8 @@ internal object JavaPlanBuilder : PlanBuilder {
      * plan — the builder must not pre-judge, so the prefix match itself stays in the engine where it
      * is testable against a plan literal with no IDE involved.
      */
-    private fun rootPackageOf(file: PsiFile): String? =
-        (file as? PsiJavaFile)?.packageName
-            ?.takeIf { it.isNotEmpty() }
-            ?.split('.')
-            ?.let { segments -> segments.take(2).joinToString(".") }
+    private fun rootPackageOfFile(file: PsiFile): String? =
+        (file as? PsiJavaFile)?.packageName?.takeIf { it.isNotEmpty() }?.let(::rootPackageOf)
 
     /**
      * **The language every occurrence this walk reports is written in**, which is the one thing a

@@ -51,6 +51,24 @@
   a `printJob` tree are refused with a message that says the clipboard holds a coroutine dump rather
   than a stack trace; the clipboard is left as it was. A trace containing
   `[CIRCULAR REFERENCE: …]` is still refused as not a stack trace.
+- **A stack trace's own frames decide which libraries are your organisation's.** For a snippet,
+  a library class under your file's root package, such as `com.acme`, is treated as your
+  organisation's code and anonymized. A trace has no file, so its library frames used to be kept as
+  printed, and `com.acme.platform.HttpClient` showed your organisation's package names. Now the
+  root packages come from the trace's frames that resolve to your project:
+  `com.acme.billing.BillingService` in your project makes `com.acme` a root, and a
+  `com.acme.platform.HttpClient` frame is anonymized. Frames under a coroutine creation marker count
+  too. Your internal-library prefix list applies as before.
+  **A trace from another project comes back mostly `Unknown`, and that is intended.** A trace from
+  a colleague's project or an old build has classes your IDE cannot find. Each one becomes an
+  `Unknown`, and the preview opens as usual. Nothing in such a trace resolves to your project, so it
+  has no root package, and only your prefix list decides which libraries are anonymized. The same
+  `com.acme.platform.HttpClient` frame can then be kept as printed in that trace and anonymized in
+  one of your own. A frame whose class resolves gets a placeholder and is remembered, as it would be
+  from a snippet. A frame whose class does not resolve is not remembered. Cancelling the preview
+  leaves your placeholders and their numbering as they were. **Confirming a foreign trace advances
+  the placeholder numbers**: each `Unknown` uses up a number that is not remembered, so after a few
+  such traces your next snippet's placeholders can jump, from `Type4` to `Type340` for example.
 - **Commented-out Java code is kept, with its names replaced.** `Copy Anonymized` used to strip
   every comment, so a line such as `// this.customer.setOrder(order);` was lost on every paste. In a
   `.java` file a comment whose text parses as Java where it is written is now kept, and every name

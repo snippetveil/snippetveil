@@ -27,6 +27,7 @@ import com.snippetveil.core.SymbolEvidence
 import com.snippetveil.core.SymbolOccurrence
 import com.snippetveil.core.SymbolOrigin
 import com.snippetveil.core.SymbolRole
+import com.snippetveil.core.rootPackageOf
 import com.snippetveil.plugin.FRAGMENT_SEPARATOR
 import com.snippetveil.plugin.Fragment
 import com.snippetveil.plugin.PlanBuilder
@@ -147,7 +148,7 @@ internal object KotlinPlanBuilder : PlanBuilder {
         return SnippetPlan(
             text,
             occurrences,
-            rootPackageOf(file),
+            rootPackageOfFile(file),
             // A range moved iff the two lists differ, which is the claim itself rather than a proxy
             // for it. Snapping is the only thing between them, and the whole-file case reaches
             // neither list: no selection was cut, so nothing was extended.
@@ -891,11 +892,8 @@ internal object KotlinPlanBuilder : PlanBuilder {
      * A fact about the file, and the one the internal-library rule is derived from; the prefix match
      * itself stays in the engine, where a test reaches it without an IDE.
      */
-    private fun rootPackageOf(file: PsiFile): String? =
-        (file as? KtFile)?.packageFqName?.asString()
-            ?.takeIf { it.isNotEmpty() }
-            ?.split('.')
-            ?.let { segments -> segments.take(2).joinToString(".") }
+    private fun rootPackageOfFile(file: PsiFile): String? =
+        (file as? KtFile)?.packageFqName?.asString()?.takeIf { it.isNotEmpty() }?.let(::rootPackageOf)
 
     /**
      * **The language every occurrence this walk reports is written in.** See

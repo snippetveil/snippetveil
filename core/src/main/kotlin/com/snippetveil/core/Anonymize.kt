@@ -46,9 +46,10 @@ fun anonymize(
     }
 
     // Which library packages hold the company's own code, resolved once for this invocation from
-    // the setting and from the one fact about the file the plan reports. Every ownership question
-    // below asks this, because *the project owns it* is now a question two origins can answer.
-    val ownership = Ownership(settings.internalLibraries, plan.rootPackage)
+    // the setting and from the plan's roots: its file's, or — where it has no file — those of the
+    // types it reports as project content. Every ownership question below asks this, because *the
+    // project owns it* is now a question two origins can answer.
+    val ownership = Ownership(settings.internalLibraries, rootPackagesOf(plan, symbols))
 
     // **Name constraint is a property of the symbol, never of the occurrence.** One occurrence
     // carrying a non-project override root keeps the name everywhere the symbol appears, which is
@@ -1019,10 +1020,10 @@ private fun isAnonymized(symbol: SymbolEvidence, ownership: Ownership): Boolean 
  * The two prefix lists are combined into one classification rather than applied in sequence, because
  * a sequence has no answer for `com.acme` and `com.acme.oss` stated together.
  */
-private class Ownership(libraries: InternalLibraries, rootPackage: String?) {
+private class Ownership(libraries: InternalLibraries, rootPackages: Set<String>) {
 
     private val internal: List<String> = prefixesOf(
-        libraries.internalPrefixes + listOfNotNull(rootPackage.takeIf { libraries.autoDetectRootPackage }),
+        libraries.internalPrefixes + rootPackages.takeIf { libraries.autoDetectRootPackage }.orEmpty(),
     )
 
     private val thirdParty: List<String> = prefixesOf(libraries.thirdPartyPrefixes)
@@ -1057,6 +1058,31 @@ private class Ownership(libraries: InternalLibraries, rootPackage: String?) {
         SymbolOrigin.JDK, SymbolOrigin.UNRESOLVED -> false
     }
 }
+
+/**
+ * **The internal-org roots of [plan]**: its file's root package, or — for a plan with no file, which
+ * is a stack trace — the root of every type it reports as project content. See
+ * [SnippetPlan.rootFromOwnedTypes].
+ *
+ * Read off [SymbolOrigin.IN_CONTENT] types only. Two things are left out on purpose. A library type
+ * claimed by a prefix would make the roots depend on the roots. A package segment would be read as
+ * `com`, which claims every `com.*` library there is.
+ */
+private fun rootPackagesOf(plan: SnippetPlan, symbols: List<SymbolOccurrence>): Set<String> {
+    if (!plan.rootFromOwnedTypes) return setOfNotNull(plan.rootPackage)
+    return symbols.asSequence()
+        .map { it.symbol }
+        .filter { it.origin == SymbolOrigin.IN_CONTENT && it.role == SymbolRole.TYPE }
+        .mapNotNull { it.packageName }
+        .mapTo(HashSet(), ::rootPackageOf)
+}
+
+/**
+ * **The root of [packageName]: its first two segments** — `com.acme` out of `com.acme.web`. The cut
+ * the reverse-domain convention makes right far more often than not, and the one place it is made:
+ * a snippet's file root and a trace's type roots are both this.
+ */
+fun rootPackageOf(packageName: String): String = packageName.split('.').take(2).joinToString(".")
 
 /** The usable prefixes out of a settings list: blank rows are not prefixes of anything. */
 private fun prefixesOf(prefixes: Set<String>): List<String> =

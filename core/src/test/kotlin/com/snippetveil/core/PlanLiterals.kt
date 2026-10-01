@@ -18,7 +18,12 @@ private val LANGUAGE = SourceLanguage.JAVA
  * test states the code and the evidence and never an offset. Each symbol is keyed by its own name,
  * which is what a test wants by default: same name, same symbol.
  */
-internal fun planOf(text: String, vararg symbols: SymbolEvidence, rootPackage: String? = null): SnippetPlan {
+internal fun planOf(
+    text: String,
+    vararg symbols: SymbolEvidence,
+    rootPackage: String? = null,
+    rootFromOwnedTypes: Boolean = false,
+): SnippetPlan {
     val occurrences = mutableListOf<Occurrence>()
     for (symbol in symbols) {
         var from = 0
@@ -28,7 +33,7 @@ internal fun planOf(text: String, vararg symbols: SymbolEvidence, rootPackage: S
             from = at + symbol.declaredName.length
         }
     }
-    return SnippetPlan(text, occurrences.sortedBy { it.start }, rootPackage)
+    return SnippetPlan(text, occurrences.sortedBy { it.start }, rootPackage, rootFromOwnedTypes = rootFromOwnedTypes)
 }
 
 /**

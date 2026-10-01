@@ -82,6 +82,26 @@ import com.snippetveil.core.TraceName
  * The thread name and every exception message are reported as string literals and redacted to `str`
  * like any other, library exceptions' included: ownership belongs to symbols, and nothing here owns
  * the text.
+ *
+ * ### The org root is the trace's own
+ *
+ * A snippet's internal-org root is its file's root package, and a trace has no file. So the plan says
+ * so, and **the engine takes the roots of the types this resolution found in the project**:
+ * `com.acme.billing.BillingService` in project content makes `com.acme.platform.HttpClient`, a
+ * library class, internal-org. A `_CREATION` block's frames are frames and count like any other. A
+ * trace where nothing resolves as the project's derives no root, and only the editable prefix list
+ * applies to it — see [SnippetPlan.rootFromOwnedTypes] for why that is intended.
+ *
+ * ### A foreign trace is mostly `Unknown`, and is not refused
+ *
+ * A trace from a colleague's project or an old build resolves little or nothing here, and comes back
+ * as `Unknown`s. That is the rule applied, and it says something true: *this trace is not about code
+ * you have open*. Nothing is refused for it, and no `java.`/`javax.` list pulls unresolved names out
+ * of anonymization on the strength of their text.
+ *
+ * **Only a resolved name can be written down.** A resolved frame's class has a qualified key, so a
+ * confirmed trace seeds the ledger with it exactly as a snippet would; an unresolved frame's
+ * class-shaped string is text, keyed as such, and nothing is written for it.
  */
 internal object TracePlanBuilder {
 
@@ -108,8 +128,9 @@ internal object TracePlanBuilder {
             )
         }
 
-        // No root package: there is no analysed file here to have one. See `SnippetPlan.rootPackage`.
-        return SnippetPlan(trace.text, occurrences.sortedBy { it.start })
+        // No file, so no file root: the org roots are those of the frames the index found in the
+        // project. See `SnippetPlan.rootFromOwnedTypes`.
+        return SnippetPlan(trace.text, occurrences.sortedBy { it.start }, rootFromOwnedTypes = true)
     }
 
     /**
