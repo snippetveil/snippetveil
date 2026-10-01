@@ -272,8 +272,14 @@ refused, because the counter is not rewound.
 
 Worth knowing before relying on it:
 
-- **Stack traces are not anonymized at all** — the richest source of real package and class names any
-  snippet can carry.
+- **A stack trace is anonymized only when you hand it over, and only in the shapes it reads.**
+  Anonymize Stack Trace… reads the clipboard when you invoke it and at no other time, so a trace
+  pasted straight from the run console, a log file or a ticket into a chat is as exposed as it ever
+  was. Every exception message and the thread name become `str` placeholders, and the module or
+  classloader prefix on a frame, such as `java.base/`, is removed. A clipboard holding anything
+  besides the trace is refused, and so are a message that runs over more than one line, a frame of a
+  hidden class such as a lambda (`Foo$$Lambda/0x…`) and a coroutine dump. A trace from another
+  project comes back mostly `Unknown`, because its classes are not in your IDE.
 - **String literal text is destroyed, not mapped** — a literal becomes `"str1"` unless it carries
   resolvable references, in which case it renames in lockstep with them. A JPQL, HQL or Spring Data
   query is read name by name instead, but only when **every** name in it resolves: each entity and

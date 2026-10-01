@@ -28,10 +28,11 @@ that cannot be reproduced cannot be corrected when the dialog it shows moves on.
 
 The editor popup, open, with **Copy Anonymized** visible under the **SnippetVeil** submenu.
 
-**All five items of the submenu are in frame**, in this shot and in 2 and 9. The three menu shots
+**All six items of the submenu are in frame**, in this shot and in 2 and 9. The three menu shots
 were re-taken when **Anonymize Execution Plan…** joined the submenu, for the reason shot 3 gives
 below: a menu shown with four items, to a reader who will find five, is a picture of a product that
-no longer exists.
+no longer exists. **Anonymize Stack Trace…** has since joined as the sixth item, and the three
+committed menu shots still show five: they are due to be re-taken for the same reason.
 
 **Selection: `LateFeeCalculator.java`, lines 30–59** — the javadoc on `feeFor` through the method's
 closing brace. Right-click inside the selection, hover **SnippetVeil**. The shot is the selection and
