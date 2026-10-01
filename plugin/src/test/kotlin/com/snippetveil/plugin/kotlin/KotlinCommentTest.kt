@@ -99,12 +99,11 @@ internal class KotlinCommentTest : KotlinSnippetTestCase() {
 
     /**
      * **Prose that parses is prose.** Kotlin reads a bare word as an expression and three of them as
-     * an infix call, so short prose parses — as nothing but names. That is the vacuous parse's second
-     * way of saying nothing, and it is stripped exactly as the same comment is in Java. A body that
-     * does anything more than name things — a call with parentheses, an assignment, a member access
-     * — is code.
+     * an infix call, so short prose parses — as nothing but names, with no code signal in it. It is
+     * stripped exactly as the same comment is in Java. A body with a signal in it — a call with
+     * parentheses, an assignment, a member access, a literal — is code.
      */
-    fun `test a body of bare names is prose and a body that does more is code`() {
+    fun `test a body of bare names is prose and a body with a code signal is code`() {
         for (prose in listOf("// retry on timeout", "// TODO", "// fix later", "// Deprecated", "/* settle the payout */")) {
             assertFalse("`$prose` was kept as code", isKept(prose))
         }
@@ -114,31 +113,52 @@ internal class KotlinCommentTest : KotlinSnippetTestCase() {
     }
 
     /**
-     * **The stated limit, pinned rather than left to be discovered.** The decision draws the line at
-     * names: a body that is nothing but names is prose, and a keyword construct is code. So prose
-     * that happens to spell one — `value in range`, `done as planned`, `it is fine` — is kept as
-     * code. It is kept **anonymized**: every word in it that is not a keyword is a name, and every
-     * name is replaced, so what survives verbatim is the keyword and nothing of the domain.
+     * **A body is code only when its parse holds a code signal** — a `(` `)` `{` `}` `[` `]` `=` `.`
+     * `;` `::` or `->`, a literal, or one of the keywords `val` `var` `fun` `class` `object`
+     * `interface` `import` `if` `when` `for` `while` `try`. Prose that happens to spell a keyword
+     * construct — `value in range`, `it is fine`, `done as planned` — holds none, and is stripped as
+     * its Java twin is. The tokens are matched whole, so `+=` and `?.` are no `=` and no `.`; and a
+     * literal on its own — a number, a character, `true`, `null` — is a signal.
+     *
+     * **`return` and `throw` are deliberately not signals, and the cost is pinned here so it stays
+     * visible:** `// return result` is a real commented-out line, and it is stripped with the prose
+     * it cannot be told from. The same line with anything more in it — a call, a `;` — is kept.
      */
-    fun `test prose that spells a keyword construct is kept as code with every name in it replaced`() {
-        for (prose in listOf("// value in range", "// done as planned", "// it is fine")) {
-            assertTrue("`$prose` is no longer kept as code; the limit this pins has moved", isKept(prose))
+    fun `test a body is code only when it holds a code signal`() {
+        val prose = listOf(
+            "// value in range", "// it is fine", "// done as planned", "// merchant in arrears",
+            "// retry on timeout", "// TODO", "// return later", "// throw away", "// return result",
+            "// we import data", "// x += y", "// foo?.bar",
+        )
+        for (comment in prose) {
+            assertFalse("`$comment` was kept as code", isKept(comment))
+        }
+        val code = listOf(
+            "// return total(items)", "// throw IllegalStateException(\"x\")", "// return result;",
+            "// retry(onTimeout)", "// x = 1", "// foo.bar()", "// TODO()", "// \"late\"",
+            "// 42", "// .5", "// 'x'", "// true", "// null",
+        )
+        for (comment in code) {
+            assertTrue("`$comment` was not kept as code", isKept(comment))
         }
 
         val result = kotlinResultFor(
             "com/acme/ledger/Ledger.kt",
             """
             class Ledger {
-                fun settle() {
+                fun settle(merchant: Ledger) {
                     // merchant in arrears
+                    // return later
+                    // merchant.settle(merchant)
                 }
             }
             """.trimIndent(),
         )
-        assertTrue("the comment was not kept: ${result.text}", "// " in result.text)
-        for (word in listOf("merchant", "arrears")) {
+        for (word in listOf("arrears", "later")) {
             assertFalse("`$word` survived: ${result.text}", word in result.text)
         }
+        assertEquals(2, result.comments.stripped)
+        assertEquals(1, result.comments.anonymized)
     }
 
     /**

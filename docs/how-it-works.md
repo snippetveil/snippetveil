@@ -165,6 +165,9 @@ reductions:
 
 - **Keep comments and javadoc**, for this snippet only. It keeps comment prose as written;
   commented-out Java and Kotlin code is kept, with its names replaced, whether it is ticked or not.
+  A comment counts as code when it parses where it is written and holds something prose does not —
+  a bracket, `=`, `.`, `;`, `::` or `->`, a literal, or a keyword such as `val`, `fun` or `if` — so
+  `// value in range` and `// return result` are prose, and `// return result;` is code.
 - **Preserve**, on an individual row.
 
 **By default the Preserve column only has checkboxes on `Unknown` rows.** That is the override for a

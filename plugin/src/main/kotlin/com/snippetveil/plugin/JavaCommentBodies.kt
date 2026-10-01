@@ -102,7 +102,7 @@ internal object JavaCommentParser : CommentParser {
  * **[comment]'s body parsed as code at its own position, or `null` when it is not code.**
  *
  * Not code is read off the tree the parser returned — an error element in it, no code at all, or
- * nothing but names — by [isCodeIn], which is the one statement of that rule for every language. The
+ * no code signal — by [isCodeIn], which is the one statement of that rule for every language. The
  * fragment is the body and nothing else, so all of it is the body.
  */
 internal fun parsedBodyOf(comment: PsiComment, parser: CommentParser): PsiFile? {

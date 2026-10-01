@@ -87,13 +87,16 @@
   counts, not only a statement. A comment that does not parse — a TODO, an explanation, a javadoc or
   KDoc block with `@param` in it — is still stripped, and so is prose written after the code on a
   kept line, or inside a kept block comment. A name in the kept line that no longer resolves becomes
-  an `Unknown`, and the line is kept. **A comment that only names things is prose in both
-  languages**: Kotlin reads `// retry on timeout` or `// TODO` as code, a call of three names or a
-  name on its own, and such a comment is stripped in a `.kt` file exactly as it is in a `.java`
-  file. A comment that does more than name things, such as `// retry(onTimeout)` or `// x = 1`, is
-  kept. So is Kotlin prose that happens to read as a keyword construct, such as `// value in range`:
-  it is kept as code, with every word in it except the keyword replaced. A commented-out Kotlin enum
-  entry or function argument does not parse where it is written and is stripped.
+  an `Unknown`, and the line is kept. **Prose that parses is prose in both languages**: Kotlin reads
+  `// retry on timeout`, `// TODO` or `// value in range` as code — a call of three names, a name on
+  its own, a containment check — and such a comment is stripped in a `.kt` file exactly as it is in
+  a `.java` file. A comment is kept as code only when it holds something prose does not: a bracket,
+  `=`, `.`, `;`, `::` or `->`, a literal, or a keyword such as `val`, `fun` or `if`. So
+  `// retry(onTimeout)` and `// x = 1` are kept, and `// it is fine`, `// done as planned` and
+  `// return later` are stripped. A real commented-out line with none of these, such as
+  `// return result`, is stripped with the prose; `// return result;` and `// return total(items)`
+  are kept. A commented-out Kotlin enum entry or function argument does not parse where it is
+  written and is stripped.
 - **Keep comments and javadoc now keeps prose only.** Commented-out Java and Kotlin code is kept and
   anonymized whether the preview's tick is on or off; the tick keeps the comments that are not code,
   exactly as written, for that snippet.

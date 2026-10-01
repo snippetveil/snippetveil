@@ -267,11 +267,11 @@ internal class KotlinCommentedOutCodeTest : KotlinSnippetTestCase() {
 
     /**
      * **Kotlin prose that parses is prose.** Kotlin reads a bare word as an expression and three of
-     * them as an infix call, so `retry on timeout` parses — as nothing but names, which is the
-     * vacuous parse's second way of saying nothing. It is stripped, exactly as its Java twin is. A
-     * body that does anything more than name things is code, and is kept.
+     * them as an infix call, so `retry on timeout` parses — as nothing but names, with no code signal
+     * in it. It is stripped, exactly as its Java twin is. A body with a signal in it — parentheses,
+     * an assignment, a member access — is code, and is kept.
      */
-    fun `test prose that parses as names only is stripped and anything more is kept`() {
+    fun `test prose that parses as names only is stripped and a body with a code signal is kept`() {
         val result = copyOf(
             """
             class Customer {

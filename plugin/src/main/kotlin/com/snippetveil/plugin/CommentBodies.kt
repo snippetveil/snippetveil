@@ -1,6 +1,5 @@
 package com.snippetveil.plugin
 
-import com.intellij.lang.LanguageNamesValidation
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
@@ -32,21 +31,29 @@ import com.intellij.psi.util.PsiTreeUtil
  *  - **no code token at all** — an empty `//`, a body of whitespace, or a body that is nothing but a
  *    nested comment. A vacuous parse is not a parse, and an empty comment must never count as a
  *    comment anonymized;
- *  - **nothing but names** — every code token a bare reference: `TODO`, or `retry on timeout`, which
- *    Kotlin reads as an infix call of three names. That is the vacuous parse's second way of saying
- *    nothing. A body that does anything more than name things — a call with parentheses, an
- *    assignment, a declaration, a member access through `.`, a literal, a keyword — is code.
+ *  - **no code signal** — no token that prose does not produce. A body is code only when its parse
+ *    holds at least one of: a token that is one of `(` `)` `{` `}` `[` `]` `=` `.` `;` `::` `->`; a
+ *    literal — string, character, number, `true`, `false` or `null`; or one of the keywords `val`
+ *    `var` `fun` `class` `object` `interface` `import` `if` `when` `for` `while` `try`. Everything
+ *    else that parses is prose: `TODO`, `retry on timeout`, which Kotlin reads as an infix call of
+ *    three names, and `value in range`, `it is fine` or `done as planned`, which it reads as an
+ *    operator-keyword construct.
  *
- * **The third is a no-op for Java, and is here rather than in Kotlin's walk on purpose.** Java's
- * grammar rejects a body of bare names at every position — a statement needs its `;` — so no Java
- * body reaches it, and stating it once beside the guard it extends is what keeps the rule
- * language-neutral: the same Kotlin and Java comment, `// retry on timeout`, is prose in both.
+ * **`return` and `throw` are deliberately not signals.** `// return later` and `// throw away` read
+ * as prose and are stripped, and so, at a cost chosen knowingly, is a real commented-out line with no
+ * signal in it, such as `// return result`: such a line does nothing on its own and is very rarely
+ * the clue in a snippet. `// return result;` and `// return total(items)` carry one and are kept.
+ *
+ * **The third is a no-op for Java, and is here rather than in Kotlin's walk on purpose.** Every Java
+ * body that parses holds a signal — a statement or member ends in `;` or `}` — so no Java body is
+ * changed by it, and stating it once beside the vacuous-parse guard is what keeps the rule
+ * language-neutral: the same Kotlin and Java comment, `// value in range`, is prose in both.
  */
 internal fun isCodeIn(parsed: PsiFile, body: TextRange): Boolean {
     if (hasErrorIn(parsed, body)) return false
 
     val tokens = codeTokensIn(parsed, body)
-    return tokens.isNotEmpty() && !tokens.all(::isBareName)
+    return tokens.isNotEmpty() && tokens.any(::isCodeSignal)
 }
 
 /**
@@ -89,19 +96,39 @@ internal fun codeTokensIn(parsed: PsiFile, body: TextRange): List<PsiElement> {
     return tokens
 }
 
+/** The tokens prose does not produce, matched whole: `==` and `?.` are tokens of their own and none of these. */
+private val SIGNAL_TOKENS = setOf("(", ")", "{", "}", "[", "]", "=", ".", ";", "::", "->")
+
+/** The keywords that open a declaration or a control construct. `return` and `throw` are not among them. */
+private val SIGNAL_KEYWORDS = setOf(
+    "val", "var", "fun", "class", "object", "interface", "import", "if", "when", "for", "while", "try",
+)
+
 /**
- * **Whether [token] is a bare reference**: a name, by its own language's reckoning, that is the whole
- * of a reference — `retry`, or the `on` of `retry on timeout`, which is the reference to the infix
- * function the call names.
+ * **Whether [token] is a code signal**: a listed token or keyword, or a literal. Matched on the leaf's
+ * text, which is what keeps it language-neutral — a lexer emits each of these as a leaf of its own.
  *
- * Both halves, because each lets through what the other catches. A keyword the language treats as
- * soft — Kotlin's `import`, `private` — passes as a name and is no reference, so `import Ledger` is a
- * keyword construct and code; and an operator such as `=` can be the whole of a reference and is no
- * name, so `x = y` is an assignment and code.
+ * A keyword the language treats as soft can be a name as well: Kotlin reads `we import data` as an
+ * infix call of a function named `import`. A leaf that is the whole of a reference is a name, whatever
+ * it is spelled, so the keyword counts only where it is not one — `import Ledger` is a keyword
+ * construct and code, and `we import data` is prose.
+ *
+ * A literal is told by its first character: a string or character literal opens with its quote —
+ * Kotlin splits a string into its quotes and parts, and the opening quote is a leaf of its own — and a
+ * number with a digit, or a `.` and a digit; no name starts with either.
  */
-private fun isBareName(token: PsiElement): Boolean {
+private fun isCodeSignal(token: PsiElement): Boolean {
+    val text = token.text
+    return text in SIGNAL_TOKENS ||
+        (text in SIGNAL_KEYWORDS && !isWholeReference(token)) ||
+        text == "true" || text == "false" || text == "null" ||
+        text.startsWith('"') || text.startsWith('\'') ||
+        text.first().isDigit() ||
+        (text.length > 1 && text[0] == '.' && text[1].isDigit())
+}
+
+/** Whether [token] is the whole of a reference — a name in use, such as the `on` of `retry on timeout`. */
+private fun isWholeReference(token: PsiElement): Boolean {
     val reference = token.parent ?: return false
-    return reference.textRange == token.textRange &&
-        reference.references.isNotEmpty() &&
-        LanguageNamesValidation.INSTANCE.forLanguage(token.language).isIdentifier(token.text, token.project)
+    return reference.textRange == token.textRange && reference.references.isNotEmpty()
 }

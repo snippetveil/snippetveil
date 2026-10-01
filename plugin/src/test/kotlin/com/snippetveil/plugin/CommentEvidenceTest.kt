@@ -46,9 +46,9 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
     /**
      * **The same bare-name prose is prose in both languages.** Kotlin parses `retry on timeout` as an
      * infix call of three names and Java does not parse it at all, and the comment is stripped in
-     * both: the guard that calls a parse of nothing but names prose sits beside the vacuous-parse
-     * guard and is stated for every language. Java's grammar rejects these bodies on its own, which is
-     * what makes the guard a no-op here — and a Java body that does more than name things is kept.
+     * both: the guard that calls a parse with no code signal prose sits beside the vacuous-parse
+     * guard and is stated for every language. Every Java body that parses holds a signal — a
+     * statement or member ends in `;` or `}` — which is what makes the guard a no-op here.
      */
     fun `test a body of bare names is prose in Java as in Kotlin`() {
         assertFalse(isKept("// retry on timeout"))
@@ -57,6 +57,25 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
 
         assertTrue(isKept("// retry(onTimeout);"))
         assertTrue(isKept("// amount = 1;"))
+    }
+
+    /**
+     * **Prose that spells a Kotlin keyword construct is prose in Java too.** Kotlin reads
+     * `value in range` as a containment check and Java does not read it at all, and both strip it:
+     * a body is code only when its parse holds a code signal, and these hold none. Every Java body
+     * that parses holds one — a statement or member ends in `;` or `}` — so the rule is a no-op here,
+     * and `return result;` is kept by its `;`.
+     */
+    fun `test prose that spells a keyword construct is prose in Java as in Kotlin`() {
+        val prose = listOf(
+            "// value in range", "// it is fine", "// done as planned", "// merchant in arrears",
+            "// return later", "// throw away", "// return result",
+        )
+        for (comment in prose) {
+            assertFalse("`$comment` was kept as code", isKept(comment))
+        }
+        assertTrue(isKept("// return amount;"))
+        assertTrue(isKept("// throw new IllegalStateException(\"x\");"))
     }
 
     /**
