@@ -54,6 +54,17 @@ class ListingCopyTest : BasePlatformTestCase() {
     }
 
     /**
+     * **The listing's path to the trace action**, its third path, under the same check.
+     */
+    fun `test the listing's trace path is a real path to the trace action`() {
+        assertMenuPathIsReal(
+            "The listing's trace sentence",
+            sentenceNaming(listing(), "Anonymize Stack Trace"),
+            ANONYMIZE_STACK_TRACE,
+        )
+    }
+
+    /**
      * **The check fails on both of the wrong sentences it exists for.** The one the listing carried
      * names no path at all, and the one-step-short arrowed form is the balloon's old sentence; a
      * check whose red path is never exercised decays into one that always passes.
@@ -110,3 +121,6 @@ private const val COPY_ANONYMIZED = "SnippetVeil.CopyAnonymized"
 
 /** The plan action, which reads the clipboard and so has a sentence of its own. */
 private const val ANONYMIZE_EXECUTION_PLAN = "SnippetVeil.AnonymizeExecutionPlan"
+
+/** The trace action, which reads the clipboard too and so has a sentence of its own as well. */
+private const val ANONYMIZE_STACK_TRACE = "SnippetVeil.AnonymizeStackTrace"

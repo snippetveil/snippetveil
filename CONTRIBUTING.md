@@ -1403,12 +1403,12 @@ same way — change notes first among them. The word lists themselves are in `co
 repository root, read by both builds and by the website's CI, because two lists would drift, and
 they would drift towards the strictest surface being checked against the laxest rule.
 
-**One sentence in the listing is checked by a test instead, and it is the menu path.** The first
-*How it works* bullet says where `Copy Anonymized` is — right-click → **SnippetVeil** → **Copy
-Anonymized** — and that is a claim about the registered menu rather than about the copy, so no rule
-over the README can decide it. `ListingCopyTest` reads the description the IDE loaded and holds its
-path to the action's ancestry under the editor popup, which is the check the first-run balloon's path
-is under: one derivation of the menu, read against both. Why that is a test rather than one more
+**The listing's menu paths are checked by a test instead.** The first *How it works* bullet says
+where `Copy Anonymized` is — right-click → **SnippetVeil** → **Copy Anonymized** — and the plan and
+trace bullets say the same of their actions. Each is a claim about the registered menu rather than
+about the copy, so no rule over the README can decide it. `ListingCopyTest` reads the description
+the IDE loaded and holds each path to its action's ancestry under the editor popup, which is the
+check the first-run balloon's paths are under: one derivation of the menu, read against both. Why that is a test rather than one more
 Gradle rule is recorded on the test.
 
 ### The banned phrases
