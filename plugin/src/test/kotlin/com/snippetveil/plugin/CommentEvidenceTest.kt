@@ -47,8 +47,8 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
      * **The same bare-name prose is prose in both languages.** Kotlin parses `retry on timeout` as an
      * infix call of three names and Java does not parse it at all, and the comment is stripped in
      * both: the guard that calls a parse with no code signal prose sits beside the vacuous-parse
-     * guard and is stated for every language. Java's grammar rejects these bodies on its own, which is
-     * what makes the guard a no-op here — and a Java body that does more than name things is kept.
+     * guard and is stated for every language. Every Java body that parses holds a signal — a
+     * statement or member ends in `;` or `}` — which is what makes the guard a no-op here.
      */
     fun `test a body of bare names is prose in Java as in Kotlin`() {
         assertFalse(isKept("// retry on timeout"))
@@ -69,7 +69,7 @@ class CommentEvidenceTest : JavaSnippetTestCase() {
     fun `test prose that spells a keyword construct is prose in Java as in Kotlin`() {
         val prose = listOf(
             "// value in range", "// it is fine", "// done as planned", "// merchant in arrears",
-            "// retry on timeout", "// TODO", "// return later", "// throw away", "// return result",
+            "// return later", "// throw away", "// return result",
         )
         for (comment in prose) {
             assertFalse("`$comment` was kept as code", isKept(comment))

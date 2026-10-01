@@ -271,7 +271,7 @@ internal class KotlinCommentedOutCodeTest : KotlinSnippetTestCase() {
      * in it. It is stripped, exactly as its Java twin is. A body with a signal in it — parentheses,
      * an assignment, a member access — is code, and is kept.
      */
-    fun `test prose that parses as names only is stripped and anything more is kept`() {
+    fun `test prose that parses as names only is stripped and a body with a code signal is kept`() {
         val result = copyOf(
             """
             class Customer {

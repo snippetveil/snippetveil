@@ -46,7 +46,7 @@ import com.intellij.psi.util.PsiTreeUtil
  *
  * **The third is a no-op for Java, and is here rather than in Kotlin's walk on purpose.** Every Java
  * body that parses holds a signal — a statement or member ends in `;` or `}` — so no Java body is
- * changed by it, and stating it once beside the guard it extends is what keeps the rule
+ * changed by it, and stating it once beside the vacuous-parse guard is what keeps the rule
  * language-neutral: the same Kotlin and Java comment, `// value in range`, is prose in both.
  */
 internal fun isCodeIn(parsed: PsiFile, body: TextRange): Boolean {
