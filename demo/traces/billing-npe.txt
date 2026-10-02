@@ -1,0 +1,10 @@
+Exception in thread "main" java.lang.IllegalStateException: Dunning run failed for account HL-20931
+	at com.harborlight.billing.DunningRun.remindersFor(DunningRun.java:35)
+	at com.harborlight.jobs.NightlyBilling.run(NightlyBilling.java:58)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.lang.NullPointerException: Cannot read field "signum" because "augend" is null
+	at java.base/java.math.BigDecimal.add(BigDecimal.java:1379)
+	at com.harborlight.billing.Invoice.total(Invoice.java:60)
+	at com.harborlight.billing.LateFeeCalculator.feeFor(LateFeeCalculator.java:50)
+	at com.harborlight.billing.DunningRun.remindersFor(DunningRun.java:35)
+	... 2 more

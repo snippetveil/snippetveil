@@ -63,6 +63,7 @@ Anything the IDE writes here — `.idea/`, `out/` — is already ignored by the 
 | `Invoice.java`, `InvoiceLine.java`, `Customer.java` | The domain vocabulary the anonymiser replaces — the reason the shots read as a business rather than as a puzzle |
 | `ExposureReport.java` | A JDBC query the IDE injects SQL into, written so every name in it decomposes into `table`, `col` and `schema` placeholders — no bind parameter, no string, no alias. `java.sql` is the JDK's |
 | `plans/overdue-invoices.txt` | An invented PostgreSQL `EXPLAIN ANALYZE` over the same ledger, for the plan preview. It is not source; it is on the clipboard for one shot |
+| `traces/billing-npe.txt` | An invented stack trace through `DunningRun`, `Invoice` and `LateFeeCalculator` at their real line numbers, plus one frame of a class that is not here, for the stack trace preview. It is not source; it is on the clipboard for one shot, and its frames are indented with tabs, as the JVM prints them |
 | `DunningRun.java` | A snippet where two different symbols share one source name, which is what makes the preview's fidelity notice fire |
 | `SettlementPolicy.java`, `InvoiceRepository.java`, `InvoiceStatus.java`, `PaymentTerms.java` | The rest of the package, so that names resolve and the shots are of resolved code |
 
