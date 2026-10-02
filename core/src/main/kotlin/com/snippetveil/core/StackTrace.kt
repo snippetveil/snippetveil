@@ -266,11 +266,7 @@ private fun readFrame(rest: String, out: StringBuilder, frames: MutableList<Trac
     return true
 }
 
-/**
- * **What a line may be indented with**: the JVM's tab, and the space and no-break space a chat client,
- * an issue tracker or a web page turns it into on the way to the clipboard — in any mix and any
- * length. The run is copied to the output exactly as it was pasted.
- */
+/** **What a line may be indented with** — see *`\t` stands for any indentation* on [parseTrace]. */
 private val INDENTATION = setOf('\t', ' ', '\u00A0')
 
 private const val CAUSED_BY = "Caused by: "

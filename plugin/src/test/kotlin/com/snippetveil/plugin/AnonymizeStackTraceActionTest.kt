@@ -410,11 +410,11 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
         addPayoutsProject()
         val tabbed = invokeAndCapture(TRACE).result.text
 
-        for (indent in listOf("    ", "  ", "\u00A0\u00A0\u00A0\u00A0")) {
+        for (indent in listOf("    ", "  ", "\u00A0\u00A0\u00A0\u00A0", " \t\u00A0 ")) {
             val spaced = invokeAndCapture(TRACE.replace("\t", indent)).result.text
 
             assertEquals(
-                "the ${indent.length}-character indentation changed the anonymized trace",
+                "the indentation `${indent.replace("\t", "\\t").replace("\u00A0", "\\u00A0")}` changed the anonymized trace",
                 unnumbered(tabbed.replace("\t", indent)),
                 unnumbered(spaced),
             )
@@ -786,13 +786,6 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
             """.trimIndent(),
         )
     }
-
-    /**
-     * [text] with the number taken off every `str` and `Unknown`, which each invocation draws afresh:
-     * two invocations over one trace differ in those numbers and nowhere else. A ledger placeholder
-     * such as `Type6` keeps its number, since it is the same in both.
-     */
-    private fun unnumbered(text: String): String = Regex("""\b(str|Unknown)\d+\b""").replace(text, "$1#")
 
     private fun placeholderOf(key: String): String =
         PlaceholderLedger.getInstance().snapshotOf(project).placeholders.getValue(key).placeholder

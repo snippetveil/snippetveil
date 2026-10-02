@@ -16,6 +16,7 @@ import com.snippetveil.plugin.SymbolFacts
 import com.snippetveil.plugin.attachJar
 import com.snippetveil.plugin.kotlinNoteIn
 import com.snippetveil.plugin.supportIsRegisteredFor
+import com.snippetveil.plugin.unnumbered
 import com.snippetveil.plugin.withDialog
 import java.io.File
 
@@ -117,15 +118,24 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
 
     /**
      * **A coroutine trace whose tabs became spaces is the same trace**: every marker row, both legacy
-     * renderings included, is kept under the indentation it was pasted with, and every other line
-     * comes out as the tab-indented trace's does.
+     * renderings included, is kept under the indentation it was pasted with, and every other line —
+     * a nested `Suppressed:` block, `Caused by:` and `... N more` among them — comes out as the
+     * tab-indented trace's does.
      */
     fun `test a space-indented coroutine trace is anonymized as the tab-indented one is`() {
         addBillingProject()
-        val tabbed = invokeAndCapture(COROUTINE_TRACE).result.text
+        val trace = COROUTINE_TRACE + "\n" + listOf(
+            "\tSuppressed: java.lang.IllegalStateException: on close",
+            "\t\tat com.acme.billing.Payment.pay(Billing.kt:6)",
+            "\t\t... 1 more",
+            "Caused by: java.lang.IllegalStateException: the cause",
+            "\tat kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)",
+            "\t... 4 more",
+        ).joinToString("\n")
+        val tabbed = invokeAndCapture(trace).result.text
 
-        for (indent in listOf("    ", "\u00A0\u00A0")) {
-            val spaced = invokeAndCapture(COROUTINE_TRACE.replace("\t", indent)).result.text
+        for (indent in listOf("    ", "\u00A0\u00A0", " \t")) {
+            val spaced = invokeAndCapture(trace.replace("\t", indent)).result.text
 
             assertEquals(
                 "the indentation ${visible(indent)} changed the anonymized trace",
@@ -225,12 +235,6 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
     private fun placeholderOf(key: String): String =
         PlaceholderLedger.getInstance().snapshotOf(project).placeholders.getValue(key).placeholder
 }
-
-/**
- * [text] with the number taken off every `str` and `Unknown`, which each invocation draws afresh: two
- * invocations over one trace differ in those numbers and nowhere else.
- */
-private fun unnumbered(text: String): String = Regex("""\b(str|Unknown)\d+\b""").replace(text, "$1#")
 
 /** [text] with its control characters named, so a failure message can be read. */
 private fun visible(text: String): String = text.replace("\b", "\\b").replace("\t", "\\t").replace("\u00A0", "\\u00A0")

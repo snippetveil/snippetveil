@@ -199,9 +199,7 @@ class StackTraceTest {
             val trace = read(text)
 
             assertEquals(text, trace.text, "the $name indentation was not kept byte for byte")
-            assertEquals(expected.exceptions.map { it.text }, trace.exceptions.map { it.text }, name)
-            assertEquals(expected.frames.map { listOf(it.type.text, it.method?.text, it.file?.text) }, trace.frames.map { listOf(it.type.text, it.method?.text, it.file?.text) }, name)
-            assertEquals(expected.texts.map { expected.text.substring(it.start, it.end) }, trace.texts.map { trace.text.substring(it.start, it.end) }, name)
+            assertEquals(namesIn(expected), namesIn(trace), "the $name indentation read different names")
             assertSpansAgree(trace)
         }
     }
@@ -342,6 +340,12 @@ class StackTraceTest {
             "Caused by: com.acme.Inner: the cause\n" +
             "${indent}at com.acme.Store.save(Store.java:3)\n" +
             "${indent}... 2 more\n"
+
+    /** Every exception, frame part and text [trace] reports, as written — what two readings of one trace share. */
+    private fun namesIn(trace: StackTrace): List<Any?> =
+        trace.exceptions.map { it.text } +
+            trace.frames.map { listOf(it.type.text, it.method?.text, it.file?.text) } +
+            trace.texts.map { trace.text.substring(it.start, it.end) }
 
     private fun read(text: String): StackTrace {
         val reading = parseTrace(text)
