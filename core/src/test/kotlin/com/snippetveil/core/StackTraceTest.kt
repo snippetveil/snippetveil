@@ -182,6 +182,51 @@ class StackTraceTest {
         assertSpansAgree(trace)
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Indentation: a leading run of tab, space and no-break space, in any mix.
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * **A trace copied out of a chat, a tracker or a web page has lost its tabs**, to spaces or to
+     * no-break spaces, and it is the same trace: the same exceptions, frames and texts, and its
+     * indentation comes back byte for byte, whichever it was.
+     */
+    @Test
+    fun `the same trace indented with tabs, spaces, no-break spaces or a mix reads alike and keeps its indentation`() {
+        val expected = read(indented("\t"))
+        for ((name, indent) in INDENTS) {
+            val text = indented(indent)
+            val trace = read(text)
+
+            assertEquals(text, trace.text, "the $name indentation was not kept byte for byte")
+            assertEquals(namesIn(expected), namesIn(trace), "the $name indentation read different names")
+            assertSpansAgree(trace)
+        }
+    }
+
+    /**
+     * **Nesting depth is not computed from spaces**: the grammar asks only whether a line is
+     * indented, so a `Suppressed:` block nested two spaces deeper or not deeper at all is read, and
+     * each line keeps what was pasted.
+     */
+    @Test
+    fun `a space-indented Suppressed block is read whatever depth its lines are pasted at`() {
+        val text = "com.acme.Outer: wrapped\n  at com.acme.Job.run(Job.java:7)\n" +
+            "  Suppressed: com.acme.Closing: on close\n" +
+            " at com.acme.Resource.close(Resource.java:9)\n" +
+            "\t \u00A0... 1 more\n"
+        val trace = read(text)
+
+        assertEquals(text, trace.text)
+        assertEquals(listOf("com.acme.Outer", "com.acme.Closing"), trace.exceptions.map { it.text })
+    }
+
+    /** Spaces widen which characters indent a line, never which lines are admitted. */
+    @Test
+    fun `Suppressed at column 0 still refuses when the rest of the trace is space-indented`() {
+        refused("com.acme.Boom: x\n    at com.acme.Job.run(Job.java:7)\nSuppressed: com.acme.Other: y\n        at com.acme.Job.run(Job.java:7)")
+    }
+
     @Test
     fun `Windows line endings are kept, and a trailing line break is admitted`() {
         val text = "com.acme.Boom: x\r\n\tat com.acme.Job.run(Job.java:7)\r\n"
@@ -215,8 +260,24 @@ class StackTraceTest {
     }
 
     @Test
-    fun `a frame indented with spaces rather than a tab refuses`() {
-        refused("com.acme.Boom: x\n    at com.acme.Job.run(Job.java:7)")
+    fun `an indented line that is not part of a trace refuses, whatever it is indented with`() {
+        for (indent in INDENTS.values) {
+            refused("com.acme.Boom: x\n${indent}at com.acme.Job.run(Job.java:7)\n${indent}INFO started")
+        }
+    }
+
+    @Test
+    fun `a header indented with spaces or no-break spaces refuses, as one indented with a tab does`() {
+        for (indent in INDENTS.values) {
+            refused("${indent}com.acme.Boom: x\n${indent}at com.acme.Job.run(Job.java:7)")
+        }
+    }
+
+    /** **A no-break space is indentation and nothing else**: one between `at` and the frame is not normalised. */
+    @Test
+    fun `a no-break space anywhere but the indentation refuses`() {
+        refused("com.acme.Boom: x\n\tat\u00A0com.acme.Job.run(Job.java:7)")
+        refused("com.acme.Boom: x\n\tat com.acme.Job.run(Job.java:7)\n\t...\u00A01 more")
     }
 
     @Test
@@ -264,6 +325,28 @@ class StackTraceTest {
         refused("com.acme.Boom: x\n\tat com.acme.Job.run(Job.java:7)\n\t... more")
     }
 
+    /**
+     * One trace with every indented row: frames, `Caused by:` at column 0 and indented under
+     * `Suppressed:`, nested frames, a frame-free `... N more`. Each indented line takes [indent] once,
+     * and the nested lines twice, as the JVM prints them.
+     */
+    private fun indented(indent: String): String =
+        "Exception in thread \"main\" com.acme.Outer: wrapped\n" +
+            "${indent}at com.acme.Job.run(Job.java:7)\n" +
+            "${indent}at java.lang.Thread.run(Thread.java:840)\n" +
+            "${indent}Suppressed: com.acme.Closing: on close\n" +
+            "$indent${indent}at com.acme.Resource.close(Resource.java:9)\n" +
+            "$indent${indent}... 1 more\n" +
+            "Caused by: com.acme.Inner: the cause\n" +
+            "${indent}at com.acme.Store.save(Store.java:3)\n" +
+            "${indent}... 2 more\n"
+
+    /** Every exception, frame part and text [trace] reports, as written — what two readings of one trace share. */
+    private fun namesIn(trace: StackTrace): List<Any?> =
+        trace.exceptions.map { it.text } +
+            trace.frames.map { listOf(it.type.text, it.method?.text, it.file?.text) } +
+            trace.texts.map { trace.text.substring(it.start, it.end) }
+
     private fun read(text: String): StackTrace {
         val reading = parseTrace(text)
         assertTrue(reading is TraceReading.Read, "this trace was refused:\n$text")
@@ -282,3 +365,16 @@ class StackTraceTest {
         assertNull(trace.texts.firstOrNull { it.start > it.end || it.end > trace.text.length })
     }
 }
+
+/**
+ * **Every indentation a copied trace arrives with**: the JVM's tab, the spaces a chat client, a
+ * tracker or rendered Markdown turns it into, the no-break spaces an HTML copy can, and a mix. Every
+ * U+00A0 is written as an escape, for the reason every tab is.
+ */
+private val INDENTS = mapOf(
+    "tab" to "\t",
+    "four spaces" to "    ",
+    "two spaces" to "  ",
+    "no-break spaces" to "\u00A0\u00A0\u00A0\u00A0",
+    "a mix" to " \t\u00A0 ",
+)

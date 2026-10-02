@@ -69,6 +69,15 @@
   leaves your placeholders and their numbering as they were. **Confirming a foreign trace advances
   the placeholder numbers**: each `Unknown` uses up a number that is not remembered, so after a few
   such traces your next snippet's placeholders can jump, from `Type4` to `Type340` for example.
+- **A stack trace indented with spaces is read.** `Anonymize Stack Trace…` used to read a trace only
+  when its frames were indented with tabs, as the JVM prints them. Traces copied from chat, issue
+  trackers and web pages have usually had their tabs turned into spaces, or into no-break spaces,
+  and were refused with *Clipboard is not a stack trace*. Now a frame, `Suppressed:`, `... 12 more`
+  or coroutine marker line may be indented with tabs, spaces or no-break spaces, in any mix and any
+  amount, and the output keeps each line's indentation exactly as it was pasted. The first line still
+  has to start at the left edge, and an indented line that is not part of a trace, such as a log
+  line, still refuses the whole paste. A coroutine dump indented with spaces is still refused as a
+  dump.
 - **The stack trace preview says when Kotlin support is unavailable.** `Anonymize Stack Trace…`
   reads the clipboard rather than a file, so it never showed the *Kotlin support is not available*
   message, and on an IDE where SnippetVeil's Kotlin support was missing a Kotlin frame simply came

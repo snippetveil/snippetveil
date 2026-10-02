@@ -436,3 +436,10 @@ internal val REVERSAL_SNIPPET = """
  */
 internal fun selectionIn(text: String): String =
     text.substringAfter("<selection>").substringBefore("</selection>")
+
+/**
+ * [text] with the number taken off every `str` and `Unknown`, which each invocation draws afresh: two
+ * invocations over one trace differ in those numbers and nowhere else. A ledger placeholder such as
+ * `Type6` keeps its number, since it is the same in both.
+ */
+internal fun unnumbered(text: String): String = Regex("""\b(str|Unknown)\d+\b""").replace(text, "$1#")
