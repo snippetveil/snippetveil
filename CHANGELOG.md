@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-02
+
 - **Commented-out Java and Kotlin code is kept, with its names replaced.** `Copy Anonymized` used to
   strip every comment, so a line such as `// this.customer.setOrder(order);` was lost on every
   paste. In a `.java` or `.kt` file a comment whose text parses as code of that language where it is
@@ -462,7 +464,8 @@
 - The plugin makes no network calls and starts no subprocesses. `./gradlew check` asserts both
   against the built distribution rather than against the sources.
 
-[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/snippetveil/snippetveil/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/snippetveil/snippetveil/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/snippetveil/snippetveil/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/snippetveil/snippetveil/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/snippetveil/snippetveil/compare/v1.2.0...v1.3.0
