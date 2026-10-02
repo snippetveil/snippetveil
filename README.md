@@ -27,6 +27,10 @@ control flow, and the libraries you call go as-is.
 
 - Select Java or Kotlin code, then right-click → **SnippetVeil** → **Copy Anonymized**. The
   anonymized text is on your clipboard.
+- **Commented-out code is kept, with its names replaced.** In a `.java` or `.kt` file, a comment
+  whose text is code, such as `// this.customer.setOrder(order);`, comes out as
+  `// this.field2.method3(param4);`: every name in it takes the placeholder that name gets in the
+  code around it. A comment that is prose, such as a TODO or an explanation, is stripped.
 - **Anonymize with Preview…** shows the code that will be copied beside its mapping table,
   with counts: `14 renamed · 3 unknown · 22 preserved · 2 comments stripped`. It is the only
   place you can anonymize *less* — keep comments for this snippet, or preserve a name and send it
