@@ -244,8 +244,8 @@ preserved`, and the button reads `Copy Anonymized Trace`.
 **Shoot it in an IDE whose Kotlin plugin runs in K2 mode** — 2025.1 or later, where K2 is the
 default. In K1 mode the dialog adds a line under the counts saying SnippetVeil's Kotlin support is
 not active, because the trace has unknowns; that is the product working as designed, and the wrong
-shot. The frame committed on 2026-10-02 was taken in the 2024.2 floor sandbox and carries that line,
-so it is due to be re-taken in K2 mode.
+shot. The committed frame was taken in the `latest` sandbox, `./gradlew runIde
+-PplatformProfile=latest`, where K2 is the default.
 
 **Cut the title bar off.** The dialog is a window of its own, so capture it as the preview frames are
 captured — the window, then the chrome removed — rather than as a region of the editor.
