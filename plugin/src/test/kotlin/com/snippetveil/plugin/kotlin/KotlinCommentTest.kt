@@ -114,11 +114,13 @@ internal class KotlinCommentTest : KotlinSnippetTestCase() {
 
     /**
      * **A body is code only when its parse holds a code signal** — a `(` `)` `{` `}` `[` `]` `=` `.`
-     * `;` `::` or `->`, a literal, or one of the keywords `val` `var` `fun` `class` `object`
-     * `interface` `import` `if` `when` `for` `while` `try`. Prose that happens to spell a keyword
-     * construct — `value in range`, `it is fine`, `done as planned` — holds none, and is stripped as
-     * its Java twin is. The tokens are matched whole, so `+=` and `?.` are no `=` and no `.`; and a
-     * literal on its own — a number, a character, `true`, `null` — is a signal.
+     * `;` `::` `->` `+=` `-=` `==` `!=` `?.` `<=` or `>=`, a literal, or one of the keywords `val`
+     * `var` `fun` `class` `object` `interface` `import` `if` `when` `for` `while` `try`. Prose that
+     * happens to spell a keyword construct — `value in range`, `it is fine`, `done as planned` —
+     * holds none, and is stripped as its Java twin is. The tokens are matched whole, so an operator
+     * off the list is no signal even where it holds a listed character: `*=` is no `=`, and
+     * `// x *= y` is stripped. A literal on its own — a number, a character, `true`, `null` — is a
+     * signal.
      *
      * **`return` and `throw` are deliberately not signals, and the cost is pinned here so it stays
      * visible:** `// return result` is a real commented-out line, and it is stripped with the prose
@@ -128,7 +130,7 @@ internal class KotlinCommentTest : KotlinSnippetTestCase() {
         val prose = listOf(
             "// value in range", "// it is fine", "// done as planned", "// merchant in arrears",
             "// retry on timeout", "// TODO", "// return later", "// throw away", "// return result",
-            "// we import data", "// x += y", "// foo?.bar",
+            "// we import data", "// x *= y",
         )
         for (comment in prose) {
             assertFalse("`$comment` was kept as code", isKept(comment))
@@ -137,6 +139,7 @@ internal class KotlinCommentTest : KotlinSnippetTestCase() {
             "// return total(items)", "// throw IllegalStateException(\"x\")", "// return result;",
             "// retry(onTimeout)", "// x = 1", "// foo.bar()", "// TODO()", "// \"late\"",
             "// 42", "// .5", "// 'x'", "// true", "// null",
+            "// x += y", "// x -= y", "// a == b", "// a != b", "// foo?.bar", "// a <= b", "// a >= b",
         )
         for (comment in code) {
             assertTrue("`$comment` was not kept as code", isKept(comment))
@@ -150,15 +153,18 @@ internal class KotlinCommentTest : KotlinSnippetTestCase() {
                     // merchant in arrears
                     // return later
                     // merchant.settle(merchant)
+                    // merchant?.settle
+                    // merchant != merchant
                 }
             }
             """.trimIndent(),
         )
-        for (word in listOf("arrears", "later")) {
+        for (word in listOf("arrears", "later", "merchant", "settle")) {
             assertFalse("`$word` survived: ${result.text}", word in result.text)
         }
+        assertTrue("`?.` and `!=` lost: ${result.text}", "?." in result.text && " != " in result.text)
         assertEquals(2, result.comments.stripped)
-        assertEquals(1, result.comments.anonymized)
+        assertEquals(3, result.comments.anonymized)
     }
 
     /**

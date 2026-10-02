@@ -32,9 +32,10 @@ import com.intellij.psi.util.PsiTreeUtil
  *    nested comment. A vacuous parse is not a parse, and an empty comment must never count as a
  *    comment anonymized;
  *  - **no code signal** — no token that prose does not produce. A body is code only when its parse
- *    holds at least one of: a token that is one of `(` `)` `{` `}` `[` `]` `=` `.` `;` `::` `->`; a
- *    literal — string, character, number, `true`, `false` or `null`; or one of the keywords `val`
- *    `var` `fun` `class` `object` `interface` `import` `if` `when` `for` `while` `try`. Everything
+ *    holds at least one of: a token that is one of `(` `)` `{` `}` `[` `]` `=` `.` `;` `::` `->`
+ *    `+=` `-=` `==` `!=` `?.` `<=` `>=`; a literal — string, character, number, `true`, `false` or
+ *    `null`; or one of the keywords `val` `var` `fun` `class` `object` `interface` `import` `if`
+ *    `when` `for` `while` `try`. Everything
  *    else that parses is prose: `TODO`, `retry on timeout`, which Kotlin reads as an infix call of
  *    three names, and `value in range`, `it is fine` or `done as planned`, which it reads as an
  *    operator-keyword construct.
@@ -96,8 +97,14 @@ internal fun codeTokensIn(parsed: PsiFile, body: TextRange): List<PsiElement> {
     return tokens
 }
 
-/** The tokens prose does not produce, matched whole: `==` and `?.` are tokens of their own and none of these. */
-private val SIGNAL_TOKENS = setOf("(", ")", "{", "}", "[", "]", "=", ".", ";", "::", "->")
+/**
+ * The tokens prose does not produce, matched whole: a compound operator counts only when it is listed
+ * here itself, so `*=` is no `=` and `?:` is no signal.
+ */
+private val SIGNAL_TOKENS = setOf(
+    "(", ")", "{", "}", "[", "]", "=", ".", ";", "::", "->",
+    "+=", "-=", "==", "!=", "?.", "<=", ">=",
+)
 
 /** The keywords that open a declaration or a control construct. `return` and `throw` are not among them. */
 private val SIGNAL_KEYWORDS = setOf(
