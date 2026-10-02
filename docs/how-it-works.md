@@ -282,8 +282,11 @@ Worth knowing before relying on it:
   was. Every exception message and the thread name become `str` placeholders, and the module or
   classloader prefix on a frame, such as `java.base/`, is removed. A clipboard holding anything
   besides the trace is refused, and so are a message that runs over more than one line, a frame of a
-  hidden class such as a lambda (`Foo$$Lambda/0x…`) and a coroutine dump. A trace from another
-  project comes back mostly `Unknown`, because its classes are not in your IDE.
+  hidden class such as a lambda (`Foo$$Lambda/0x…`) and a coroutine dump. Frame lines may be
+  indented with tabs, spaces or no-break spaces, as a trace copied from a chat or a web page often
+  is, and keep that indentation in the output; the trace's first line has to start at the left edge,
+  so a trace indented as a whole, such as one copied out of a Markdown code block, is refused. A
+  trace from another project comes back mostly `Unknown`, because its classes are not in your IDE.
 - **String literal text is destroyed, not mapped** — a literal becomes `"str1"` unless it carries
   resolvable references, in which case it renames in lockstep with them. A JPQL, HQL or Spring Data
   query is read name by name instead, but only when **every** name in it resolves: each entity and

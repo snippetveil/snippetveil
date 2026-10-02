@@ -76,6 +76,27 @@ class TracePassTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **A file of traces copied out of a chat or a tracker, their tabs turned into spaces, is swept
+     * as the tab-indented file is**: the same traces read, the same refusals at the same lines, and
+     * every frame classified the same way — the dump still refused as a dump.
+     */
+    fun `test a file of space-indented traces is swept as the tab-indented file is`() {
+        addPayoutsProject()
+
+        val tabbed = pass().over(tracesInTheFile())
+        val spaced = pass().over(tracesInTheFile(TRACE_FILE.replace("\t", "    ")))
+
+        assertEquals(tabbed.traces, spaced.traces)
+        assertEquals(mapOf(TraceRefusal.NOT_A_TRACE to listOf(9), TraceRefusal.COROUTINE_DUMP to listOf(11)), spaced.refused)
+        assertEquals(tabbed.frames, spaced.frames)
+        assertEquals(
+            tabbed.findings.map { trace -> trace.ordinal to trace.survivors.map { it.name }.toSet() },
+            spaced.findings.map { trace -> trace.ordinal to trace.survivors.map { it.name }.toSet() },
+        )
+        assertEquals("a trace threw: ${spaced.failures.map { it.summary }}", 0, spaced.failures.size)
+    }
+
+    /**
      * **A trace with nothing in it but what the JDK declares has nothing to look for**, and it is read
      * and counted like any other rather than thrown on — the oracle refuses an empty universe, and a
      * pass that let it would lose every trace after the first one that was all JDK.
@@ -104,10 +125,10 @@ class TracePassTest : JavaSnippetTestCase() {
     private fun pass(route: (Project, StackTrace) -> SnippetPlan = TracePlanBuilder::build) =
         TracePass(project, AnonymizationSettings.DEFAULTS, route)
 
-    /** The synthetic file, written outside the repository and read back the way the instrument reads one. */
-    private fun tracesInTheFile(): List<TraceEntry> {
+    /** [content] — the synthetic file by default — written outside the repository and read back the way the instrument reads one. */
+    private fun tracesInTheFile(content: String = TRACE_FILE): List<TraceEntry> {
         val file = Files.createTempDirectory("trace-sweep").resolve("traces.txt")
-        Files.writeString(file, TRACE_FILE)
+        Files.writeString(file, content)
         return tracesIn(Files.readString(file))
     }
 

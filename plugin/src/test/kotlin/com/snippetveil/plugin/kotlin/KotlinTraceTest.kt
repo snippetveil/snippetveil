@@ -116,6 +116,30 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
     }
 
     /**
+     * **A coroutine trace whose tabs became spaces is the same trace**: every marker row, both legacy
+     * renderings included, is kept under the indentation it was pasted with, and every other line
+     * comes out as the tab-indented trace's does.
+     */
+    fun `test a space-indented coroutine trace is anonymized as the tab-indented one is`() {
+        addBillingProject()
+        val tabbed = invokeAndCapture(COROUTINE_TRACE).result.text
+
+        for (indent in listOf("    ", "\u00A0\u00A0")) {
+            val spaced = invokeAndCapture(COROUTINE_TRACE.replace("\t", indent)).result.text
+
+            assertEquals(
+                "the indentation ${visible(indent)} changed the anonymized trace",
+                visible(unnumbered(tabbed.replace("\t", indent))),
+                visible(unnumbered(spaced)),
+            )
+            for (marker in MARKERS) {
+                val pasted = marker.replace("\t", indent)
+                assertTrue("the marker `${visible(pasted)}` was not kept verbatim:\n${visible(spaced)}", pasted in spaced.lines())
+            }
+        }
+    }
+
+    /**
      * **With SnippetVeil's Kotlin path loaded, no Kotlin note, whatever the `unknown` count.** The note
      * names a configuration as a possible cause, and here there is no such configuration to name —
      * so a trace with unknowns in it gets the count and nothing beside it.
@@ -202,8 +226,14 @@ internal class KotlinTraceTest : KotlinSnippetTestCase() {
         PlaceholderLedger.getInstance().snapshotOf(project).placeholders.getValue(key).placeholder
 }
 
+/**
+ * [text] with the number taken off every `str` and `Unknown`, which each invocation draws afresh: two
+ * invocations over one trace differ in those numbers and nowhere else.
+ */
+private fun unnumbered(text: String): String = Regex("""\b(str|Unknown)\d+\b""").replace(text, "$1#")
+
 /** [text] with its control characters named, so a failure message can be read. */
-private fun visible(text: String): String = text.replace("\b", "\\b").replace("\t", "\\t")
+private fun visible(text: String): String = text.replace("\b", "\\b").replace("\t", "\\t").replace("\u00A0", "\\u00A0")
 
 /**
  * A frame of the facade, one of the class in the same file, one of a class in a file with no facade,

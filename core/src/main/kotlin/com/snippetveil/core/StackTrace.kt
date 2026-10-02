@@ -31,6 +31,18 @@ package com.snippetveil.core
  * `: <msg>` is optional, because `Throwable.toString` omits it for an exception with no message.
  * `\b` is BACKSPACE, U+0008, and it is written as an escape everywhere it is spelled.
  *
+ * ### `\t` stands for any indentation
+ *
+ * **A line's indentation is its leading run of tab, space and no-break space** (U+0009, U+0020,
+ * U+00A0), in any mix and any length, because a chat client, an issue tracker, a web log viewer or
+ * rendered Markdown turns the JVM's tabs into spaces on the way to the clipboard. Wherever a row
+ * above is indented, any non-empty run counts, and the run is copied to the output **exactly as it
+ * was pasted**. The grammar asks only *whether* a line is indented, never how deep, so no depth is
+ * computed from spaces. The rest of the grammar is untouched: the header still starts at column 0,
+ * a no-break space anywhere but the indentation is not normalised, and an indented line outside the
+ * vocabulary still refuses the paste — the indentation widens which characters indent a line, never
+ * which lines are admitted.
+ *
  * **Any line outside that vocabulary refuses the whole paste**, and no line is ever passed through.
  * Emitting an unrecognised line verbatim would be free-text anonymization that resolves in the
  * leaking direction: one log-prefix line already carries `c.a.b.BillingService`. This deliberately
@@ -55,7 +67,7 @@ package com.snippetveil.core
  * The legacy pair carries literal BACKSPACE bytes and renders differently in a terminal than in the
  * clipboard, so **both renderings are admitted**. It carries no class name to resolve, so it is a
  * **whole-line fixed token** with zero variable parts, the way `(Native Method)` is. A marker nests
- * like a frame, at any depth of tabs a frame may have.
+ * like a frame, at any indentation a frame may have.
  *
  * `_CREATION` heads a block of ordinary frames, and they are read exactly as the call stack's are.
  *
@@ -95,9 +107,9 @@ fun parseTrace(text: String): TraceReading {
 
         val line = raw.removeSuffix("\r")
         val ending = raw.substring(line.length) + if (index < lines.lastIndex) "\n" else ""
-        val depth = line.takeWhile { it == '\t' }.length
-        val rest = line.substring(depth)
-        out.append(line, 0, depth)
+        val indent = line.takeWhile { it in INDENTATION }.length
+        val rest = line.substring(indent)
+        out.append(line, 0, indent)
 
         fun header(keyword: String): Boolean {
             val match = HEADER.matchEntire(rest.substring(keyword.length)) ?: return false
@@ -107,7 +119,7 @@ fun parseTrace(text: String): TraceReading {
         }
 
         val admitted = when {
-            index == 0 && depth == 0 -> {
+            index == 0 && indent == 0 -> {
                 val thread = THREAD.matchEntire(rest)
                 if (thread != null) {
                     val name = thread.groups[1]!!
@@ -124,7 +136,7 @@ fun parseTrace(text: String): TraceReading {
 
             index == 0 -> false
             rest.startsWith(CAUSED_BY) -> header(CAUSED_BY)
-            depth == 0 -> false
+            indent == 0 -> false
             rest.startsWith(SUPPRESSED) -> header(SUPPRESSED)
 
             // Ahead of the frame row, and the order is the rule: a modern marker has a frame's shape.
@@ -253,6 +265,13 @@ private fun readFrame(rest: String, out: StringBuilder, frames: MutableList<Trac
     frames += TraceFrame(typeName, methodName, file)
     return true
 }
+
+/**
+ * **What a line may be indented with**: the JVM's tab, and the space and no-break space a chat client,
+ * an issue tracker or a web page turns it into on the way to the clipboard — in any mix and any
+ * length. The run is copied to the output exactly as it was pasted.
+ */
+private val INDENTATION = setOf('\t', ' ', '\u00A0')
 
 private const val CAUSED_BY = "Caused by: "
 private const val SUPPRESSED = "Suppressed: "

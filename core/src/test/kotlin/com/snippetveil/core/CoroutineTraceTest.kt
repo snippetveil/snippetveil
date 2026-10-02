@@ -129,6 +129,32 @@ class CoroutineTraceTest {
         assertEquals(text, read(text).text)
     }
 
+    /**
+     * **A space-indented coroutine trace is read like a tab-indented one**: every marker row, both
+     * renderings of the legacy pair included, is admitted under spaces and no-break spaces, verbatim,
+     * and still reports no name.
+     */
+    @Test
+    fun `every marker row is admitted when the trace is indented with spaces or no-break spaces`() {
+        for (indent in listOf("    ", "  ", "\u00A0\u00A0", " \t")) {
+            for (marker in listOf(BOUNDARY, CREATION) + LEGACY_ROWS) {
+                val text = "com.acme.Outer: wrapped\n${indent}at com.acme.Job.run(Job.kt:7)\n" +
+                    marker.replace("\t", indent) + "\n" +
+                    "${indent}Suppressed: com.acme.Closing: on close\n" +
+                    "$indent${indent}at com.acme.Resource.close(Resource.kt:9)\n" +
+                    "$indent$indent${marker.removePrefix("\t")}\n" +
+                    "Caused by: com.acme.Inner: the cause\n" +
+                    "${indent}at com.acme.Store.save(Store.kt:3)\n" +
+                    "$indent... 3 more"
+                val trace = read(text)
+
+                assertEquals(text, trace.text, "the marker ${visible(marker)} under ${visible(indent)} was not kept verbatim")
+                assertEquals(listOf("com.acme.Job", "com.acme.Resource", "com.acme.Store"), trace.frames.map { it.type.text })
+                assertNoNameIn(trace, "_COROUTINE", "_BOUNDARY", "_CREATION", "_", "CoroutineDebugging.kt")
+            }
+        }
+    }
+
     /** **A marker is not a frame**, so a paste of markers alone is a trace with no frames in it. */
     @Test
     fun `a trace whose only rows under the header are markers refuses`() {
@@ -201,6 +227,23 @@ class CoroutineTraceTest {
                 parseTrace(dump) === TraceReading.CoroutineDump,
                 "the `$name` dump was not refused as a dump: ${parseTrace(dump)}\n$dump",
             )
+        }
+    }
+
+    /**
+     * **A dump whose tabs were turned into spaces is still a dump**, and refused as one rather than
+     * read as a trace or refused under the generic message.
+     */
+    @Test
+    fun `every DebugProbes dump shape indented with spaces refuses as a dump`() {
+        for ((name, dump) in DUMPS) {
+            for (indent in listOf("    ", "\u00A0\u00A0")) {
+                val spaced = dump.replace("\t", indent)
+                assertTrue(
+                    parseTrace(spaced) === TraceReading.CoroutineDump,
+                    "the `$name` dump indented with ${visible(indent)} was not refused as a dump: ${parseTrace(spaced)}\n${visible(spaced)}",
+                )
+            }
         }
     }
 
@@ -287,7 +330,7 @@ private val LEGACY_ROWS = listOf(
 )
 
 /** [text] with its control characters named, so a failure message can be read. */
-private fun visible(text: String): String = text.replace("\b", "\\b").replace("\t", "\\t")
+private fun visible(text: String): String = text.replace("\b", "\\b").replace("\t", "\\t").replace("\u00A0", "\\u00A0")
 
 /** A `dumpCoroutines` block's frames, which are ordinary frames, `_CREATION` among them. */
 private const val DUMP_BLOCK = "Coroutine \"coroutine#2\":DeferredCoroutine{Active}@1b68b9a4, state: SUSPENDED\n" +

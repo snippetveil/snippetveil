@@ -401,6 +401,50 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
     }
 
     /**
+     * **A trace whose tabs became spaces on the way to the clipboard is the same trace** — the way a
+     * chat client, an issue tracker or a web page hands one over. It opens the preview, and its
+     * anonymized frames are the tab-indented trace's, line for line, with only the indentation that
+     * was pasted told apart.
+     */
+    fun `test a trace indented with spaces is anonymized as the tab-indented one is, its indentation kept`() {
+        addPayoutsProject()
+        val tabbed = invokeAndCapture(TRACE).result.text
+
+        for (indent in listOf("    ", "  ", "\u00A0\u00A0\u00A0\u00A0")) {
+            val spaced = invokeAndCapture(TRACE.replace("\t", indent)).result.text
+
+            assertEquals(
+                "the ${indent.length}-character indentation changed the anonymized trace",
+                unnumbered(tabbed.replace("\t", indent)),
+                unnumbered(spaced),
+            )
+        }
+    }
+
+    /**
+     * **An indented line that is not part of a trace still refuses the whole paste**, spaces or no:
+     * indentation widens which characters indent a line, never which lines are admitted.
+     */
+    fun `test a space-indented trace with an indented log line in it refuses and leaves the clipboard alone`() {
+        addPayoutsProject()
+        val paste = TRACE.replace("\t", "    ") + "\n    INFO started"
+        setClipboard(paste)
+        val read = FakeClipboard(paste)
+
+        var opened = false
+        invoke(read) { _, analysis -> analysis.also { opened = true } }
+        awaitBackgroundWork()
+
+        assertFalse("a refused paste opened the preview", opened)
+        assertFalse("a refusal wrote the clipboard it read", read.written)
+        assertEquals("the refusal changed the clipboard", paste, clipboard())
+        assertEquals(
+            "Clipboard is not a stack trace \u2014 select the trace only. Your clipboard was not changed.",
+            notifications.single().content,
+        )
+    }
+
+    /**
      * **Both refusals leave the clipboard byte-identical**, each in its own words: a `DebugProbes`
      * dump — `dumpCoroutines` output and a `printJob` tree — is named as a dump, and a paste that is
      * no trace at all, `[CIRCULAR REFERENCE: …]` among them, gets the generic message. Byte-identical
@@ -742,6 +786,13 @@ class AnonymizeStackTraceActionTest : JavaSnippetTestCase() {
             """.trimIndent(),
         )
     }
+
+    /**
+     * [text] with the number taken off every `str` and `Unknown`, which each invocation draws afresh:
+     * two invocations over one trace differ in those numbers and nowhere else. A ledger placeholder
+     * such as `Type6` keeps its number, since it is the same in both.
+     */
+    private fun unnumbered(text: String): String = Regex("""\b(str|Unknown)\d+\b""").replace(text, "$1#")
 
     private fun placeholderOf(key: String): String =
         PlaceholderLedger.getInstance().snapshotOf(project).placeholders.getValue(key).placeholder
