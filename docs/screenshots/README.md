@@ -1,6 +1,6 @@
 # The Marketplace screenshots
 
-Eleven shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
+Twelve shots, taken from [`demo/`](../../demo/README.md) so that any of them can be re-taken at any
 commit by anyone.
 
 They are committed here rather than living only in the Marketplace listing, for the reason the demo
@@ -9,7 +9,7 @@ that cannot be reproduced cannot be corrected when the dialog it shows moves on.
 
 ## Rules every shot has to meet
 
-- **1280 × 800**, and the same aspect for all eleven. The Marketplace scales them together; one odd
+- **1280 × 800**, and the same aspect for all twelve. The Marketplace scales them together; one odd
   shot reads as a mistake in the listing rather than as a difference in the product.
 - **No window chrome.** Capture the IDE's content, not the title bar, the traffic lights or the
   desktop behind them.
@@ -31,8 +31,8 @@ The editor popup, open, with **Copy Anonymized** visible under the **SnippetVeil
 **All six items of the submenu are in frame**, in this shot and in 2 and 9. The three menu shots
 were re-taken when **Anonymize Execution Plan…** joined the submenu, for the reason shot 3 gives
 below: a menu shown with four items, to a reader who will find five, is a picture of a product that
-no longer exists. **Anonymize Stack Trace…** has since joined as the sixth item, and the three
-committed menu shots still show five: they are due to be re-taken for the same reason.
+no longer exists. They were re-taken again when **Anonymize Stack Trace…** joined as the sixth
+item.
 
 **Selection: `LateFeeCalculator.java`, lines 30–59** — the javadoc on `feeFor` through the method's
 closing brace. Right-click inside the selection, hover **SnippetVeil**. The shot is the selection and
@@ -223,7 +223,37 @@ cost, row estimate and timing is exactly what the editor above prints. The count
 **No menu shot of the item.** It is in frame, unhighlighted, in shots 1, 2 and 9; a fourth frame of
 one menu is the repetition shot 9 already had to argue its way past.
 
-### 12. `walkthrough.gif` (optional)
+### 12. `preview-stack-trace.png`
+
+**Anonymize Stack Trace…** on [`demo/traces/billing-npe.txt`](../../demo/traces/billing-npe.txt): an
+invented `IllegalStateException` caused by a `NullPointerException`, whose project frames are real
+methods of `demo/` at their real line numbers — `DunningRun.remindersFor`, `Invoice.total`,
+`LateFeeCalculator.feeFor`.
+
+**Put it on the clipboard with `pbcopy < demo/traces/billing-npe.txt`**, never by copying it from a
+page that renders it. The JVM indents frames with tabs, and a copy from a chat window or a web page
+turns them into spaces.
+
+The subject is what a reader checks a trace anonymizer for, in one frame: the project frames read
+`com.pkgN.pkgN.TypeN.methodN(TypeN.java:35)` with their line numbers as printed; the JDK frames keep
+their names with the `java.base/` prefix removed; the thread name and both messages are `str`
+literals; and `com.harborlight.jobs.NightlyBilling`, which is deliberately absent from `demo/`, comes
+back as three `Unknown`s with their Preserve boxes. The counts strip reads `renamed · unknown ·
+preserved`, and the button reads `Copy Anonymized Trace`.
+
+**Shoot it in an IDE whose Kotlin plugin runs in K2 mode** — 2025.1 or later, where K2 is the
+default. In K1 mode the dialog adds a line under the counts saying SnippetVeil's Kotlin support is
+not active, because the trace has unknowns; that is the product working as designed, and the wrong
+shot. The committed frame was taken in the `latest` sandbox, `./gradlew runIde
+-PplatformProfile=latest`, where K2 is the default.
+
+**Cut the title bar off.** The dialog is a window of its own, so capture it as the preview frames are
+captured — the window, then the chrome removed — rather than as a region of the editor.
+
+**No menu shot of the item**, for the reason shot 11 gives: it is in frame, unhighlighted, in shots 1,
+2 and 9.
+
+### 13. `walkthrough.gif` (optional)
 
 Roughly ten seconds, no audio: select, **Copy Anonymized**, paste into a scratch buffer, then
 **De-anonymize Clipboard** on a reply pasted back. Same window, same theme, same rules as above.
@@ -257,9 +287,9 @@ unchanged — scale to fit 1280 × 800, centre on a ground sampled from the imag
 
 ## What is here
 
-All eleven stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each scaled to
+All twelve stills, shot from `demo/` in a sandbox IDE and normalised to 1280 x 800: each scaled to
 fit and centred on a ground sampled from its own edge, so the letterboxing is invisible and the set
-reads as one product rather than as eleven window sizes.
+reads as one product rather than as twelve window sizes.
 
 **Shots 3 to 6 are one opening of the dialog**, in the order this file gives, so the four frames
 carry one mapping table between them: `feeFor` is `method153` in shot 3, is being typed over in shot
