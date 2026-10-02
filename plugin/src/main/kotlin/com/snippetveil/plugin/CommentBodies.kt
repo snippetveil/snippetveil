@@ -35,10 +35,9 @@ import com.intellij.psi.util.PsiTreeUtil
  *    holds at least one of: a token that is one of `(` `)` `{` `}` `[` `]` `=` `.` `;` `::` `->`
  *    `+=` `-=` `==` `!=` `?.` `<=` `>=`; a literal — string, character, number, `true`, `false` or
  *    `null`; or one of the keywords `val` `var` `fun` `class` `object` `interface` `import` `if`
- *    `when` `for` `while` `try`. Everything
- *    else that parses is prose: `TODO`, `retry on timeout`, which Kotlin reads as an infix call of
- *    three names, and `value in range`, `it is fine` or `done as planned`, which it reads as an
- *    operator-keyword construct.
+ *    `when` `for` `while` `try`. Everything else that parses is prose: `TODO`, `retry on timeout`,
+ *    which Kotlin reads as an infix call of three names, and `value in range`, `it is fine` or
+ *    `done as planned`, which it reads as an operator-keyword construct.
  *
  * **`return` and `throw` are deliberately not signals.** `// return later` and `// throw away` read
  * as prose and are stripped, and so, at a cost chosen knowingly, is a real commented-out line with no
@@ -98,8 +97,8 @@ internal fun codeTokensIn(parsed: PsiFile, body: TextRange): List<PsiElement> {
 }
 
 /**
- * The tokens prose does not produce, matched whole: a compound operator counts only when it is listed
- * here itself, so `*=` is no `=` and `?:` is no signal.
+ * The tokens prose does not produce, matched whole: a compound operator counts only when it is
+ * listed here itself, so `*=` is no `=` and `?:` is no signal.
  */
 private val SIGNAL_TOKENS = setOf(
     "(", ")", "{", "}", "[", "]", "=", ".", ";", "::", "->",

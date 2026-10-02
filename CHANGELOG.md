@@ -94,9 +94,9 @@
   `=`, `.`, `;`, `::` or `->`, one of the operators `+=`, `-=`, `==`, `!=`, `?.`, `<=` or `>=`, a
   literal, or a keyword such as `val`, `fun` or `if`. So `// retry(onTimeout)`, `// x = 1`,
   `// x += y` and `// foo?.bar` are kept, and `// it is fine`, `// done as planned` and
-  `// return later` are stripped. Other operators do not count: `// x *= y` is stripped. A real commented-out line with none of these, such as
-  `// return result`, is stripped with the prose; `// return result;` and `// return total(items)`
-  are kept. A commented-out Kotlin enum entry or function argument does not parse where it is
+  `// return later` are stripped. Other operators do not count: `// x *= y` is stripped. A real
+  commented-out line with none of these, such as `// return result`, is stripped with the prose;
+  `// return result;` and `// return total(items)` are kept. A commented-out Kotlin enum entry or function argument does not parse where it is
   written and is stripped.
 - **Keep comments and javadoc now keeps prose only.** Commented-out Java and Kotlin code is kept and
   anonymized whether the preview's tick is on or off; the tick keeps the comments that are not code,
