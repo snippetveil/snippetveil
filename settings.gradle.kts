@@ -7,7 +7,7 @@ pluginManagement {
         // 2.4.20 was *"too recent"* for CodeQL 2.27.0, and the Java/Kotlin analysis on `main` was
         // dead from that bump until this line went back. A red `Analyze (java-kotlin)` on a pull
         // request that raises this is that ceiling, and the bump waits for it to move.
-        id("org.jetbrains.kotlin.jvm") version "2.4.10"
+        id("org.jetbrains.kotlin.jvm") version "2.4.20"
 
         // CHANGELOG.md's parser, and the source of the descriptor's change notes. It is applied in
         // `:plugin` rather than at the root, for the reason `assertNoRoadmapIsPublished` lives
@@ -19,7 +19,7 @@ pluginManagement {
 
 plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
-    id("org.jetbrains.intellij.platform.settings") version "2.18.1"
+    id("org.jetbrains.intellij.platform.settings") version "2.19.0"
 }
 
 rootProject.name = "snippetveil"
