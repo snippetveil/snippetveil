@@ -20,7 +20,7 @@ dependencies {
     // patch. It is also test scope, so it is not on the shipped runtime classpath and carries no
     // outbound obligation at all; `assertNothingThirdPartyIsShipped` holds that to be true rather
     // than taking it on trust.
-    testImplementation("net.jqwik:jqwik:1.10.1")
+    testImplementation("net.jqwik:jqwik:1.10.2")
 }
 
 kotlin {
